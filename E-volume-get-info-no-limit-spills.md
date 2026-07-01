@@ -1,0 +1,93 @@
+---
+id: E-volume-get-info-no-limit-spills
+title: "volume.get_volumes_info has no limit/projection — full level dump (engine volumes) overflows the 10k spill threshold and forces a Read of the HttpResponses file"
+status: OPEN
+severity: Low
+category: ergonomic
+tags: [volume, response-size, oversized, pagination, docs]
+encounters: 3
+lastSeen: 2026-06-23T10:08:23Z
+---
+
+# volume.get_volumes_info has no limit/projection — it dumps every volume and spills to file
+
+`volume.get_volumes_info` enumerates **every** `AVolume` and `ATriggerBase` in the
+editor world and returns the full array in one payload, with only two optional
+*substring* narrowing params (`filter` = name/label, `volumeType` = class) and **no
+`limit`, no pagination cursor, and no field projection** (VolumeHandler.cpp:1486-1596).
+On any populated level the engine's own bookkeeping volumes — many duplicate
+`PostProcessVolume` / `LightmassImportanceVolume` / etc. instances — dominate the
+result. The friction task saw `totalCount 19` (then `17` after two removals), and the
+serialized array crossed the **10000-char spill threshold**, so the response came back
+as `outputTooLong` and the full payload was written to
+`Saved/EditorAutomation/HttpResponses/.../<uuid>.json`, forcing the agent to
+**Read/Grep the spilled file** just to read back the names of the three volumes it had
+just created.
+
+The agent's actual intent on both readback steps was tiny — step 5 "confirm my 3 new
+volumes are present and read back their names", step 9 "verify only `Arena_BossTrigger`
+remains of my set". A handful of named rows. But the method has no way to ask for "just
+these / just the names / just the first N", so the common verify-my-own-work case always
+pays the full-level dump + spill-to-file + extra Read tax.
+
+## What's wrong
+
+`VolumeHandler.cpp:1486` registers only `filter` and `volumeType`. The body loops
+`TActorIterator<AVolume>` (:1514) and `TActorIterator<ATriggerBase>` (:1553),
+unconditionally appending one object per volume (name, class, location, full
+`extent`) with no cap and no `fields`/`limit` gate, then emits the whole
+`volumesInfo.volumes` array (:1593-1596). The substring filters help only if the caller
+already knows a discriminating name/type — and `volumeType`'s accepted vocabulary is
+itself undiscoverable (see `E-volume-type-filter-discovery`), so the natural "just show
+me everything" call is the one that overflows.
+
+## What it should do
+
+Mirror the fixes already shipped for the sibling verbose readers:
+
+- Add an optional `limit` (default small enough to stay inline; `0` = all) that
+  truncates after iteration while a `totalCount` keeps reporting the untruncated total so
+  elision is detectable — exactly the contract `E-recorder-list-sessions-limit` (#2/#4)
+  and `E-graph-connections-pagination` (#2/#3, added `maxEdges`+filters) landed.
+- Optionally a `fields` / `namesOnly` projection so the common "read back the labels"
+  case returns just `name` (+`class`), which is what most callers want and keeps the
+  payload tiny.
+- **Docs (`docs/wiki-src/volume.md`):** add/extend the `### volume.get_volumes_info`
+  section (the same overlay `E-volume-type-filter-discovery` and
+  `E-volume-create-name-vs-volumename` already want edited) to note that the method
+  returns *all* volumes including engine-internal ones, that the result can exceed the
+  inline budget on populated levels, and that `filter`/`volumeType` (or the proposed
+  `limit`) are the way to keep a readback inline.
+
+## Evidence
+
+From the arena gameplay-triggers task (focus `volume.remove_volume`, namespace
+`volume`, outcome `tool_bug` for the *separate* brush-geometry bug). Friction note,
+verbatim: *"later get_volumes_info calls hit the \"outputTooLong\" >10000-char threshold
+and wrote the full payload to a Saved/HttpResponses JSON file, forcing a Read/Grep to
+inspect results"* and *"(and lists the engine's many duplicate PostProcess/Lightmass
+volumes)"*. Call-log: **four** `volume.get_volumes_info` calls in a 10-call task (initial
+snapshot, a wiki-nav confirm, a post-create confirm, a final verify); the self-report
+notes the post-create and final-verify calls were the ones that *"output to file"* and
+required a follow-up Read/Grep — `totalCount` 19 then 17, the great majority of which are
+engine volumes the agent never asked about.
+
+## Distinct from
+
+- `E-http-response-spill` (DONE) — that is the *generic* server-side spill mechanism
+  (the file-reference fallback itself); this ticket is that a *specific verbose reader*
+  has no narrowing to stay under the threshold in the first place, the same relationship
+  `E-recorder-list-sessions-limit` and `E-graph-connections-pagination` have to the spill
+  mechanism.
+- `B-blocking-volume-no-brush-geometry` (IN-REVIEW, the judge's filing for this task) —
+  that is the brush being null / the `128/128/128`-or-`0` extent being wrong *ground
+  truth*; this is purely the *response size / Read-tax* on the readback path, independent
+  of whether the extents are correct.
+- `E-volume-type-filter-discovery` (OPEN) — that is the *filter-value vocabulary* being
+  undiscoverable; this is the *absence of a size cap / projection* so even a correct call
+  overflows. They share the same wiki overlay target but are different gaps.
+
+## History
+- `#1-initial-audit` `OPEN` reporter — Filed from the arena gameplay-triggers struggle audit (focus `volume.remove_volume`, outcome tool_bug). `volume.get_volumes_info` has no `limit`/pagination/projection (VolumeHandler.cpp:1486 registers only `filter`/`volumeType`; loops all `AVolume`+`ATriggerBase` :1514/:1553 with no cap), so a populated level full of engine PostProcess/Lightmass volumes (`totalCount` 19→17) pushes the payload past the 10000-char spill threshold; two of the task's four `get_volumes_info` calls returned `outputTooLong` and spilled to `Saved/EditorAutomation/HttpResponses/.../<uuid>.json`, forcing a Read/Grep just to read back three created volume names. Proposed: add `limit` (default-inline, 0=all, with untruncated `totalCount`) per `E-recorder-list-sessions-limit`/`E-graph-connections-pagination`, optionally a `fields`/`namesOnly` projection, and document the all-volumes-including-engine behavior in the `### volume.get_volumes_info` section of `docs/wiki-src/volume.md`. Distinct from `E-http-response-spill` (DONE, the spill mechanism), `B-blocking-volume-no-brush-geometry` (the extent ground-truth bug), and `E-volume-type-filter-discovery` (the filter-value vocabulary gap).
+- `#2-more-evidence-pool-water-volume` `OPEN` reporter — Recurrence from the swimming-pool water-physics-volume struggle audit (focus `volume.create_physics_volume`, namespace `volume`, outcome clean). Same friction on the final readback step: the task created one `PoolWaterVolume` (`totalCount` 16→17) and called `volume.get_volumes_info` twice (initial scan inline-OK at 16 volumes; final verify at 17 crossed the 10000-char inline limit and was "auto-written to a HttpResponses JSON file that I read off disk"). Friction note verbatim: *"the final get_volumes_info exceeding the 10000-char inline display limit, so it was auto-written to a HttpResponses JSON file that I read off disk (expected paging behavior, not a blocker)"*. Confirms the no-`limit`/no-projection readback tax recurs across tasks even on a clean outcome — even a single-volume verify pays the full-level dump + spill-to-file + extra Read because the engine's PostProcess/Lightmass volumes dominate the payload. No new angle; reinforces the proposed `limit`/`namesOnly` projection.
+- `#3-more-evidence-arena-killz-moat` `OPEN` reporter — Third recurrence, hazard-layer arena blockout struggle audit (focus `volume.create_kill_z_volume`, namespace `volume`, outcome clean). The task created three volumes (two `KillZVolume` + one `Moat_Water` PhysicsVolume), pushing `totalCount` 16→19, and called `volume.get_volumes_info` twice (no filter): the initial-state scan and the final readback. The *final* `get_volumes_info` (19 volumes, no filter) crossed the 10000-char inline threshold and spilled to a HttpResponses JSON file the agent had to Read separately. Friction note, verbatim: *"the final get_volumes_info exceeded the 10000-char display threshold and was spilled to a HttpResponses JSON file I had to Read separately - expected for a 19-volume scene but adds a step."* Same no-`limit`/no-projection readback tax: a 3-row verify-my-own-work intent paid the full 19-volume dump (mostly engine PostProcess/Lightmass) + spill-to-file + extra Read, because the story explicitly asked for an unfiltered final readback ("call volume.get_volumes_info again (no filter) to confirm all three new volumes"). Reinforces the proposed `limit` (default-inline, 0=all, untruncated `totalCount`) and `fields`/`namesOnly` projection; the unfiltered "confirm everything" call is precisely the one that overflows. No new angle.

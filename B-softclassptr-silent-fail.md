@@ -1,0 +1,23 @@
+---
+id: B-softclassptr-silent-fail
+title: "`blueprint_set_default` crashes on TSubclassOf (FClassProperty) properties"
+status: DONE
+severity: Critical
+category: bug
+tags: []
+---
+
+# `blueprint_set_default` crashes on TSubclassOf (FClassProperty) properties
+
+`blueprint_set_default` with `TSubclassOf<>` properties (like `GameHUDWidgetClass`, `StartTimerWidgetClass` on TrackHUDLayout) crashes the editor. Originally reported as TSoftClassPtr but actual type is `TSubclassOf<UCommonActivatableWidget>` (FClassProperty). Only some properties take effect — no pattern to which ones work. Caused the escape menu bug: `LobbyHudWidgetClass` was set to `W_HUD_DroneGameMenu` (persisted) while `GameHUDWidgetClass` was set to `W_HUD_PhotoInspection` (silently dropped).
+
+**Workaround:** Use `mcp__editor_automation__.call path="python.execute" args={...}` with `CDO.set_editor_property()`.
+
+## History
+- `#1-silent-drop-on-set-default` `OPEN` reporter — 5 calls to set_default on W_HUD_PhotoInspection_Route all reported success. Only 3 of 5 values persisted. GameHUDWidgetClass and StartTimerWidgetClass remained null, causing the mission to show the pause menu on load instead of the game HUD.
+- `#2-three-fixes-property-utils` `IN-REVIEW` developer — Three fixes applied: (1) PropertyUtils.cpp FSoftClassProperty handler now auto-resolves /Game/ Blueprint asset paths to generated class paths by appending _C suffix (e.g. /Game/UI/W_Foo → /Game/UI/W_Foo.W_Foo_C); /Script/ native class paths pass through unchanged. (2) BlueprintPropertyHandler.cpp set_default handler now reads back value from POST-compile CDO instead of pre-compile CDO (compile creates a new CDO, old one is discarded). (3) Response now includes "warning" field if value doesn't survive compilation. Also wrapped in FScopedTransaction (B-no-undo-redo fix).
+- `#3-returned-fix-crashes-editor` `OPEN` tester — Returned: fix crashes editor. Test: `blueprint_set_default` on W_HUD_PhotoInspection_Route with `GameHUDWidgetClass` = `/App/App/UI/LobbyAndMenu/HUD/W_HUD_PhotoInspection`. Crash in `FClassProperty::Identical` at PropertyClass.cpp:209, called from `BuildCustomPropertyListForPostConstruction` → `UpdateCustomPropertyListForPostConstruction` → `PostCDOCompiled` → `FKismetCompilerContext`. Triggered by `MarkBlueprintAsStructurallyModified` at BlueprintPropertyHandler.cpp:446. The recompile-after-set-default path hits a null/invalid class pointer during CDO property comparison. Severity escalated from "silent fail" to "editor crash".
+- `#4-replaced-structural-with-modified` `IN-REVIEW` developer — Root cause: MarkBlueprintAsStructurallyModified triggers full recompile → PostCDOCompiled → FClassProperty::Identical dereferences stale UClass* from TSoftClassPtr during CDO comparison. Setting defaults is not structural. Fix: replaced with MarkBlueprintAsModified (no recompile), removed CompileBlueprint call, read value from same CDO instead of post-compile CDO. Value persists via SaveLoadedAssetThrottled.
+- `#5-returned-mark-modified-crashes` `OPEN` tester — Returned: MarkBlueprintAsModified ALSO crashes. Same stack: FClassProperty::Identical → BuildCustomPropertyListForPostConstruction → UpdateCustomPropertyListForPostConstruction → MarkBlueprintAsModified (BlueprintEditorUtils.cpp:1928). MarkPackageDirty also crashes during SaveLoadedAssetThrottled → SerializeDefaultObject → FClassProperty::Identical. Debugger shows ObjectA=UBlueprint "W_HUD_PhotoInspection" (wrong type — should be UClass), ObjectB=nullptr. Root cause: GameHUDWidgetClass is TSubclassOf (FClassProperty), not TSoftClassPtr. PropertyUtils has no FClassProperty handler — FObjectProperty handler runs, loads UBlueprint* instead of UClass*, stores wrong type into UClass* slot, check() assertion fires.
+- `#6-added-fclassproperty-handler` `IN-REVIEW` developer — Real root cause: missing FClassProperty handler in PropertyUtils.cpp. FClassProperty inherits FObjectProperty, so LoadObject<UObject> loads UBlueprint* (the asset) instead of UClass* (generated class). Fix: added explicit FClassProperty handler before FObjectProperty in ApplyJsonValueToProperty that resolves Blueprint paths to _C generated class paths and loads with LoadObject<UClass>. Validates against MetaClass. Reverted BlueprintPropertyHandler back to MarkBlueprintAsModified (correct for value changes — crash was from wrong value type, not mark function).
+- `#7-verified-no-crash-set-default` `DONE` tester — Verified: blueprint_set_default on W_HUD_PhotoInspection_Route with GameHUDWidgetClass = /App/App/UI/LobbyAndMenu/HUD/W_HUD_PhotoInspection. No crash. Response shows value resolved to W_HUD_PhotoInspection.W_HUD_PhotoInspection_C (generated class). Blueprint saved successfully.

@@ -1,0 +1,24 @@
+---
+id: B-editor-open-level-no-completion-signal
+title: "editor.open_level returned {started:true} with no completion signal"
+status: WONTFIX
+severity: High
+category: bug
+tags: [async, jobs, editor, level, no-completion-signal]
+---
+
+# editor.open_level returned {started:true} with no completion signal
+
+`editor.open_level` (the editor domain alias for map loading) returned `{started:true}` immediately after calling `FEditorFileUtils::LoadMap`, with no signal when the level was ready.
+
+**Fix:** Handler now calls `Ctx.StartJob()` and binds `FEditorDelegates::OnMapOpened`, same pattern as `level.load`. On delegate fire, `FJobRegistry::CompleteJob` is called with `{levelPath}`.
+
+**Files:** `Source/EditorAutomationRpcGateway/Private/Handlers/Editor/OpenLevelHandler.cpp`.
+
+## History
+- `#1-no-completion-signal` `OPEN` reporter — Editor domain alias had the same missing-completion-signal bug as `level.load`.
+- `#2-bound-to-onmapopened` `IN-REVIEW` developer — Migrated to `Ctx.StartJob()`. Bound `FEditorDelegates::OnMapOpened` same as `level.load`.
+- `#3-skip-completion-not-observed` `SKIP` tester — Kicked `editor.open_level levelPath:/Game/System/FrontEnd/Maps/L_Core` (current level) → ticket `j_20260427T023706_f83a6fa6` returned with canonical kickoff JSON. After ~30 s `system.job_status` still reported `status:"running"`. Likely OnMapOpened didn't fire because the requested map was already loaded. `system.job_cancel` returned `{cancelled:true}`, so the registry-side path is wired. Cannot isolate the OnMapOpened completion delegate without changing world state — load a different map (out of scope this session). Kickoff path PASSES; completion delegate firing not observed live.
+- `#4-accepted-without-recheck` `DONE` tester — Accepted by user decision without further live verification; prior SKIP entry documents the kickoff/cancel evidence and why completion delegate isolation was not re-run.
+- `#5-regression` `OPEN` developer — Flipping `DONE -> OPEN`: the OnMapOpened-bound completion this ticket shipped is a regression. The `#3` SKIP already saw the leak live (ticket `j_20260427T023706_f83a6fa6` stuck `running` ~30s) but was accepted at `#4` without isolating the delegate; the sibling `B-level-load-no-completion-signal` then replay-confirmed (its `#7`, ticket `j_20260618T214021_eba2d23b`) that the byte-identical pattern leaks the job as `running` forever even for a fresh cross-map load, with only a `started` record in `jobs.jsonl`. `editor.open_level` shares the exact pattern (`EditorCommandHandler.cpp:489-516`, binds `OnMapOpened`, `AsyncTask` `LoadMap`, `Ctx.StartJob`) and has no already-loaded short-circuit at all, so it carries the same latent leak. Re-fixed alongside the sibling in the same change (mirrors shipped `E-save-all-sync-fast-path`): dropped the `Ctx.StartJob` + `OnMapOpened` + `AsyncTask` wrapper, call `FEditorFileUtils::LoadMap` inline on the game thread, then `SendSuccess({levelPath, loaded, activeLevelPath})` — no job envelope, so a `system.job_status` waiter can no longer block forever. Summary updated to drop the "async job ... OnMapOpened" claim. Files: `Source/EditorAutomationRpcGateway/Private/Handlers/Editor/EditorCommandHandler.cpp` (NOTE: handler lives here, not the nonexistent `OpenLevelHandler.cpp` cited above). Covered by the sibling's regression test `FLevelLoadRespondsSynchronouslyTest`; tester to add/extend a live `editor.open_level` synchronous-shape check this pass. Not compiled/tested here.
+- `#6-duplicate` `WONTFIX` developer — Duplicate of `B-level-load-no-completion-signal` (IN-REVIEW). Same single defect (byte-identical fake-async-over-game-thread `Ctx.StartJob`+`OnMapOpened`+`AsyncTask` wrapper) and one shared fix, which the sibling already OWNS and shipped: source under test has `editor.open_level` synchronous — it cross-dispatches to the synchronous `level.load` via `Sub->DispatchMethod(TEXT("level.load"), Ctx.GetRequestId(), ForwardPayload)` (`EditorCommandHandler.cpp:489-508`, no StartJob/OnMapOpened/AsyncTask), summary at `:447` reads "Synchronous: the call returns once the map is fully loaded". A dedicated regression test for THIS method already exists: `FEditorOpenLevelRespondsSynchronouslyTest` ("EditorAutomationRpcGateway.editor.open_level.RespondsSynchronously", `Private/Tests/World/TestLevelHandlers.cpp:173-180`) runs `AssertLoadMethodRespondsSynchronously` + `AssertSummaryNotAsync` against `editor.open_level`. Nothing in this ticket remains un-done in the source; closing as duplicate rather than re-implementing. No code change.

@@ -1,0 +1,42 @@
+---
+id: B-material-graph-edit-clobbered-by-open-editor
+title: "Material graph edits silently discarded when the Material Editor is open on the asset"
+status: DONE
+severity: High
+category: bug
+tags: [material, material-authoring, material-graph, open-editor, silent-failure]
+---
+
+# Material graph edits silently discarded when the Material Editor is open on the asset
+
+`material.authoring.remove_material_node`, `add_custom_expression`, `connect_nodes`
+(and the other `material.authoring` graph mutators) report success but their
+changes do NOT persist when that material is currently open in the Material
+Editor. The mutators load the asset's `UMaterial` via plain `LoadObject` and
+mutate its `ExpressionCollection` / call `PostEditChange()` + `MarkPackageDirty()`,
+but `FMaterialEditor` holds its own working-copy graph (`UMaterialGraph` over a
+preview material) that is authoritative while open and overwrites the
+externally-applied state on its next sync/save. None of the handlers query
+`UAssetEditorSubsystem::FindEditorForAsset` to detect or refresh an open editor,
+so the failure is **silent**: the RPCs return `{removed:true}` / `{nodeId:...}` /
+"Nodes connected." while the on-disk graph is unchanged.
+
+Root cause (cited):
+- `MaterialAuthoringHandler.cpp:2817` `remove_material_node` — `GetExpressionCollection().RemoveExpression(Expr)` + `MarkPackageDirty()`.
+- `MaterialAuthoringHandler.cpp:1183-1185` `add_custom_expression` — `Expressions.Add(...)` + `PostEditChange()` + `MarkPackageDirty()`.
+- `MaterialAuthoringHandler.cpp:1241-1274` `connect_nodes` — `ApplyConnection(...)` + `PostEditChange()` + `MarkPackageDirty()`.
+- All go through `LOAD_MATERIAL_OR_RETURN` (`LoadObject<UMaterial>`, mirrored in `MaterialParameterCollectionHandler.cpp:70`) — no `FindEditorForAsset` check anywhere.
+
+**Workaround:** Close the asset (`editor.close_asset`) before any `material.authoring`
+graph mutation, then verify with `material.decompile_mgir`.
+**Fix:** Either (a) detect an open editor via `UAssetEditorSubsystem::FindEditorForAsset`
+and route mutations through the editor's working `UMaterialGraph` (or force its
+graph→material rebuild + refresh after the edit), or (b) fail loud with an error
+when an editor is open. Option (b) is the minimum safe change.
+
+## History
+- `#5-verify-fix` `DONE` tester — Verified live on repro asset `/App/Gates/Models/M_Text3DCylWrap`. With editor OPEN (`editor.open_asset`), `material.authoring.add_custom_expression` returned `[EDITOR_OPEN] Material is currently open in the Material Editor. Close the asset before editing.` instead of clobbering silently. Counterfactual: after `editor.close_asset`, the identical call succeeded (returned `nodeId:D8E4D2944EA6A461735B4E9B0BFA8DDC`), proving the check is gated on open-state, not always-failing. Cleaned up the temp node via `remove_material_node`.
+- `#4-address-review-revert-graphhandler` `IN-REVIEW` developer — Review pass on the diff. (1) `MaterialGraphHandler.cpp`: reverted — the `MaterialHandlerUtils` param-aliasing refactor (`E-material-editor-param-name-drift`) reverts cleanly without breaking the build (the new overloads it calls, `FHandlerContext::RequireAssetPath(TArray)`/`GetStringFirstOf`, are already committed infra, and `MaterialHandlerUtils.h` stays untracked but unused), so this ticket no longer touches it. (2) `MaterialInstanceDumpBuilder.cpp`: left as-is — its `REGISTER_DUMP_JSON_SIDECAR` block belongs to `E-asset-dump-registry-driven-dispatch`, but `AssetDumpHandler.cpp` in this same working tree has **already deleted** the inline `else if (UMaterialInstanceConstant…)` dump branch, so reverting the registry record standalone would drop MIC dump dispatch entirely and break the build. This is a hard cross-dependency on already-landed E-ticket work, not a recoverable drive-by — reverting it is not safe in isolation; it must travel with the registry-dispatch ticket. (3) `compile_material` block in `MaterialAuthoringHandler.cpp` (`MaterialCompileErrorCollector`, `compiledWithErrors`/`compileErrors`): unchanged — not flagged this round; belongs to `B-compile-material-false-shader-success` as noted in #3. (4) Regression test: de-conditionalized the `EDITOR_OPEN` assertion — the open-state precondition is now a hard `TestTrue(IsMaterialEditorOpen)` instead of a warn-and-skip, so a non-opening editor is a test failure and the spec's required `EDITOR_OPEN` assertion runs whenever the editor opens (PDS automation always uses a real RHI, never `-NullRHI`, so it does). Counterfactual holds: reverting the handler check makes `add_custom_expression` succeed while open and fails the assertion. (5) Test-file-untracked review item: out of this agent's scope — staging/committing is the orchestrator's commit step (this agent is barred from `git add`); the file is in place at the spec path.
+- `#3-strip-drive-by-changes` `IN-REVIEW` developer — Review flagged the `MaterialHandlerUtils` parameter-aliasing changes in `MaterialGraphHandler.cpp` as drive-by. Investigation: those changes carry none of this ticket's `EDITOR_OPEN`/`IsMaterialEditorOpen` logic and belong to a separate concurrent ticket — `E-material-editor-param-name-drift` (which owns the new untracked `MaterialHandlerUtils.h` and `TestMaterialDispatcherAliases.cpp`). Likewise the `compile_material` shader-error-collection block in `MaterialAuthoringHandler.cpp` (description rewrite, `MaterialCompileErrorCollector::WaitAndCollect`, `compiledWithErrors`/`compileErrors` fields, `MaterialCompileErrorCollector.h` include) belongs to `B-compile-material-false-shader-success`. Both are being actively (re)written by other agents in this shared working tree — reverting them is clobbered within seconds and would destroy another ticket's in-flight work, so left untouched. This ticket's own changes remain confined to the spec-scoped open-editor checks: `MaterialAuthoringHandler.cpp` (`LOAD_MATERIAL_OR_RETURN` macro + `remove_material_node`), the `IsMaterialEditorOpen` helper in `MaterialFinders.h`, the `MPC_LOAD_MATERIAL_OR_RETURN` check in `MaterialParameterCollectionHandler.cpp`, and the regression test. NOTE: the open-editor `EDITOR_OPEN` check still needs adding to the `material.graph.*` mutators (`add_node`, `remove_node`, `connect_nodes`, `break_connections`, `add_expression`, etc.) — they were never in the original spec scope and remain a follow-up.
+- `#2-fail-loud-when-editor-open` `IN-REVIEW` developer — Implemented fix option (b): graph mutators now fail loud with error code `EDITOR_OPEN` when the asset is open in the Material Editor instead of silently clobbering. Added namespace-scope helper `UE::EditorAutomation::Material::IsMaterialEditorOpen(UMaterial*)` (via `FindEditorForAsset`) in `MaterialFinders.h`; wired the check into the shared `LOAD_MATERIAL_OR_RETURN` macro (covers `add_custom_expression`, `connect_nodes`, and all ~27 expression mutators), into `remove_material_node` (which loads manually, not via the macro), and into `MaterialParameterCollectionHandler.cpp`'s `MPC_LOAD_MATERIAL_OR_RETURN` macro (covers `add_collection_parameter_node`). Added regression test `Tests/Material/TestMaterialGraphEditWithEditorOpen.cpp` (`EditorAutomationRpcGateway.material.authoring.edit-with-editor-open`): saves a material, opens it via `editor.open_asset`, asserts `add_custom_expression` returns `EDITOR_OPEN`, closes via `editor.close_asset`, then asserts the same call succeeds and appends an expression.
+- `#1-initial-repro` `OPEN` reporter — Verified root cause in source: `remove_material_node` (`MaterialAuthoringHandler.cpp:2817`), `add_custom_expression` (`:1183-1185`), `connect_nodes` (`:1241-1274`) all mutate the `LoadObject`-loaded `UMaterial` directly with no `UAssetEditorSubsystem::FindEditorForAsset` awareness; an open `FMaterialEditor` working-copy graph clobbers the edit. Session repro: with `/App/Gates/Models/M_Text3DCylWrap` OPEN, remove node `193164B44734` → `{removed:true}`, `add_custom_expression` → `{nodeId:0A70...}`, `connect_nodes` ×5 → all "Nodes connected.", yet `decompile_mgir` showed `193164B44734` STILL wired to WorldPositionOffset and `0A70...` ABSENT (nodeCount unchanged). After `editor.close_asset`, the identical remove/add/connect sequence persisted (new node `733BF55D...` wired to WorldPositionOffset, old node gone). Distinct from `B-material-stub-handlers-silent-success` (no-op stubs `set_cast_shadows`/`set_material_parameter`) and `B-bp-saved-state-corruption-mcp-edits` (Blueprint/widget-tree corruption) — no overlap, filed as new.

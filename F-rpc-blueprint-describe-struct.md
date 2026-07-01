@@ -1,0 +1,28 @@
+---
+id: F-rpc-blueprint-describe-struct
+title: "Live blueprint.list_struct_fields exposes only collapsed shape; rich UserDefinedStruct schema is dump-only"
+status: DONE
+severity: Medium
+category: feature
+tags: [policy-dump-parity, user-defined-struct, blueprint, list-struct-fields]
+---
+
+# Live blueprint.list_struct_fields exposes only collapsed shape; rich UserDefinedStruct schema is dump-only
+
+`UserDefinedStructDumpBuilder` (Source/EditorAutomationRpcGateway/Private/Handlers/Asset/UserDefinedStructDumpBuilder.cpp) emits a structured per-field record carrying `name`, `displayName`, `guid`, `type` (raw `FStructVariableDescription::Category`), `subType`, `subTypeObject`, `containerType`, `defaultValue`, `currentDefaultValue`, `tooltip`, `flags{dontEditOnInstance,enableSaveGame,multiLineText,enable3dWidget}`, and the full `metaData{...}` map — plus the root struct's `guid`. The live `blueprint.list_struct_fields` handler in `BlueprintTypeDefinitionHandler.cpp` returns only `{name, type (collapsed via DescribePinType()), guid}` per field and does not surface the struct guid at all. Grep confirms no other live reader (`blueprint.describe_struct` and `struct.describe` do not exist in the source tree).
+
+This violates the dump-parity policy: anything an asset dump emits must also be reachable via a live RPC. Authoring agents that create a struct via `blueprint.create_struct` / `blueprint.add_struct_field` and then need to verify display names, defaults, tooltips, metadata, container shape, or per-field flags currently have no live path — they must trigger a full `asset.dump` round-trip just to read back what they just wrote.
+
+**Fix:** Widen `blueprint.list_struct_fields` additively rather than adding a sibling RPC. Rationale: the existing collapsed `type` string must stay as `DescribePinType(VarDesc.ToPinType())` for compatibility, while the raw dump category is added beside it as `rawType`; the wiki already advertises `list_struct_fields` as the field-enumeration verb, and adding a sibling `describe_struct` would split a single-purpose surface across two endpoints with duplicate routing and wiki entries. "Describe" in this plugin is reserved for top-level asset inspection (`blueprint.inspect`, `widget.describe`); field enumeration is `list_*`.
+
+Implementation shape:
+1. Lift the field-builder out of `UserDefinedStructDumpBuilder.cpp`'s anonymous namespace into a public helper (e.g. `UserDefinedStructDumpBuilder::BuildFieldJson(const FStructVariableDescription&)`) so both the dump builder and the live handler call one source of truth.
+2. In `blueprint.list_struct_fields`, replace the inline 3-field loop with a call to the shared builder per `FStructVariableDescription`, copy the builder's raw `type` value to `rawType`, restore top-level `type` to `DescribePinType(VarDesc.ToPinType())`, and add the root struct `guid` (`StructAsset->GetCustomGuid().ToString()`) to the response alongside `path` / `count`.
+3. Keep `count` and `success` and the `AddAssetVerification` envelope untouched; existing callers reading `name`/`type`/`guid` keep working because those keys are preserved.
+4. Update `Docs/wiki/blueprint.md` (the `Type definitions` bullet line) only if a new schema sub-section is warranted; the method name does not change.
+5. Add a regression test in `Source/EditorAutomationRpcGatewayTests/Private/Blueprint/TestBlueprintHandlers.cpp` (or a new sibling) asserting the widened response shape against a struct created via `blueprint.create_struct` with multiple field types and metadata.
+
+## History
+- `#1-initial-repro` `OPEN` reporter — `UserDefinedStructDumpBuilder` emits 11 per-field keys (name, displayName, guid, type, subType, subTypeObject, containerType, defaultValue, currentDefaultValue, tooltip, flags{4}, metaData{...}) plus a root struct guid; live `blueprint.list_struct_fields` returns only `{name, type (collapsed pin-type string), guid}` per field and no root guid. No other live RPC exposes the rich schema (grep for `describe_struct` / `struct.describe` finds zero hits). Violates the dump-parity policy.
+- `#2-rich-struct-fields` `IN-REVIEW` developer — Exposed a shared UserDefinedStruct field JSON builder, updated `blueprint.list_struct_fields` to reuse it while preserving collapsed `type` and adding raw category as `rawType`, documented the widened response shape, and added `FBlueprintListStructFieldsRichUserDefinedStructSchemaTest` to guard root guid, count, rich field keys, and type compatibility.
+- `#3-verify-fix` `DONE` tester — Verified: `blueprint.list_struct_fields` on `/App/HELIOS/Framework/Structures/Drag/Fluid/DragGusts_Struct.DragGusts_Struct` now returns root `guid:"D1BC3AE2496C95E24A3A618741E6DEB2"` and each of 5 fields carries `displayName`, `subType`, `subTypeObject`, `containerType`, `defaultValue`, `currentDefaultValue`, `tooltip`, `flags{dontEditOnInstance,enableSaveGame,multiLineText,enable3dWidget}`, `metaData{}`, and `rawType` (e.g. `"real"` vs collapsed `type:"double"`; `"bool"` matches collapsed `"bool"`). Backward-compatible keys (`name`, `type`, `guid`) preserved.

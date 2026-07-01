@@ -1,0 +1,27 @@
+---
+id: E-component-read-filter
+title: "Component read verbs (describe / get_components / scs.get) can't scope to specific components"
+status: DONE
+severity: Medium
+category: ergonomic
+tags: [actor-describe, scs, components, filter, response-size]
+---
+
+# actor.describe and blueprint.scs.get can't scope the read to specific components
+
+Three sibling read verbs dump the entire component tree with no way to narrow it: `blueprint.scs.get` (only `blueprintPath`, `Handlers/Blueprint/SCSHandler.cpp:49` — passing `componentName` is rejected with `UNKNOWN_PARAMS`), `actor.describe` (only `actorName`, `Handlers/Actor/DescribeHandler.cpp`), and `actor.get_components` (only `actorName` / `objectPath`, `Handlers/Actor/ComponentHandler.cpp:318`). On an actor crowded with components (e.g. a PhotoInspection bucket: ~13 `Text3DComponent` labels around 5 `RingMarkerComponent`s), reading a few components forces a full-tree dump that spills to file and a local parse — even `actor.get_components`, which carries only transforms, spilled to **75 KB** on that bucket.
+
+This is a *cardinality* problem distinct from per-component bloat ([B-instanced-subobject-no-cdo-diff](B-instanced-subobject-no-cdo-diff.md)): even with per-component serialization fixed, you still get all ~20 components when you wanted 5. It is the read-shape gap behind the workarounds in [B-get-components-renders-empty-to-caller](B-get-components-renders-empty-to-caller.md) (which resolved the *silent-empty* symptom by spilling to file, but left the full tree as the only thing you can ask for).
+
+The plugin already owns the filter vocabulary in `property.list` (`Handlers/Utility/UtilityPropertyHandler.cpp`): `nameMatch` (case-insensitive substring), `propertyNames` (allow-list), `omitOversized`. Mirror it onto the component readers.
+
+**Fix:** Add optional `nameMatch` (substring on component name) and `componentClass` (class + subclasses, resolved the same way as `blueprint.scs.add_component`'s `componentClass` / `actor.find_by_class`'s `className`) to all three verbs — `actor.describe`, `actor.get_components`, and `blueprint.scs.get` — sharing one filter helper. Optional + additive; default behavior unchanged, so no aspect-version bump (the no-arg dump output stays byte-identical and the asset-dump writers call with no filter). Accept snake_case aliases per the param-alias convention. `actor.get_components` is the highest-value target: it already carries only transforms, so a `componentClass` filter makes it the ideal scoped read (e.g. just the 5 `RingMarkerComponent` transforms → a few hundred bytes, no spill). Smallest viable slice: `componentClass` on `actor.describe` alone turns the 633 KB bucket read into a 5-component read.
+
+Caveat: filtering SCS to a leaf component class can leave dangling `parent` references in the emitted tree (parent / root nodes filtered out). Acceptable for a scoped read — document it in the verb's wiki overlay.
+
+## History
+- `#1-initial-report` `OPEN` reporter — Neither actor.describe nor blueprint.scs.get can scope to specific components; blueprint.scs.get rejects componentName, actor.describe has no filter. On Text3D-heavy actors this forces a full-tree dump + file spill to read a few components. Mirror property.list's `nameMatch` + a `componentClass` filter onto both verbs (optional, additive, no aspect bump). Smallest slice: componentClass on actor.describe. Document the dangling-parent caveat for scoped SCS reads.
+- `#2-include-get-components` `OPEN` reporter — Expanded scope to a third verb: `actor.get_components` needs the same filter. It's the lean verb (transforms only) yet still spilled to 75 KB on the bucket, so a `componentClass`/`nameMatch` filter there is the highest-value scoped read (5 RingMarker transforms → a few hundred bytes). All three verbs should share one filter helper.
+- `#3-component-read-filters` `IN-REVIEW` developer — Added optional `nameMatch`/`name_match` and `componentClass`/`component_class` filters to `actor.describe`, `actor.get_components`, and `blueprint.scs.get`; shared component-filter parsing/matching across actor and SCS serializers; updated wiki guidance for scoped reads and the SCS dangling-parent caveat; added focused automation coverage for filtered component reads.
+- `#4-skip-mcp-tool-unavailable` `SKIP` tester — The `mcp__editor-automation__call` MCP tool is not present in this session (absent from the deferred-tool list; `ToolSearch` for it / `editor-automation` / `call namespace` returns no match), so no live MCP call could be issued to exercise the filter params. This is a behavioral C++ fix, not a file/doc-state surface, and source review alone is never a PASS — leaving IN-REVIEW for re-verification once the editor MCP surface is reachable.
+- `#5-verify-filters-live` `DONE` tester — Verified live on `B_PioneerFPVLobby_C_42` (16 StaticMeshComponents). `actor.get_components` unfiltered spilled to 18 KB; `nameMatch:"Socket"` (camelCase) narrowed to exactly 4 (SocketBR/FR/FL/BL), `name_match:"Socket"` (snake_case alias) returned the same 4, and `componentClass:"SkeletalMeshComponent"` resolved the class and returned 0 — no `UNKNOWN_PARAMS` rejection on any variant. `blueprint.scs.get` with `nameMatch:"Socket"` on `/App/App/LobbyMap/B_PioneerFPVLobby` emitted only the 4 Socket SCS nodes (no other components present), confirming the shared filter helper narrows the SCS tree too. Filters work end-to-end across both exercised verbs and both casings.

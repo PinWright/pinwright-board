@@ -1,0 +1,118 @@
+---
+id: E-niagara-validate-compile-state-uninitialized-undocumented
+title: "niagara.validate surfaces a COMPILE_STATE_UNINITIALIZED info issue on a populated system, but the wiki documents that code only as a dumper artifact — agents must reason from scratch that it's compile-state honesty, not a real validation failure"
+status: OPEN
+severity: Low
+category: ergonomic
+tags: [niagara, validate, compile-state, docs, discovery]
+encounters: 2
+lastSeen: 2026-06-24T09:27:12Z
+---
+
+# `niagara.validate` emits `COMPILE_STATE_UNINITIALIZED` with no doc that it's an inherent post-load artifact, not a failure
+
+`niagara.validate` reads cached compile state via the same
+`NiagaraDumpBuilder::BuildCompileJson` path the dumper uses (confirmed in
+`F-niagara-compile-save-explicit` history #2: *"`niagara.validate` reads cached
+compile state via `NiagaraDumpBuilder::BuildCompileJson`; does NOT trigger
+compile"*). That builder adds an info-severity `COMPILE_STATE_UNINITIALIZED`
+issue whenever any script reports `NCS_Unknown`
+(`NiagaraDumpBuilder.cpp:1535-1546` / `:1600-1611` / `:1655-1661`). Under UE 5.6's
+default `fx.Niagara.OnDemandCompile=1`, a freshly-loaded or just-edited system
+is uncompiled until opened in the asset editor or spawned — so a perfectly
+healthy, populated system will return `valid:true` **and** a
+`COMPILE_STATE_UNINITIALIZED` info issue from `niagara.validate`.
+
+The problem is purely discovery/interpretation. The dedicated wiki page that
+explains this code — `docs/wiki-src/niagara.compile-state.md`, section
+*"Compile-state honesty: `compileStatus: null` and `COMPILE_STATE_UNINITIALIZED`"*
+— frames the entire behavior as a **dumper** concern:
+
+- *"how the **dumper** reports uninitialised compile state"*
+- *"The **dumper** handles this honestly..."*
+- *"An info-severity issue `COMPILE_STATE_UNINITIALIZED` is added to the issues
+  array on both system and emitter **dump paths**"*
+
+It never says the live `niagara.validate` RPC surfaces the same code in its
+`issues[]`. And the `niagara.validate` step in `docs/wiki-src/niagara.md`
+(step 3: *"Run `niagara.validate` before relying on the asset"*) does not
+cross-link to the compile-state page or warn that an info-severity
+`COMPILE_STATE_UNINITIALIZED` is expected and binding/edit-independent after an
+edit-then-validate flow on an on-demand-compiled system.
+
+## Why this is friction (process, not a tool bug)
+
+The task (focus `niagara.bind_curve_asset`, outcome **clean** — no tool error,
+judge filed nothing) added two user-scope curve DI params to the real
+`/Game/ExampleContent/Niagara/Textures/BindCurvesToMaterials`, bound
+`2-1_CustomBlendCurve` and `CRV_Rocky`, compiled, then ran
+`niagara.validate level:strict` to confirm the bindings resolved with no errors.
+Validate returned `valid:true, errors:[]` — but with a non-error
+`COMPILE_STATE_UNINITIALIZED` warning. Friction note, verbatim:
+
+> "only friction was that validate emits a non-error COMPILE_STATE_UNINITIALIZED
+> warning (emitter scripts report null post-load compile state) that I had to
+> confirm is binding-independent vs. a real issue"
+
+That is interpretive friction with no doc support: the agent had to reason out,
+from the emitter scripts' null post-load compile state, that this info warning is
+an inherent on-demand-compile artifact and not a failure of the curve bindings
+it had just made. A less careful agent could read the warning as "the bindings
+didn't resolve" and chase a non-bug, or dismiss a genuine future
+`COMPILE_STATE_UNINITIALIZED`-adjacent signal as "probably just the compile
+thing." 1 validate call, no retry, no tool error — the cost was reasoning, not
+calls.
+
+## What it should do
+
+Downstream wiki edit (not mine):
+
+- In `docs/wiki-src/niagara.md`, on the `niagara.validate` step/section, note
+  that on a UE 5.6 on-demand-compiled system a successful validate
+  (`valid:true`) can still carry an **info-severity** `COMPILE_STATE_UNINITIALIZED`
+  issue, that this is the same compile-state-honesty signal the dumper emits
+  (cross-link `niagara.compile-state.md`), and that it is independent of the edit
+  being validated — to populate real compile state, compile/open the asset first.
+- In `docs/wiki-src/niagara.compile-state.md`, broaden the "Compile-state
+  honesty" section so the `COMPILE_STATE_UNINITIALIZED` description names
+  `niagara.validate` (and `niagara.inspect`'s compile aspect) as live surfaces
+  of the code, not just the "dump paths" — since validate reuses
+  `BuildCompileJson`, the code is identical in both.
+
+## Distinct from
+
+- `E-niagara-validate-strict-empty-system-undocumented` (OPEN) — same *validate
+  docs-gap shape* but a different code and trigger: that ticket is `NO_EMITTERS`
+  (and `DISABLED_EMITTER`/`NO_RENDERERS`) escalation on a deliberately-**empty**
+  system under `level:strict`. This ticket is `COMPILE_STATE_UNINITIALIZED`
+  (info, not escalated) on a **populated** system, driven by on-demand compile,
+  at any level. Both want a validate-section doc note; the two notes are
+  complementary, not duplicate.
+- `B-asset-dump-niagara-compile-state-stale` / `-followup` (DONE),
+  `E-asset-dump-niagara-compile-issue-promote-to-meta` (DONE) — those fixed and
+  surfaced the code on the `asset.dump` sidecar / `meta.json`. This ticket is
+  that the **live `niagara.validate` RPC** emits the same code with no validate-side
+  doc steer; it is a docs gap, not a correctness regression of the dumper work.
+- `F-niagara-compile-save-explicit` (DONE) — added standalone `niagara.compile`,
+  which is the *action* that would populate compile state and clear the issue;
+  this ticket is the *documentation* that the issue is expected absent that
+  compile and is not a binding failure.
+
+## Evidence
+
+- Friction note (verbatim above): agent had to confirm the
+  `COMPILE_STATE_UNINITIALIZED` validate warning was binding-independent. Outcome
+  clean; judge filed nothing — this is purely the interpretive/docs friction.
+- Source: `NiagaraDumpBuilder.cpp:1535-1546` (the info issue), validate reuse via
+  `BuildCompileJson` per `F-niagara-compile-save-explicit` #2; wiki framing in
+  `docs/wiki-src/niagara.compile-state.md` (dumper-only) and the un-cross-linked
+  validate step in `docs/wiki-src/niagara.md:11`.
+- Wiki pages to improve: `docs/wiki-src/niagara.md` (the `niagara.validate`
+  section) and `docs/wiki-src/niagara.compile-state.md` (broaden the
+  COMPILE_STATE_UNINITIALIZED section to name live RPC surfaces).
+
+## History
+- `#1-initial-audit` `OPEN` reporter — Struggle-audit of the `niagara.bind_curve_asset` task (outcome clean; judge filed nothing). After adding/binding two user-scope curve DIs on the real `BindCurvesToMaterials` system, `niagara.validate level:strict` returned `valid:true, errors:[]` plus a non-error `COMPILE_STATE_UNINITIALIZED` info issue (emitter scripts report null post-load compile state under UE 5.6 `fx.Niagara.OnDemandCompile=1`). The agent had to manually confirm the warning was binding-independent (an on-demand-compile artifact) rather than a real validation failure of the bindings just made — interpretive friction with no doc support (1 validate call, no retry, no tool error). Root cause: `niagara.validate` reuses `NiagaraDumpBuilder::BuildCompileJson` (`NiagaraDumpBuilder.cpp:1535-1546`), which emits `COMPILE_STATE_UNINITIALIZED`, but the only wiki coverage of that code (`niagara.compile-state.md`) frames it as a **dumper**-only artifact and the `niagara.validate` step in `niagara.md` neither cross-links it nor warns the issue is expected/edit-independent. Proposed downstream wiki fix: add a validate-side note in `niagara.md` (a successful validate can still carry an info `COMPILE_STATE_UNINITIALIZED`; cross-link `niagara.compile-state.md`; it's independent of the edit) and broaden the compile-state page to name `niagara.validate`/`niagara.inspect` as live surfaces of the code. Dedup: ripgrep across OPEN/closed (qmd unavailable) found no validate→COMPILE_STATE_UNINITIALIZED docs ticket — `E-niagara-validate-strict-empty-system-undocumented` is the NO_EMITTERS/empty-system variant (different code, different trigger), the three compile-state-stale/meta tickets are the asset.dump path (DONE), and `F-niagara-compile-save-explicit` only mentions validate in passing.
+- `#2-second-occurrence-move-renderer-task` `OPEN` reporter — Recurrence on a different clean task (focus `niagara.move_renderer`: build `/Game/VFX/NS_Campfire`, add Sprite/Light/Ribbon renderers, reorder Ribbon to front + Light to last, validate, compile, save — 15 calls, all ok, outcome clean). Same interpretive friction, this time on a *freshly authored* system rather than an edited existing one. Friction note verbatim: "niagara.validate's inner compile.valid:false + COMPILE_STATE_UNINITIALIZED is benign pre-compile noise (top-level errors:[]), resolved by the subsequent compile." The agent ran `niagara.validate level:strict` (which returned `valid:true, errors:[]` at top level) BEFORE the explicit `niagara.compile`, so the inner `compile.valid:false` + `COMPILE_STATE_UNINITIALIZED` was pure pre-compile noise — the agent had to reason that out and noted it was "resolved by the subsequent compile." Reinforces #1: a validate-step doc note (a successful validate can carry an info `COMPILE_STATE_UNINITIALIZED` / `compile.valid:false` until the asset is compiled; cross-link `niagara.compile-state.md`) would have removed the reasoning step. Second task confirming the gap; still Low, still docs-only on `docs/wiki-src/niagara.md` + `docs/wiki-src/niagara.compile-state.md`.
+</content>
+</invoke>

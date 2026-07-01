@@ -1,0 +1,54 @@
+---
+id: B-level-load-no-completion-signal
+title: "level.load job ticket never completes — OnMapOpened-bound job leaks as running forever"
+status: IN-REVIEW
+severity: High
+category: bug
+tags: [async, jobs, level, load, no-completion-signal]
+---
+
+# level.load job ticket never completes — OnMapOpened-bound job leaks as running forever
+
+`level.load` registered an async job (`Ctx.StartJob`) whose completion was bound to
+`FEditorDelegates::OnMapOpened` (handler at `LevelHandler.cpp:189-214`; the kickoff
+wrapped `FEditorFileUtils::LoadMap` in `AsyncTask(ENamedThreads::GameThread, ...)`).
+That delegate does NOT fire on several `FEditorFileUtils::LoadMap` early-out paths
+(already-current map, load veto, etc.), and live evidence (#7) shows even some fresh
+cross-map loads do not drive it within the polling window — so the job leaks as
+`status:"running"` forever. `FJobRegistry::Complete` (`JobRegistry.cpp:106`) only
+flips status when the bound delegate's `OnComplete` runs, and `EvictExpired`
+(`JobRegistry.cpp:167`) never evicts a stuck `running` ticket, so a follow-the-docs
+agent polling `system.job_status` blocks indefinitely while `level.get_info`
+confirms the load actually finished. (The completion payload was `{filename}`, not
+`{levelPath}` as the original write-up claimed; there is no `FJobRegistry::CompleteJob`
+method — completion goes through `FJobRegistry::Complete`.)
+
+Root cause: `FEditorFileUtils::LoadMap` is synchronous and game-thread-bound, and
+handlers already run on the game thread (`RpcDispatcher.cpp` marshals to it), so the
+job wrapper deferred the same synchronous call by one tick and added an unreliable
+completion signal for no concurrency benefit. The handler's own summary already
+described it as "Synchronous".
+
+**Fix:** Drop the async-job wrapper and make `level.load` truly synchronous — call
+`FEditorFileUtils::LoadMap` inline on the calling (game) thread and `SendSuccess`
+once it returns with the load-result shape (`{levelPath, loaded, activeLevelPath}`),
+no `ticket_id`/`status:"running"`/`monitor_path` envelope. Mirrors the shipped
+`E-save-all-sync-fast-path` precedent (which dropped the identical
+fake-async-over-game-thread-work wrapper). Apply the same fix to the byte-identical
+sibling `editor.open_level` (`B-editor-open-level-no-completion-signal`, see its
+regression entry).
+
+**Files:** `Source/EditorAutomationRpcGateway/Private/Handlers/Level/LevelHandler.cpp`
+(handler `level.load`); sibling `Source/EditorAutomationRpcGateway/Private/Handlers/Editor/EditorCommandHandler.cpp`
+(handler `editor.open_level`).
+
+## History
+- `#1-no-completion-signal` `OPEN` reporter — Level load returned immediately. Subsequent queries to the new level's actors would fail because loading was still in progress.
+- `#2-bound-to-onmapopened` `IN-REVIEW` developer — Migrated to `Ctx.StartJob()`. Bound `FEditorDelegates::OnMapOpened`. Fires `CompleteJob` with `{levelPath}` once loading completes.
+- `#3-skip-mutating-test` `SKIP` tester — Live test would change the current map and disrupt this session's other in-flight tests. Schema verified: `level.load` registered with `{levelPath}` required param. Same delegate pattern as `editor.open_level` (sibling alias) which was kicked successfully but did not fire OnMapOpened on an already-loaded map. Kickoff path verified by sibling; completion delegate firing untested live this pass.
+- `#4-accepted-without-recheck` `DONE` tester — Accepted by user decision without further live verification; prior SKIP entry documents why the mutating map-load test was not re-run.
+- `#6-evidence-load-back-to-persistent-stuck` `OPEN` reporter — Additional cross-task evidence (struggle audit, focus `level.remove_from_world`, streaming-sublevel round-trip). After `level.create` switched the active world to the new annex, `level.load {levelPath:/Game/Maps/ExampleProjectWelcome}` was issued to return to the persistent world and returned an async ticket; `system.job_status` polling that ticket stayed `running` even though the load had in fact completed — the agent only confirmed completion out-of-band via `level.get_info` (`active=ExampleProjectWelcome, 227 actors`). Friction note verbatim: "system.job_status for level.load stayed 'running' long after the load actually finished (false-stuck job status)." Same leaked-job signature as `#5`: this is a load *back to a previously-loaded* persistent world, reinforcing that `FEditorFileUtils::LoadMap` no-ops (or fast-paths) on an already-current/previously-loaded map without broadcasting `OnMapOpened`, so the bound `CompleteJob` never runs. Strengthens the `#5` suggested fix (detect already-current/already-loaded up front and complete the job synchronously). No status change proposed here; appending evidence only.
+- `#5-evidence-already-loaded-stuck-running` `OPEN` reporter — Re-opening: cross-task evidence that the `OnMapOpened` completion delegate does NOT fire on an already-loaded map — exactly the case `#3-skip-mutating-test` flagged as untested ("did not fire OnMapOpened on an already-loaded map ... completion delegate firing untested live this pass"). In a `performance.configure_world_partition` open-world task, `level.load {levelPath:/Engine/Maps/Templates/OpenWorld}` was accepted and returned an async ticket; `system.job_status {ticket=level.load}` was then polled ~6 times and stayed `running` indefinitely, never reaching a terminal event (the friction note: "ticket then hung in 'running' forever ... jobs.jsonl never got a terminal event ... despite the map being fully loaded and editor responsive"). The agent only knew to proceed because the subsequent `level.structure.get_level_structure_info` and all configure calls succeeded against the loaded map — the job ledger itself never resolved. PROCESS impact: a follow-the-docs agent that waits on `job_status` for a `level.load` of a map already current would block forever. Note `B-open-level-engine-mount-mangled` replayed `level.load /Engine/...` and got a *synchronous* `{alreadyLoaded:true}` response (no ticket) — so this surface is non-deterministic between a synchronous already-loaded short-circuit and a never-completing async ticket. Likely cause: when `FEditorFileUtils::LoadMap` no-ops because the requested map is already the current world, `FEditorDelegates::OnMapOpened` is never broadcast, so the bound `CompleteJob` never runs and the registered job leaks as `running`. Suggested fix: have the handler detect the already-current/already-loaded case up front and complete the job immediately (mirror the synchronous `{alreadyLoaded:true}` short-circuit the sibling path already has), rather than registering a job that depends on a delegate that won't fire. Tester/dev to decide whether to flip status from DONE.
+- `#7-regression-fresh-load-stuck-running` `OPEN` reporter — Regression: flipping frontmatter `DONE -> OPEN` to match the unflipped `#5`/`#6` re-opens. REPLAY-CONFIRMED live this pass against a *fresh* (NOT already-current) load — so the leak is broader than the already-loaded no-op case `#5`/`#6` hypothesized; a genuinely new map load also leaks. Repro: editor active world was `/Game/Maps/Lighting/Lighting_Realtime`; (a) replaying `level.load {levelPath:/Game/Maps/Lighting/Lighting_Realtime}` (the already-current map) hit the synchronous short-circuit `{"alreadyLoaded":true,"verifiedPath":...,"existsAfter":true}` — no ticket, the documented non-deterministic other branch; (b) then `level.load {levelPath:/Game/Maps/ExampleProjectWelcome}` (a DIFFERENT, non-current map) returned async `{"status":"running","ticket_id":"j_20260618T214021_eba2d23b","method":"level.load",...}`. Polled `system.job_status {ticket_id:j_20260618T214021_eba2d23b}` 4x — stayed `{"status":"running",...,"progress":[]}` every time, never terminal — while `level.get_info {}` simultaneously confirmed the load COMPLETED (`levelPath:/Game/Maps/ExampleProjectWelcome, actorCount:227`). `Saved/EditorAutomation/jobs.jsonl` holds ONLY the `started` record for the ticket (`{"event":"started","params":{"levelPath":"/Game/Maps/ExampleProjectWelcome"}}`) and NO `completed`/`failed` terminal event. So `OnMapOpened` failing to drive `CompleteJob` is not limited to no-op already-loaded loads — even a real cross-map load leaks the job as `running` forever. A follow-the-docs agent waiting on `job_status` for ANY `level.load` blocks indefinitely. Reinforces the `#5` suggested fix and extends it: the completion path is unreliable for fresh loads too, so the handler likely needs a post-`LoadMap` synchronous completion (or a more reliable terminal signal than `OnMapOpened`), not just an already-current short-circuit.
+- `#8-sync-load-no-job-wrapper` `IN-REVIEW` developer — Reworded the ticket: the old body/Fix described the already-shipped *broken* approach (bind `OnMapOpened`, "`FJobRegistry::CompleteJob` ... `{levelPath}`", file `LoadLevelHandler.cpp`) as if it were the cure; corrected to cite the real handler `LevelHandler.cpp:189-214`, `FJobRegistry::Complete`, and the `{filename}` payload. Disposition is REGRESSION against the DONE sibling `B-editor-open-level-no-completion-signal`, which shipped the identical OnMapOpened-bound pattern. Fix (mirrors shipped `E-save-all-sync-fast-path`): dropped the `Ctx.StartJob` + `OnMapOpened` + `AsyncTask` wrapper and call `FEditorFileUtils::LoadMap` inline on the game thread, then `SendSuccess({levelPath, loaded, activeLevelPath})` — no `ticket_id`/`status:"running"`/`monitor_path` envelope, so a `system.job_status` waiter can no longer block forever. Applied the byte-identical fix to the sibling `editor.open_level` and updated both method summaries (no longer advertise an async/OnMapOpened variant). Files: `Source/EditorAutomationRpcGateway/Private/Handlers/Level/LevelHandler.cpp`, `Source/EditorAutomationRpcGateway/Private/Handlers/Editor/EditorCommandHandler.cpp`. Test: added `FLevelLoadRespondsSynchronouslyTest` (`EditorAutomationRpcGateway.level.load.RespondsSynchronously`) in `Private/Tests/World/TestLevelHandlers.cpp` — loads a real non-current map asset through the production `level.load` handler and asserts the response lacks `ticket_id`/`monitor_path` and never reports `status:"running"` (it would fail if the StartJob wrapper were restored), restores the original world, and guards the summary against re-advertising the async contract. Not compiled/tested here; a later phase drives it green.
+- `#9-sibling-closed-duplicate` `IN-REVIEW` developer — Sibling `B-editor-open-level-no-completion-signal` closed `OPEN -> WONTFIX` as a duplicate of this ticket: this ticket owns the single shared fix, already applied to BOTH handlers (the sibling's `editor.open_level` cross-dispatches to `level.load`, `EditorCommandHandler.cpp:489-508`) plus the dedicated `FEditorOpenLevelRespondsSynchronouslyTest` (`Private/Tests/World/TestLevelHandlers.cpp:173-180`). Evidence note only; no status change to this ticket.
