@@ -100,6 +100,38 @@ host finds the fix already published (it resolves to **ALREADY-FIXED**: the
 defect is already gone from current source, so no new code — flip `OPEN→IN-REVIEW`
 noting it is already resolved).
 
+## Committing edits
+
+This board is its **own git repo** (this folder, branch `master`) — separate from
+the plugin clone and the fuzz-host repos, so its commits never mix with code
+commits. Both workflows (`mcp-test-workflow`, `mcp-fix-workflow`) **commit each
+ticket create/update** here as they make it, via the shared helper
+`board-commit.ps1` (shipped in each skill dir). What is and isn't committed:
+
+- **Committed** — meaningful ticket changes: a new ticket, a status flip
+  (`OPEN`↔`IN-REVIEW`↔`WONTFIX`), a disposition, an `encounters`/`lastSeen` bump,
+  and every appended History entry.
+- **Not committed** — bare **lease** writes (`claimedBy`/`claimedAt` at pick, and
+  stale-lease clears). These are transient coordination markers; their net effect
+  rides along in the next status commit (which stages the whole file), so the
+  committed history stays lease-free.
+
+All four hosts (`fuzz1`..`fuzz4`) edit this **one shared working tree**, so
+`board-commit.ps1` serializes safely:
+
+- a **machine-global mutex** (`Global\pinwright-board-commit`) serializes the
+  `.git/index` critical section so concurrent hosts never corrupt the index;
+- a **pathspec commit** (`git commit -- <files>`) records only the named ticket
+  file(s), never sweeping up a sibling host's in-flight edit to a different ticket;
+- "nothing to commit" is a no-op (idempotent);
+- after the local commit, a **best-effort push** mirrors the board to the private
+  backup remote `PinWright/pinwright-board` (non-fatal — a failed push self-heals
+  on the next commit's push). Because only this one local repo feeds that remote,
+  every push is a fast-forward; there is no cross-host merge to reconcile.
+
+Manual edits can just `git add <file> && git commit` here (or run `board-commit.ps1`)
+— the same one-file-per-commit convention keeps `git blame` per-ticket useful.
+
 ## ID Format
 
 Kebab-case slug IDs prefixed by category:
@@ -217,7 +249,7 @@ repro steps, impact.}
 4. Never delete or rewrite prior history entries.
 
 ## See also
-- [bpir-language-reference](../wiki/bpir.md)
-- [Blueprint wiki insertion sections](../wiki/blueprint.md#blueprintinsert_bpir_at_node)
-- [bpir-test-matrix](../bpir-test-matrix.md)
-- [mcp-usage-guide](../wiki/wiki.md)
+- bpir-language-reference: `Plugins/PinWright/wiki-generated/bpir.md` (or via MCP wiki `call("bpir")`)
+- Blueprint wiki insertion sections: `Plugins/PinWright/wiki-generated/blueprint.md` (or via MCP wiki `call("blueprint")`)
+- bpir-test-matrix: `Plugins/PinWright/docs/bpir-test-matrix.md`
+- mcp-usage-guide: `Plugins/PinWright/wiki-generated/wiki.md` (or via MCP wiki `call("wiki")`)
