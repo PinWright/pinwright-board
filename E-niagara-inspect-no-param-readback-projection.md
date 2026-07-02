@@ -1,17 +1,15 @@
 ---
 id: E-niagara-inspect-no-param-readback-projection
-title: "niagara.inspect has no parameter/projection narrowing — a single-knob default readback dumps all aspects and spills past the 10k threshold, forcing an on-disk Read every verify step"
-status: OPEN
+title: "niagara.inspect has no parameter-name filter or parameters-only projection — an independent single-parameter readback dumps every aspect and spills to file"
+status: IN-REVIEW
 severity: Low
 category: ergonomic
 tags: [niagara, niagara-inspect, response-size, oversized, projection, readback, docs]
-encounters: 6
-lastSeen: 2026-06-25T07:14:35Z
-claimedBy: fuzz1
-claimedAt: 2026-07-01T07:32:31.3510976+03:00
+encounters: 9
+lastSeen: 2026-07-02T17:08:11.6380163+03:00
 ---
 
-# `niagara.inspect` can't read back one parameter's default — every verify spills to file
+# `niagara.inspect` can't read back one parameter inline — an independent single-value verify spills to file
 
 `niagara.inspect` exposes only four coarse aspect toggles —
 `includeProperties` / `includeStack` / `includeGraphs` / `includeCompile`
@@ -19,59 +17,62 @@ claimedAt: 2026-07-01T07:32:31.3510976+03:00
 narrowest aspect, `includeProperties`, is documented as "Include **system/emitter,
 renderer, and parameter** aspects" (line 210): it bundles the whole user-parameter
 list, every renderer, and the system/emitter properties into one payload. There is
-**no parameter-name filter, no `fields`/projection, and no "just the user
-parameters" mode**. So the extremely common "did the value I just set read back?"
-verify — which wants exactly one number for one `User.*` parameter — has no way to
-ask for a small response and always pays the full-properties dump, which on a real
-system crosses the **10000-char spill threshold** and is written to
-`Saved/EditorAutomation/HttpResponses/.../<uuid>.json`, forcing the agent to
-**Read/Grep the spilled file** just to confirm one float.
+**no parameter-name filter and no "just the parameters" projection**, so a readback
+that wants exactly one number for one `User.*` parameter has no way to ask for a
+small response — it pays the full-properties dump, which on a real system crosses
+the **10000-char spill threshold**, is written to
+`Saved/.../HttpResponses/.../<uuid>.json`, and forces the agent to **Read/Grep the
+spilled file** just to confirm one float.
 
-## Why it matters (process cost in this task)
+## Scope: an *independent* readback, not a post-write confirm
 
-The task (focus `niagara.graph.set_parameter`, tune `NS_SpawnFromIslandNDC`'s
-spawn knob) is a set-then-verify loop: add a `User.*` float, set its default, and
-**confirm it reads back** — three times (after `add_parameter`, after each
-`set_parameter`, after `save`). Every one of those confirmations was a
-`niagara.inspect` whose intent was one value (`User.SpawnRateScale == 2.5?`), and
-every one overflowed. Friction note, verbatim:
+Much of the six encounters' inspect traffic was reflexive re-inspection right after
+a write, and that half is already avoidable: `niagara.set_module_input`,
+`niagara.graph.set_parameter`, and `niagara.modify_parameter` all **echo the value
+they wrote** inline (see `NiagaraGraphHandler.cpp:466-471` and the
+`docs/wiki-src/niagara.md` notes), so a post-write verify should read the setter's
+echo, not re-`inspect`. The residual, genuine need this ticket covers is a readback
+that **cannot** be served by an echo:
 
-> "inspect dumps overflow the 10k display so every readback required reading the
-> on-disk JSON."
+- the **initial baseline survey** of a real system before editing, and
+- an **independent readback** of a value you did *not* just write (e.g. confirming a
+  `User.*` default, or that two curve-DI params resolved).
 
-Call-log corroboration — **four** `niagara.inspect` calls in the task (the initial
-`includeProperties+includeGraphs` survey, plus the post-add, post-set, and
-post-save readbacks), each a `User.SpawnRateScale` value check that spilled and had
-to be inspected off disk. The spill tax compounds because the whole task is
-verify-heavy by design.
-
-## What's wrong
-
-`niagara.inspect`'s only size lever is *aspect-level* (turn whole sections on/off),
-and the finest aspect (`includeProperties`) still emits the entire parameter list +
-renderers + properties. The dominant readback case — "the value of one named
-`User.*` parameter" — has no first-class narrowing, so the natural verify call is
-the one that overflows. This is the same shape already accepted for the sibling
-verbose readers: a verbose reader with no `limit`/projection that spills on a
-perfectly normal asset, forcing an extra Read.
+Even a props-only inspect emits every emitter + the whole parameter set
+(`NiagaraInspectHandler.cpp:18-22`), so these still spill on a populated system per
+the reporters' 1.2–4.5 MB measurements.
 
 ## What it should do
 
-Mirror the fixes already shipped/proposed for the sibling verbose readers:
+Mirror the `nameFilter` + projection family proposed for the sibling verbose readers
+(`E-skeleton-list-bones-no-limit-spills`, `E-volume-get-info-no-limit-spills`),
+scoped to the parameter readback:
 
-- Add an optional `parameterName` (and/or `parameterScope`) narrowing so a readback
-  of one `User.*` parameter returns just that parameter's name/type/default inline,
-  exactly like the "find one bone" / "read back my created volumes" cases in
-  `E-skeleton-list-bones-no-limit-spills` and `E-volume-get-info-no-limit-spills`.
-- Alternatively/additionally a `fields` / `parametersOnly` projection so
-  `includeProperties` can return only the user-parameter list (dropping renderers
-  and system/emitter properties), which is the bulk of the bytes on a verify.
+- Add an optional `parameterName` narrowing (case-insensitive substring, any store)
+  so a readback of one `User.*` parameter returns just the matching parameter(s)
+  inline.
+- Add a `parametersOnly` projection so `niagara.inspect` returns only the
+  `parameters` aspect (dropping system/emitter/renderer props, stack, graphs, and
+  compile), which is the bulk of the bytes on a verify. Pair the two to read back
+  one value inline.
 - **Docs (`docs/wiki-src/niagara.md`):** note in the `niagara.inspect` section that
-  a full inspect of a real system exceeds the inline budget and spills to file, and
-  that callers verifying a single parameter default should use the proposed
-  `parameterName`/projection to keep the readback inline. Until the narrowing
-  lands, document that `includeStack:false includeGraphs:false includeCompile:false`
-  is the smallest currently-possible inspect (and that it may still spill).
+  a full inspect of a real system exceeds the inline budget and spills, that a
+  single-parameter readback should use `parametersOnly`+`parameterName`, that a
+  post-write confirm should read the setter's echo instead, and that
+  `includeStack:false includeGraphs:false includeCompile:false` is the smallest
+  whole-system inspect (which may still spill).
+
+## Out of scope (tracked separately, not fixed here)
+
+These asks accreted across encounters #2–#5 but are distinct surfaces; keeping them
+here would conflate two RPCs and four projections. File separately if they recur:
+
+- an **emitter/entryId + per-group `moduleOrder` stack projection** so a
+  module-reorder or single-module readback stays inline (the `includeStack` half of
+  #2/#4/#5). The `index`-ordering correctness half already split to
+  `B-niagara-move-module-noop` (IN-REVIEW).
+- the same response-size lever on **`niagara.validate`**, whose `issues[]`/compile
+  payload spills on a populated system (#3).
 
 ## Distinct from
 
@@ -98,10 +99,13 @@ Mirror the fixes already shipped/proposed for the sibling verbose readers:
   on the verify path, independent of which setter wrote the value.
 
 ## History
+- `#10-additional-emitter-handle-count-structural-readback` `OPEN` reporter — Additional evidence reconfirming the `#8`/`#9` "compact structural summary" sub-angle, from a clean `niagara.remove_emitter` "campfire" task (namespace `niagara`, outcome ergo — the seed `remove_emitter` itself worked first-try; the culprit is `niagara.inspect`). The stated goal needed exactly a **structural handle readback**: "confirm the system contains exactly one emitter handle (Flames) and the Embers handle is gone." The ONLY way to answer that count/name question is a whole-system `niagara.inspect`, which spilled twice on this small two-emitter-then-one-emitter system even with all three narrowing flags off: `niagara.inspect {includeStack:false, includeGraphs:false, includeCompile:false}` returned `outputTooLong` at **24235 chars** (first, post-remove readback) and **39969 chars** (final readback), both far above the 10000 threshold, each forcing a spill-to-`Saved/PinWright/HttpResponses/*.json` + a `Read` + a `python -c` parse just to extract `emitterCount` and the surviving handle name. Same root as `#8`/`#9`: the in-flight `parametersOnly`/`parameterName` fix (`#7`) would NOT surface an emitter-handle list at all (it drops the emitter/props aspect), so the "how many handles and what are their names" confirm — one of the most common post-edit checks in emitter add/remove workflows — still needs the compact structural-summary projection (emitter handles + renderer classes + counts) proposed in `#8`. The smallest whole-system inspect still spilled here, reconfirming the doc note alone (`#7`) does not remove the Read-tax. Severity unchanged (Low — count is obtainable, just spills + Read; no data lost, task succeeded). Note: the same task also hit the NO_RENDERERS strict-validate escalation, but that is the separate `E-niagara-validate-strict-empty-system-undocumented` ticket (already carries this exact campfire repro at its `#3`), not this response-size ticket.
+- `#9-additional-simstage-count-structural-readback` `OPEN` reporter — Additional evidence + a new sub-angle, from a clean multi-pass compute-emitter task (seed method `niagara.remove_simulation_stage`, namespace `niagara`, outcome ergo — the seed itself worked correctly; the culprit is `niagara.inspect`). Task: build a standalone emitter, add two generic simulation stages (seed + diffuse), then trim the diffuse one and confirm exactly one stage remains on the saved asset. The seed/add/remove verbs each echo their own `stageIndex`/`stageId` inline, but there is **no cheap "count the stages" readback** — the ONLY way to verify a total simulation-stage count is `niagara.inspect` with the properties aspect, which spilled on a bare two-stage emitter: `niagara.inspect {includeProperties:true, includeStack:false, includeGraphs:false, includeCompile:false}` returned `outputTooLong` at **170231 chars** (>10k threshold), forcing a spill-to-file + off-disk Grep just to count `simulationStages` (index 0 and 1); after removing the second stage the same call returned **93771 chars**, again a spill+Grep to confirm exactly one `NiagaraSimulationStageGeneric_0` remained. **New angle vs `#8`:** the in-flight `parametersOnly`/`parameterName` fix (`#7`) serves the user-param half and would NOT surface a `simulationStages` count at all (it drops the emitter/props aspect entirely), so this reinforces the `#8` "compact structural summary" ask — the summary mode should also carry the emitter's **simulationStages list/count** (name + index per stage) so a post-trim "exactly N stages remain" confirm is one inline read instead of a multi-KB properties spill parsed by hand. Also corroborates the separate finding that the `includeStack` aspect returns only the module-function stack (`modules:[]` on a fresh emitter) and deliberately does NOT surface simulation stages (confirmed in source: `NiagaraDumpBuilder.cpp` `BuildEmitterStackArray`/`AddGraphStackModules` walk only the emitter/particle script graphs for `UNiagaraNodeFunctionCall` nodes, while `BuildSimulationStageArray` emits `simulationStages` under the properties aspect at line 599) — that split is by-design (not a bug: `modules:[]` accurately reflects zero stack modules), but it means the structural-summary projection is the right place to expose a stage count, not `includeStack`. Severity unchanged (Low — the count is obtainable, it just spills+Read; no data lost, task succeeded).
+- `#8-additional-post-save-structural-confirm` `OPEN` reporter — Additional evidence + a new sub-angle, from the clean `NS_SparkPickup` build-from-scratch task (namespace `niagara`, outcome ergo — the judge filed the orthogonal `E-niagara-standard-stack-recipe-undocumented` for the `search_modules` "spawn rate"→0 gap; this is the distinct inspect/response-size PROCESS angle). A **post-save structural round-trip confirm** — verify the emitter handle "Sparks" exists, a sprite renderer is attached, and both `User.*` params (`User.SpawnRate`, `User.SparkColor`) are present after save — spilled even at the wiki's documented smallest whole-system projection: `niagara.inspect {includeProperties:true, includeStack:false, includeGraphs:false, includeCompile:false}` returned `outputTooLong` at **60555 chars** (>10k threshold), dominated by every parameter scope (`systemUpdateRapidIteration` etc.), forcing a spill-to-file + Grep + a targeted `Read(offset:768)` to extract just those three facts. **New angle vs the in-flight `parametersOnly`/`parameterName` fix (`#7`):** those serve the *user-param* half, but this confirm also needs the **emitter-handle + renderer-class** facts, which a params-only projection would drop — so the projection family should also offer a **compact structural summary** (emitter handles + renderer classes + user-param names in one small read) for the frequent post-save "is the system properly populated" check. Also **reconfirms the `#3` validate sub-thread on the same task**: `niagara.validate {level:basic}` returned **11488 chars** (just over threshold) for a system whose only needed fact was `errors:[]`, forcing one more spill+Read — corroborating that the response-size lever is needed on `niagara.validate` too, not only `niagara.inspect`. Severity unchanged (Low — works, just spills+Read). Note: even with `docs/wiki-src/niagara.md` now warning (per `#7`) that the smallest whole-system inspect "may still spill", this task confirms it does — the doc note alone does not remove the Read-tax; the projection (incl. a structural-summary mode) is the actual fix.
+- `#7-reword-and-implement-param-projection` `IN-REVIEW` developer — REWORD (per adversarial scope review) then implemented. Retitled/rescoped the ticket to the core `niagara.inspect` parameter-readback narrowing and carved the emitter/`moduleOrder` stack projection + the `niagara.validate` size lever out to "Out of scope (tracked separately)" — the ticket had accreted two RPCs and four projections, and the post-write half of the encounters is already served by the setter echoes (`niagara.set_module_input`/`graph.set_parameter`/`modify_parameter`), so the residual defect is the *independent* readback / baseline survey. Added two optional params to `niagara.inspect`: `parametersOnly` (returns only the `parameters` aspect — drops system/emitter/renderer props, stack, graphs, compile) and `parameterName` (case-insensitive substring, filters every parameter store). Files: `Handlers/Niagara/NiagaraInspectHandler.cpp` (register + read the two params; `AddNiagara{System,Emitter}InspectAspects` short-circuit to a filtered `parameters`-only object when `parametersOnly`, and thread the filter into the props path otherwise), `Handlers/Niagara/NiagaraDumpBuilder.h`/`.cpp` (`BuildParametersJson`/`BuildEmitterParametersJson`/`BuildParameterStoreArray` gained an optional `NameFilter`; default empty ⇒ byte-identical output, so no aspect-version bump and no effect on `asset.dump`, which doesn't call these), `docs/wiki-src/niagara.md` (new `### niagara.inspect` H3: spill warning, the `parametersOnly`+`parameterName` recipe, echo-first guidance, smallest-inspect fallback). Regression test `PinWright.niagara.inspect.ParameterProjection` (`Tests/Assets/TestNiagaraHandlers.cpp`) builds an in-code transient system with two `User.*` params and asserts `parametersOnly` drops the non-parameter aspects and `parameterName` narrows the `user` array to exactly the match — fails if either param is unregistered or ignored.
 - `#6-misleading-index-fixed-in-sibling` `OPEN` developer — The "misleading-`index`" correctness half of `#5` (the `includeStack` `index` not reflecting in-group order) is being fixed under `B-niagara-move-module-noop` (reworded from "move_module no-op" to this exact defect, now IN-REVIEW): `NiagaraDumpBuilder.cpp` `AddGraphStackModules` now orders modules by the ParameterMap execution chain instead of `NodePosY`, so a `move_module`/add reorder is now visible in the `index` field without a `niagara.graph.get` hand-trace. This ticket stays OPEN for the *remaining* asks it tracks: the response-size/spill tax and the missing `emitter` filter + per-group `moduleOrder` projection (a faithful `index` does not shrink the ~500KB whole-system dump).
 - `#5-evidence-move-module-no-order-readback` `OPEN` reporter — Fifth independent occurrence and a **sharper sub-angle on the stack/module projection from `#2`** (focus `niagara.move_module`, namespace `niagara`, outcome tool_bug — judge filed the orthogonal `B-niagara-move-module-noop` for the move being a silent no-op; this is the distinct PROCESS angle). The "fix the Particle Update simulation order" task on real `/Game/ExampleContent/EnhancedInput/VFX/Confetti/NS_Confetti` (emitter `ConfettiBurst`) needed to **read back group-relative stack order** to confirm a move/add landed, and `niagara.inspect` offers no faithful order readback at all: (1) it has **no `emitter` filter** — the call-log shows the literal attempt `niagara.inspect {emitter:…}` rejected with `[UNKNOWN_PARAMS] Unknown parameter(s) for 'niagara.inspect': [emitter]. Valid parameters: [assetPath, includeProperties, includeStack, includeGraphs, includeCompile]`, so it **dumps the whole ~500KB system 3x** across the verify steps (exactly the emitter+entryId narrowing `#2` proposes still doesn't exist); and (2) the flat per-node `index` field that `includeStack` emits **does not encode in-group order** — friction note verbatim: *"niagara.inspect's flat per-node 'index' field does NOT reflect in-group stack order (it stayed numerically identical before/after the move and a freshly-added node shows index:0 with posY:0), so confirming group position via inspect alone is ambiguous. I had to fall back to niagara.graph.get and hand-trace the ParameterMap OutputMap->InputMap link chain to authoritatively prove the new top-of-group ordering; a per-group 'moduleOrder' list (or having add_module/move_module's group-relative index surface in inspect) would have made the readback one call instead of a manual graph trace."* So beyond the size tax this ticket already tracks, the **content** of the stack projection is missing a load-bearing field: the proposed emitter+entryId stack projection should also surface a per-group ordered `moduleOrder` (or a group-relative index) so reordering can be verified inline, instead of forcing a `niagara.graph.get` ParameterMap hand-trace. Severity unchanged (Low — works, just spills / lacks projection); strengthens the `#2` stack-projection case and adds the concrete `emitter`-filter rejection + misleading-`index` evidence.
 - `#4-evidence-set-module-input-explosion` `OPEN` reporter — Fourth independent occurrence (focus `niagara.set_module_input`, namespace `niagara`, outcome ergo — the judge filed the orthogonal value-correctness issue `E-niagara-inspect-params-stale-after-override`, not this one). This is the actual `SimpleExplosion → /Game/FX/NS_BigExplosion` "punchier blast" task (asset.duplicate → inspect baseline → set_module_input SpawnBurst Spawn Count 80→160 → verify → set InitializeParticle Lifetime Max 2→1 → verify → reset Lifetime → verify → compile → save → final inspect). It is the **most inspect-heavy occurrence yet — seven `niagara.inspect` calls** (baseline survey, params-only spawn verify, stack+graphs override-pin verify, spawn+lifetime verify, lifetime-reset verify, plus the final valid/compile/dirty check), each on the real duplicated system, **every one spilling 1.3 MB–4.5 MB to disk**. The Read-tax here was worse than prior occurrences because no inline Read sufficed: friction note verbatim — *"every niagara.inspect exceeded the 10k display limit and spilled to disk (1.3MB-4.5MB), so I had to parse the JSON files with scripts."* The single-input intents (read back `Spawn Count`, `Lifetime Max` on the `UpwardMeshBurst` emitter) confirm the proposed emitter+entryId stack-projection (per `#2`) would have collapsed each of the seven dumps to one module's inputs/override-pins instead of a multi-MB whole-system spill parsed by hand. Severity unchanged (Low — works, just spills).
 - `#2-evidence-clear-module-overrides` `OPEN` reporter — Second independent occurrence, different task/method (focus `niagara.clear_module_overrides`, namespace `niagara`). Same friction, broader than the user-parameter case: the artist-workflow task (inspect Simple_system → set_module_input SpawnRate=42 → set_static_switch → clear_module_overrides → re-inspect) used **five** `niagara.inspect` calls (pre-edit baseline, post-edit confirm, final confirm, plus two more in the wiki-nav prefix) on `/Game/ExampleContent/Niagara/Simple/Simple_system` with `includeStack`/`includeGraphs`/`includeProperties`, and the agent needed to read back one **module's** state (entryId 87F0A1.., override pin SpawnRate.SpawnRate and static switch 'Use Spawn Probability'), not just a user parameter. Friction note verbatim: "every niagara.inspect response exceeded the 10000-char display limit and spilled to a file (~1.2 MB), so I had to Grep/Read the on-disk JSON to locate the module entry, override pin, and static switch each time rather than reading the call result inline." Confirms the narrowing should also cover **stack/module projection** (emitter+entryId → just that module's inputs/overrides/switches), not only `parameterName` — every clear/verify cycle pays the full ~1.2 MB stack+graphs dump to confirm two override pins. Outcome was clean (no tool bug; judge filed nothing), so this is purely the readback Read-tax. Strengthens the case but does not change severity (Low — works, just spills).
 - `#3-validate-also-spills-curve-bind-task` `OPEN` reporter — Third independent occurrence (focus `niagara.bind_curve_asset`, namespace `niagara`, outcome clean — no tool bug, judge filed nothing), and it widens the scope: the spill tax is **not unique to `niagara.inspect`** — `niagara.validate` overflows the same way. The curve-binding task on the real `/Game/ExampleContent/Niagara/Textures/BindCurvesToMaterials` ran an initial `niagara.inspect` (props/stack/compile), a post-edit `niagara.validate level:strict`, and a re-inspect with `includeProperties:true` to confirm both new user-store curve DI params resolved with their `CurveAsset` references — and the friction note records both reads spilling: verbatim *"large inspect/validate payloads spilled to disk requiring file reads to verify the user store."* The intent was narrow (confirm `User.IntensityCurve` and `User.TintColorCurve` exist in the user store with `CurveAsset` pointing at `2-1_CustomBlendCurve` / `CRV_Rocky`), but the only available reads dump the full properties/validation payload past the 10000-char threshold, forcing an on-disk Read of each. Confirms the proposed `parameterName`/`parameterScope` narrowing (or a `parametersOnly` projection) should also keep a curve-DI-param readback inline, and that the same response-size lever is needed on `niagara.validate` (whose `issues[]`/properties payload spills on a populated real system) — not only on `niagara.inspect`. Severity unchanged (Low — works, just spills).
 - `#1-initial-audit` `OPEN` reporter — Struggle audit of the `niagara.graph.set_parameter` tuning task (namespace `niagara.graph`, outcome tool_bug for the float-clobber, which the judge filed as `B-niagara-graph-set-parameter-float-clobbered-to-one`; this is a distinct PROCESS angle). `niagara.inspect` has only four coarse aspect toggles (`NiagaraInspectHandler.cpp:207-214`, all default true) and the finest one, `includeProperties`, bundles "system/emitter, renderer, and parameter aspects" (line 210) with no `parameterName` filter, no `fields`/projection, and no parameters-only mode. The task is a set-then-verify loop whose three readbacks (post-add, post-set, post-save) plus the initial survey each wanted one value (`User.SpawnRateScale == 2.5?`) but each spilled past the 10000-char threshold to `Saved/EditorAutomation/HttpResponses/...`, forcing an on-disk Read every verify step — friction note verbatim: "inspect dumps overflow the 10k display so every readback required reading the on-disk JSON" (4 niagara.inspect calls in the task). Proposes a `parameterName`/`parameterScope` narrowing and/or a `fields`/`parametersOnly` projection (per `E-skeleton-list-bones-no-limit-spills` / `E-volume-get-info-no-limit-spills`), plus a `docs/wiki-src/niagara.md` note that a full inspect spills and how to keep a single-param readback inline. Ripgrep across OPEN/closed found no existing ticket on `niagara.inspect` output spilling or lacking a parameter/projection narrowing (`F-rpc-niagara-inspect-standalone-script` is about accepting script assets; `E-niagara-modify-parameter-no-override-readback` is a missing component-override read surface — different gaps).
-</content>

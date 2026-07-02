@@ -5,8 +5,8 @@ status: OPEN
 severity: Low
 category: ergonomic
 tags: [docs, sequencer, add_keyframe, transform-track, value-shape]
-encounters: 1
-lastSeen: 2026-06-23T10:08:23Z
+encounters: 3
+lastSeen: 2026-07-02T13:30:46.7600928+03:00
 ---
 
 # `sequence.add_keyframe` value-object shape per property is undocumented — caller had to read plugin source
@@ -94,3 +94,32 @@ flat `{x,y,z}` (or `{roll,pitch,yaw}` for rotation).
   value-shape detail by reading `docs/wiki-src/sequencer.md:68-76`. Downstream
   wiki target: `docs/wiki-src/sequencer.md` `sequencer.add_keyframe` H3 (add a
   per-property value-shape sub-list with one example each).
+- `#2-additional-decollide-dispatch` `OPEN` reporter — New PROCESS angle from the
+  struggle-audit of the SEED-mode `sequencer.delete` cinematic task (focus
+  `sequencer.delete`, `/Game/Cinematics/IntroMaster`, 23 calls). Beyond this
+  ticket's value-shape doc gap, the **dual registration itself** is an ergonomic
+  trap the audited run had to reason around: the `sequencer.add_keyframe` H3
+  admits the seconds-based (`SequencerHandler`) and frame-numbered
+  (`SequenceHandler`) forms collide under one name and that *"which one wins at
+  dispatch time depends on registration order … If you need deterministic
+  behavior, prefer the seconds-based form's exact param set; missing required keys
+  force the legacy form's path"* — i.e. it tells callers to probe the live schema
+  to know which handler they'll hit. The run read the H3, then **defensively chose
+  the explicit legacy frame form** (`sequence.add_keyframe` {path,bindingId,
+  property,frame,value}) purely to guarantee deterministic dispatch. Friction note
+  verbatim: *"add_keyframe is also documented as two colliding dispatch shapes
+  under sequencer.add_keyframe, so I deliberately used the explicit legacy
+  sequence.add_keyframe name for the transform/Location keys."* Zero failed calls,
+  but a reasoning/reading cost every caller pays and a defensive param-shape
+  commitment. Proposed fix — **distinct from this ticket's value-shape docs
+  remediation**: make dispatch *deterministic* — give the two forms
+  non-overlapping method names (or pick one canonical method) so the wiki no
+  longer has to say dispatch is registration-order-dependent; if both must
+  coexist, document deterministically WHICH args select WHICH form rather than
+  "depends on registration order." Downstream wiki page:
+  `docs/wiki-src/sequencer.md` `sequencer.add_keyframe` H3. Dedup: this is the
+  *collision/dispatch-nondeterminism* angle, distinct from
+  `E-sequence-add-keyframe-bare-empty-no-success` (response shape) and from this
+  ticket's original *value-object shape* angle; no existing ticket proposes
+  de-colliding the two registrations.
+- `#3-liveness` `OPEN` reporter — still observed (`CS_Establishing` 24fps 0-5s establishing-shot task, focus `sequencer`, 31 calls). To animate the moving actor's Location on a `MovieScene3DTransformTrack`, the run again had to abandon the modern seconds-based `sequencer.add_keyframe` (documented float-track-only) and fall back to the legacy frame-numbered `sequence.add_keyframe` with `property:"Location"` + a vector value (SAY: "the seconds-based add_keyframe is float-track-only, so I'll use the legacy frame-numbered sequence.add_keyframe writer with property: 'Location' and a vector value"). Same two-keyframe-APIs / two-time-bases juggling for the canonical "make the actor drift" operation; no new angle beyond `#2`'s de-collision proposal. (A candidate feature framing — extend the modern seconds-based `sequencer.add_keyframe` to accept transform/vector channels, or add a dedicated `sequencer.add_transform_keyframe` — is the constructive form of the same split; folded here rather than filed separately since the PROCESS cost is identical to `#2`.)

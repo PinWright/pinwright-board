@@ -5,8 +5,8 @@ status: OPEN
 severity: Low
 category: ergonomic
 tags: [session, docs, pie-prerequisite, discoverability, voice-chat-plugin]
-encounters: 4
-lastSeen: 2026-06-24T09:27:12Z
+encounters: 5
+lastSeen: 2026-07-01T16:42:43.2664492+03:00
 ---
 
 # `session` wiki overlay omits the live-PIE prerequisite for local-player / split-screen methods
@@ -181,3 +181,33 @@ This is a wiki edit, not a code change.
   `voiceChatEnabled=false`) is the OUTCOME, owned by the judge's filed
   `E-session-info-split-screen-type-not-layout` (now carrying the `FourPlayer_Grid`
   evidence as its `#2`) and `E-session-info-readback-hardcoded`, not a process angle.
+- `#5-pie-liveness-and-voice-sourcedive` `OPEN` reporter — Process/struggle audit of a
+  2-player couch co-op split-screen + proximity-voice setup task (focus
+  `session.get_sessions_info`, outcome ergo, 14 real calls). **PIE half — pure
+  liveness (5th recurrence), cleanest form:** the agent reached for
+  `session.add_local_player {controllerId:-1}` FIRST on a freshly-loaded editor (before
+  any split-screen setters), got `[NO_GAME_INSTANCE] No active game instance. Start
+  Play-In-Editor first.`, ran `editor.play`, retried → `totalLocalPlayers=2`. One
+  wasted call, no out-of-order redo (unlike `#3`/`#4`); the overlay gap is unchanged,
+  still observed. **Voice half — 3rd recurrence, NEW wrinkle (source dive instead of
+  retry):** `session.enable_voice_chat {voiceEnabled:true}` hard-failed with
+  `[VOICE_CHAT_ERROR] IVoiceChat interface not available - no voice chat plugin loaded`,
+  but unlike `#2`/`#4` the agent did NOT retry it. Instead, because its four sibling
+  voice methods in the SAME batch all returned success (`configure_voice_settings
+  {volume:0.8,noiseSuppression:true,echoCancel:true}`, `configure_push_to_talk
+  {enabled:true,key:V}`, `set_voice_attenuation {radius:2000,falloff:2}`,
+  `set_voice_channel {name:CoopPair,type:Proximity}`), the false "it's wired up"
+  impression forced the agent to Grep+Read plugin C++ (`SessionsHandler.cpp`) to confirm
+  the enable failure was STRUCTURAL (host-plugin-dependent) and not its own error — a
+  source-dive cost the overlay note would eliminate outright. Friction note: "the four
+  voice sub-config methods all return success and store state, giving a false 'it's wired
+  up' impression; no wiki page warns a voice provider plugin is required. Had to read
+  plugin C++ (SessionsHandler.cpp) to confirm it was structural, not my error." Same
+  overlay-omits-the-precondition gap this ticket owns; the fix (extend
+  `docs/wiki-src/session.md` to flag the IVoiceChat plugin dependency AND that the voice
+  sub-setters only stage settings on a host where voice can never enable) is unchanged.
+  The readback-hardcoded OUTCOME (`voiceChatEnabled` live-only, `activeVoiceChannels`
+  hardcoded `[]`) is owned by the judge's `E-session-info-readback-hardcoded`
+  (this exact task appended there as its `#5-additional-voice-channel-readback`, which
+  explicitly delegates the false-"wired up" discoverability process half here); not a
+  separate ticket. No new ticket; appended as cross-task evidence.

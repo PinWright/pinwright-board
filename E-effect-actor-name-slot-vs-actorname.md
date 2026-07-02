@@ -5,6 +5,8 @@ status: IN-REVIEW
 severity: Low
 category: ergonomic
 tags: [actor, param-alias, actorname, actorpath, objectpath, get_transform, set_transform, bounding_box, drift]
+encounters: 2
+lastSeen: 2026-07-02T09:34:50.7138314+03:00
 ---
 
 # The `actor.*` transform/readback verbs carry NO actor-identity aliases — `actorPath`/`objectPath` hard-fail `MISSING_REQUIRED_PARAM`
@@ -234,3 +236,29 @@ not. The edit itself is the downstream wiki process, not this ticket.
   'actorName' not 'actor') but the error messages listed the valid keys so each was
   a single clean retry."* (The `actor.list` half of that note is tracked on
   `E-actor-list-no-class-filter #4`.)
+- `#6-additional-spawn-name-generic-guess` `IN-REVIEW` reporter — Cross-task
+  aggregation, the generic **`name`** spelling now confirmed rejected on the
+  **`actor.spawn` producer itself** (prior actor.spawn evidence in `#3` used
+  `label`; the `name` spelling was previously only seen on reader verbs in
+  `#1`/`#2`). Struggle audit of the candelabra scene-dressing task (focus
+  `actor.duplicate_component`; outcome `done`; judge filed
+  `B-duplicate-component-clones-editor-sprite` for the light-billboard clone bug —
+  unrelated to this family). The agent's first spawn typed
+  `actor.spawn {meshPath:"/Engine/BasicShapes/Cylinder", name:"CandelabraBase"}` →
+  `[UNKNOWN_PARAMS] Unknown parameter(s) for 'actor.spawn': [name]. Valid
+  parameters: [classPath, actorName, meshPath, location, rotation, scale].`,
+  corrected on retry with `{actorName:"CandelabraBase"}` (success). One wasted
+  `is_error` call, zero blocked progress — same single self-correcting round-trip
+  as `#1`–`#5`; the error enumerates the valid params so recovery is one hop. New
+  fact vs `#3`/`#4`: the `#4` reword dropped bare `name` from the SHARED reader
+  alias set because `name` collides with `actor.find_by_name`'s "search substring"
+  canonical key — but that collision does **not** exist on the *producer*
+  `actor.spawn` (no `name`-means-search slot there), so a **spawn-local** `name`
+  (and `label`, per `#3`) alias on `actor.spawn`'s `actorName` slot closes this
+  producer-side first-guess friction WITHOUT reopening the shared-reader-set
+  polysemy concern `#4` correctly avoided. Docs half unchanged and still open:
+  `docs/wiki-src/actor.md` has no `### actor.spawn` section naming the `actorName`
+  slot (also targeted by `E-spawn-no-scale-param #2`, which added that section —
+  coordinate, don't duplicate). Friction note (verbatim): *"Minor: one retry on
+  actor.spawn (I passed 'name'; the error listed valid params so I switched to
+  'actorName')."*

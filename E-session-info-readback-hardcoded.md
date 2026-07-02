@@ -5,6 +5,8 @@ status: IN-REVIEW
 severity: Medium
 category: ergonomic
 tags: [session, readback, hardcoded, no-op-setter]
+encounters: 3
+lastSeen: 2026-07-02T14:47:53.4842628+03:00
 ---
 
 # `session.get_sessions_info` returns hardcoded `currentSessionName`/`maxPlayers`/`voiceChatEnabled`, never the configured values
@@ -108,3 +110,60 @@ honest alternative is to stop emitting these fixed fields (or document them as
   here rather than filing a new ticket (duplicate of OPEN).
 - `#3-retriage` `OPEN` triage — Low→Medium: getter returns hardcoded currentSessionName/maxPlayers/voiceChatEnabled while setter only echoes, silent-wrong readback that can never confirm config on a niche couch-coop session path.
 - `#4-fix` `IN-REVIEW` developer — Closed the write→read round-trip the ticket's primary Fix names, using the existing `FPluginState` singleton (no new state infrastructure). `session.configure_local_session_settings` now persists the configured `sessionName`/`maxPlayers`/`bIsLANMatch` into a new `FConfiguredSessionSettings` field on `FPluginState`; `session.get_sessions_info` reads them back under `currentSessionName`/`maxPlayers`/`isLANMatch` (emitting the honest "None"/0/false defaults only while `bConfigured` is still false, so it never serves a stale lie). `voiceChatEnabled` is now derived live from the `IVoiceChat` connection state (`IsInitialized() || IsConnected()`) instead of the hardcoded `false`, matching how `session.enable_voice_chat` operates `IVoiceChat`. Files: `Source/PinWright/Private/State/PluginState.h` (new `FConfiguredSessionSettings` struct + `ConfiguredSession()` accessor + field), `Source/PinWright/Private/State/PluginState.cpp` (reset in `ResetForTesting`), `Source/PinWright/Private/Handlers/System/SessionsHandler.cpp` (setter persists, getter reads back + live voice state, added `State/PluginState.h` include). Regression test `PinWright.session.get_sessions_info.ReadsBackConfiguredSettings` in `Source/PinWright/Private/Tests/EditorOps/TestSystemHandlers.cpp` configures `{sessionName:"CouchCoop", maxPlayers:4, bIsLANMatch:true}` then asserts `get_sessions_info` reads them back verbatim (and that an unconfigured getter still emits None/0); it fails on pre-fix code where the getter hardcoded the literals. `splitScreenType` / split-screen layout remain with sibling `E-session-info-split-screen-type-not-layout`; the echo-only voice setters (`set_voice_attenuation`/`configure_push_to_talk`) are out of scope here (their applied values are already confirmable via their own setter echoes).
+- `#5-additional-voice-channel-readback` `IN-REVIEW` reporter — Additional evidence
+  (new angle: the `activeVoiceChannels` field + `set_voice_channel` setter, which the
+  `#4-fix` explicitly scoped OUT and prior encounters only listed but never demonstrated
+  as a round-trip). A couch co-op proximity-voice task (REALISM mode, 2 local players,
+  PIE running) set a named voice channel and then read back `get_sessions_info` to
+  confirm it. Replay-confirmed live at HEAD: `session.set_voice_channel
+  {channelName:"CoopPair", channelType:"Proximity"}` → `{"channelName":"CoopPair",
+  "channelType":"Proximity"}` (pure echo, success); immediately after,
+  `session.get_sessions_info {}` → `{"sessionsInfo":{...,"splitScreenType":
+  "TwoPlayer_Horizontal","voiceChatEnabled":false,...,"activeVoiceChannels":[]}}` —
+  `activeVoiceChannels` is `[]` despite the channel just being set, so the configured
+  voice channel can never be read back. Source ground truth: `get_sessions_info`
+  hardcodes an empty channel array (`SessionsHandler.cpp:821`-`822`: local
+  `TArray<TSharedPtr<FJsonValue>> VoiceChannels;` set straight into
+  `activeVoiceChannels` with nothing pushed), and `session.set_voice_channel`
+  (`:601`-`624`) validates the type then echoes `channelName`/`channelType`, storing
+  nothing. Note the `#4-fix` DID land for the sibling fields (this readback now shows
+  `splitScreenType:"TwoPlayer_Horizontal"`, not `"Active"`, and `voiceChatEnabled` is
+  live-derived — correctly `false` here since no voice provider is loaded, not a lie),
+  but the `set_voice_channel`→`activeVoiceChannels` round-trip remains open. Same
+  handler / same "setter echoes, getter hardcodes, round-trip can't close" failure mode
+  this ticket owns; grouped here rather than filing a near-duplicate. The
+  missing-voice-provider discoverability + false-"wired up" impression from the echo
+  voice sub-setters is the process half, owned by `E-session-wiki-pie-prerequisite-undocumented`
+  (`#2`/`#4`); not re-filed.
+- `#6-additional-interface-type-no-field` `IN-REVIEW` reporter — Additional evidence
+  (NEW ANGLE: the `interfaceType` session-identity field + `session.configure_session_interface`
+  setter, which the two sibling `#5` history entries on `E-session-info-split-screen-type-not-layout`
+  and this ticket both explicitly DELEGATED to this ticket as "the session-identity readback gap
+  owned by `E-session-info-readback-hardcoded`" but which neither ticket body actually named until
+  now). Surfaced by a LAN couch-coop setup task (focus `session.configure_session_interface`,
+  outcome ergo). The success check explicitly wanted to read back the LAN interface being active
+  before inviting anyone. Replay-confirmed live at HEAD (editor, PIE NOT running):
+  `session.configure_session_interface {interfaceType:"LAN"}` → `{"interfaceType":"LAN","status":"configured"}`
+  (echoes the enum), then `session.get_sessions_info {}` →
+  `{"sessionsInfo":{"localPlayerCount":0,"inPlaySession":false,"currentSessionName":"CoopLAN","isLANMatch":true,"maxPlayers":4,"currentPlayers":0,"splitScreenEnabled":false,"splitScreenType":"TwoPlayer_Horizontal","voiceChatEnabled":false,"isHosting":false,"connectedServerAddress":"","activeVoiceChannels":[]}}`
+  — the readback carries **no `interfaceType` field at all**, so the focus method's own effect is
+  unobservable via the intended round-trip. LAN state is only inferable from `isLANMatch`, which is
+  set by a DIFFERENT method (`configure_local_session_settings.bIsLANMatch`, now round-tripping post
+  #4-fix — confirmed `isLANMatch:true` here), NOT by `configure_session_interface`. So a caller who
+  only switches the interface to LAN without also setting `bIsLANMatch` gets zero readback
+  confirmation. Source ground truth: `configure_session_interface` reads `interfaceType`
+  (`SessionsHandler.cpp:143`), validates against Default/LAN/Null, echoes it back (`:154`), and
+  stores it NOWHERE — a pure-echo setter exactly like the ones this ticket already owns; and
+  `get_sessions_info` (`:778`-`819`) emits `currentSessionName`/`isLANMatch`/`maxPlayers`/
+  `splitScreenEnabled`/`splitScreenType`/`voiceChatEnabled`/`isHosting`/`connectedServerAddress`/
+  `activeVoiceChannels` but never an `interfaceType` field. Same handler / same "setter echoes,
+  getter can't confirm" failure mode this ticket owns, one more session-identity field — grouped
+  here (honoring the sibling tickets' explicit delegation) rather than a near-duplicate file. Fix
+  extends the #4-fix pattern: persist the configured `interfaceType` into `FConfiguredSessionSettings`
+  and add an `interfaceType` field to `get_sessions_info` (emitting the honest "Default" only while
+  unconfigured), so the interface write→read round-trip closes. The task's other friction — the
+  `configure_split_screen` `enabled:true` bit not round-tripping to `splitScreenEnabled` — is owned by
+  `E-session-info-split-screen-type-not-layout` (`#5-additional-enabled-boolean-no-roundtrip`, this
+  exact task's evidence); the `add_local_player [NO_GAME_INSTANCE]` on this PIE-stopped host is the
+  expected/task-excluded prerequisite owned by `E-session-wiki-pie-prerequisite-undocumented`.
+  Neither re-filed here.

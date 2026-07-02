@@ -182,5 +182,3 @@ the "read-only counterpart" to (16938 chars); both overflow and spill to file.
   equals the bound mesh path, the `bodies`/`constraints` arrays are ABSENT by
   default and PRESENT under `includeBodies=true`. Reverting the fix (dropping the
   scalars / always dumping the arrays) fails it.
-</content>
-</invoke>

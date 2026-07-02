@@ -5,8 +5,8 @@ status: OPEN
 severity: Low
 category: ergonomic
 tags: [blueprint, scs, param-alias, blueprintpath, path, drift]
-encounters: 1
-lastSeen: 2026-06-30T00:00:00Z
+encounters: 2
+lastSeen: 2026-07-02T08:30:24.2495380+03:00
 ---
 
 # `blueprint.scs.*` require `blueprintPath` and reject the `path` spelling, outside the canonical blueprint alias fix
@@ -46,3 +46,17 @@ multi-key getter, so the namespace stays uniformly aliased as new verbs land.
   same way. Not covered by the DONE `E-blueprint-param-name-path-vs-assetpath`,
   whose `#2`/`#4` migration list excludes `SCSHandler.cpp`. Severity Low (pure
   friction, self-correcting, matching the rest of the drift family).
+- `#2-additional-assetpath-spelling` `OPEN` reporter — Re-observed on the
+  `blueprint.scs.reparent_component` BP_SecuritySpotlight build (Actor BP: Pole
+  root → LampHead → Spotlight reparented under LampHead + TriggerVolume; compile
+  + save + read-back; outcome `clean`). Concrete evidence for the `assetPath`
+  spelling the title names (the `#1` replay used `path`): the agent's first probe
+  `blueprint.scs.get {assetPath:"/Game/BP_SecuritySpotlight"}` →
+  `[MISSING_REQUIRED_PARAM] Missing required parameter 'blueprintPath' (type:
+  string)`; after one wiki-read of `blueprint.scs.get.md` it reissued with
+  `{blueprintPath:...}` and succeeded. The wrong guess has clear cross-namespace
+  provenance — the SAME run's `asset.save` keys on `assetPath`, so an agent
+  fresh off an `asset.*` verb naturally reuses `assetPath` on `blueprint.scs.*`.
+  One round-trip + one wiki-read, self-corrected, zero blocked progress —
+  reconfirms the Low severity and the FParamSpec-alias fix. (CallAnalyzer flagged
+  as `frustrating`/`guessed param format`, severity trivial.)

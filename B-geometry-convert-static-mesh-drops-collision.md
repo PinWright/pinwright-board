@@ -139,4 +139,3 @@ geometry bake path. Not the `inset`/`outset` direction bug
   generate_collision box → convert through the real dispatcher, asserts the response reports
   `collisionElements >= 1`, and loads the baked StaticMesh to assert its `BodySetup->AggGeom`
   actually holds the box (`BoxElems.Num() >= 1`) — reverting the transfer leaves both zero.
-</content>

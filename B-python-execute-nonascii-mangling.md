@@ -1,7 +1,7 @@
 ---
 id: B-python-execute-nonascii-mangling
 title: "python.execute corrupts non-ASCII chars in inline code (temp-file encoding path)"
-status: OPEN
+status: WONTFIX
 severity: Medium
 category: bug
 tags: [python, encoding, temp-file, non-ascii]
@@ -37,3 +37,4 @@ original `×` repro to verify it actually resolves the symptom.
 
 ## History
 - `#1-initial-repro` `OPEN` reporter — `python.execute {code: "...load_asset('/App/.../Tower_7×6')..."}` mangled `×`; `chr(0x00d7)` workaround loaded the asset. Handler writes inline code to a temp .py via SaveStringToFile/AutoDetect (PythonExecuteHandler.cpp:157); UE 5.6 write→read→compile trace round-trips losslessly, so the corrupting stage is unconfirmed — needs a live re-repro. Proposed fix: ForceUTF8WithoutBOM on the temp write.
+- `#2-mechanism-disproven-wontfix` `WONTFIX` developer — Mechanism refuted against verified UE 5.7 source; the temp-file round-trip is provably lossless for `×` (U+00D7), so the ticket's own static-trace suspicion was correct and the empirical anecdote is not attributable to this path. WRITE: `SaveStringToFile(Code, ...)` AutoDetect emits UTF-16LE+BOM for non-ANSI (FileHelper.cpp:681,697-702). READ: `RunFile` does NOT feed bytes to Python's parser — it reads via BOM-aware `LoadFileToString` (PythonScriptPlugin.cpp:1822), decoding the UTF-16LE+BOM back to the exact TCHAR. COMPILE: `EvalString(*FileStr,...)` → `Py_CompileString(TCHAR_TO_UTF8(...))` (PythonScriptPlugin.cpp:1864,1728), with the explicit comment that they avoid `PyRun_File` — so the UTF-16 bytes never reach a tokenizer that could choke. No stage mangles non-ASCII. The proposed `ForceUTF8WithoutBOM` only changes on-disk bytes; `LoadFileToString` decodes UTF-16LE+BOM and UTF-8 to the identical FString, so re-running `×` would behave identically — a fix that cannot alter the symptom. Basis: single unconfirmed encounter (`encounters: 1`), ticket itself flags "re-confirm before fixing"; JSON transport already delivers `×` correctly (reporter's own `blueprint.scs.get` note); zero-code workarounds exist (`chr(0xXXXX)`, or `mode: execute_statement`/`scope: public` bypass the temp write via `RunString`). No duplicate/regression/conflict per historian. If a variable-isolated re-repro ever surfaces it points to a DIFFERENT stage → new ticket. No code changed.

@@ -5,6 +5,8 @@ status: IN-REVIEW
 severity: Low
 category: ergonomic
 tags: [docs, asset, search, search_assets, misuse-then-correct, discovery, wiki]
+encounters: 3
+lastSeen: 2026-07-02T16:48:42.1520307+03:00
 ---
 
 # `asset.search` and `asset.search_assets` overlap in name and intent but split required params — and the `asset.md` overlay documents neither
@@ -175,3 +177,5 @@ is not a verb.
   verb`, `asset.list { filter: { class:`, `[MISSING_REQUIRED_PARAM]`, `no-name
   path`, `classNames:["SoundWave"]`) — fails if any overlay edit is reverted.
   Docs-only; no handler change.
+- `#5-liveness` `IN-REVIEW` reporter — Still observed. Struggle-audit of a `foliage.create_procedural` vegetation-dressing task (outcome tool_bug for the separate judge-filed `B-foliage-create-procedural-empty-callback-noop`). The agent's first asset-discovery move was the phantom bare `asset.find` → `# Not found: asset.find` with a "Did you mean" suggestion list (`asset.find_by_tag, asset.find_objects_by_tag, asset.list, asset.save, asset.dump`); recovered in ONE step to `asset.list`. Pure reconfirm of the `#2`/`#4` phantom-`asset.find` friction (this repro got a helpful suggestion list rather than the bare-`UNKNOWN_ACTION` variant, so recovery was one-step and low-cost); the `#3` docs fix already covers it. No re-open, no new scope. encounters→3.
+- `#4-liveness` `IN-REVIEW` reporter — Still observed. Struggle-audit of a clean `material.authoring.create_decal_material` decal build (`/Game/Decals/M_LogoProjector`, seed `create_decal_material`, outcome clean): the agent's first texture-discovery move was the bare phantom `asset.find {query:"T_UE_Logo_Simple_M"}` → `[UNKNOWN_ACTION] Unknown action: asset.find` (no near-match hint). Recovered instantly and never re-tried (the texture path was already handed to it, so no search was actually needed). Pure reconfirm of the `#2` phantom-`asset.find` friction; the `#3` docs fix (the "`asset.find` is not a verb" note on `docs/wiki-src/asset.md`) already covers it — no re-open, no new scope. encounters→2.

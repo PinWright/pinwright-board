@@ -5,8 +5,8 @@ status: OPEN
 severity: Low
 category: ergonomic
 tags: [performance, profiling, uestats, result-misreport, docs]
-encounters: 2
-lastSeen: 2026-06-24T09:27:12Z
+encounters: 3
+lastSeen: 2026-07-02T12:09:19.2130448+03:00
 ---
 
 # `performance.stop_profiling` writes a `.uestats` file but never reports its path
@@ -71,5 +71,6 @@ returned `statFilePath` field on `start_profiling`/`stop_profiling`/`run_benchma
 once added, so the discovery story matches the result shape.
 
 ## History
+- `#3-liveness` `OPEN` reporter — still reproduces at HEAD
 - `#2-additional-repro-confirm` `OPEN` reporter — Replay-confirmed on a fresh perf-baseline task (apply_baseline_settings=performance → set_scalability(1) → frame limit 60 → vsync off → resolution 75% → nanite on → show_fps → start/stop_profiling). `performance.stop_profiling` with `args={}` returned verbatim `{"message":"Profiling stopped"}` — no path field — while `start_profiling` returned `{"message":"Profiling started"}`. The capture works: a real `.uestats` landed on disk at `Saved/Profiling/UnrealStats/ExampleProjectWelcome-WindowsEditor-06.24-09.20.52/Pid42492_...09.22.02.uestats` (4.4MB), so the response simply omits the artifact path. Same off-MCP verification (mtime-sort the dir) was required to confirm. Reaffirms the existing ergonomic finding; no new info on root cause.
 - `#1-initial-audit` `OPEN` reporter — `performance.stop_profiling` returns `{"message":"Profiling stopped"}` with no path field despite the registered description promising a `.uestats` "is written under Saved/Profiling/UnrealStats/" and "load in the Profiler tool". Source-confirmed: handler (`PerformanceHandler.cpp`, `stop_profiling`) runs `stat stopfile` then `Ctx.SendSuccess("Profiling stopped")` — no result object, no path resolution; same shape on `start_profiling` (~line 55) and the inline `stat startfile`/`stat stopfile` in `run_benchmark` (~465/471). PROCESS friction (perf-baseline task): the agent's success-check had to leave the MCP and `Glob` `Saved/Profiling/UnrealStats/*.uestats` to confirm the two real files (6.0MB/5.1MB) it had just written, because the response omits the path. Same class as `E-insights-snapshot-empty-filepath` (path-field misreport) but distinct namespace/handler/mechanism (field omitted, not echoed-empty). Workaround: mtime-sort the dir. Fix: return `statFilePath` from a resolver; document on `docs/wiki-src/performance.md`.

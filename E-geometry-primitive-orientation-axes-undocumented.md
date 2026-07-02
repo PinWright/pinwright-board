@@ -4,7 +4,9 @@ title: "geometry.create_box width/height/depth axis mapping (W->X, H->Y, D->Z) a
 status: IN-REVIEW
 severity: Medium
 category: ergonomic
-tags: [geometry, create_box, create_arch, orientation, axis, plane, roll, docs, wiki, discoverability, boolean]
+tags: [geometry, create_box, create_arch, revolve, orientation, axis, plane, roll, docs, wiki, discoverability, boolean]
+encounters: 2
+lastSeen: 2026-07-01T22:13:12.6478401+03:00
 ---
 
 # create_box's dimension->axis mapping and create_arch's build plane / apex orientation are undocumented
@@ -73,6 +75,15 @@ section, plus optionally enrich the handler param strings:
   (the actor's world transform is not applied), so to reason about world-space
   overlap of two actors, combine each with its `actor.describe` transform (or
   read `actor.get_bounding_box`, which is world-space).
+- **revolve:** state that each `profile` point `{x,y}` is `x`->radius (distance
+  from the revolve axis) and `y`->Z-height along the axis; the profile is spun
+  about local Z (`AppendRevolvePath` at `FTransform::Identity`,
+  `PrimitiveHandler.cpp:773-774`), so a lathe silhouette is authored with `x` as
+  the outward radius at each height `y`. The wiki
+  (`geometry.revolve.md:18`) / param string
+  (`PrimitiveHandler.cpp:728`) say only "Profile points [{x,y}, ...]" with no axis
+  note, so a caller can't tell which coord is radius vs height without an
+  empirical `get_mesh_info` bbox check.
 
 One paragraph in the overlay removes the entire empirical-discovery spiral for
 every prop-build that positions one primitive to cut/union another.
@@ -157,3 +168,24 @@ create call per primitive.
   overlay-exclusive markers (axis mapping, the `-90` roll sign, mesh-LOCAL caveat) that
   fail iff the overlay sections are reverted. Files: `Docs/wiki-src/geometry.md`,
   `Source/EditorAutomationRpcGateway/Private/Tests/Infra/TestGeometryPrimitiveOrientationDocs.cpp`.
+- `#3-additional-revolve-profile-axis` `OPEN` reporter — Additional evidence
+  (fourth affected verb, same family): `geometry.revolve`'s `profile` point axis
+  mapping is undocumented in the same way. A "tall lathe-turned vase" task
+  completed but the agent had to discover empirically (via a `get_mesh_info`
+  bbox) that each `{x,y}` profile point is `x`->radius / `y`->Z-height, because
+  neither the wiki (`geometry.revolve.md:18`) nor the param string
+  (`PrimitiveHandler.cpp:728`) states which coord is radius vs vertical height —
+  both say only "Profile points [{x,y}, ...]". Verified at HEAD by replay: revolving
+  profile `[{x:10,y:0},{x:50,y:0},{x:50,y:200},{x:10,y:200}]` (angle 360, capped)
+  yields bbox `min{x:-50,y:-50,z:0} max{x:50,y:50,z:200}` — i.e. `x`->outward radius
+  (XY extent ±50), `y`->Z-height (Z 0..200), spun about local Z. Ground truth:
+  `ProfilePoints.Add(FVector2D(X, Y))` fed to
+  `UGeometryScriptLibrary_MeshPrimitiveFunctions::AppendRevolvePath(DynMesh, Options, FTransform::Identity, ProfilePoints, RevolveOptions, Steps, bCapped, nullptr)`
+  (`PrimitiveHandler.cpp:750,773-774`). The IN-REVIEW orientation overlay (#2) added
+  `create_box`/`create_arch`/`get_vertex_position` notes but NOT `revolve`; extend
+  that same `docs/wiki-src/geometry.md` overlay with a `### revolve` note (x->radius,
+  y->Z-height, spun about Z). Added `revolve` to affected verbs + a "What it should do"
+  bullet. Friction: attempt outcome done, but the axis-mapping discovery cost an extra
+  readback the docs should have obviated (same docs-gap shape as the three verbs
+  already in this ticket, `E-geometry-warp-extent-semantics`, and
+  `E-geometry-cylinder-no-height-divisions`).

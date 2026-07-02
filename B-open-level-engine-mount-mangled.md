@@ -135,5 +135,3 @@ today; fixing the resolution fixes both.
   still lands under project content and that an unregistered mount returns false
   rather than a mangled path. Both fail if the helper is reverted to the
   `RightChop(6)` chop. Not compiled/tested here (later phase).
-</content>
-</invoke>

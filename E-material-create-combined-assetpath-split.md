@@ -5,8 +5,6 @@ status: IN-REVIEW
 severity: Low
 category: ergonomic
 tags: [material, param-alias, create_material, name, path, assetpath, split, drift, docs]
-claimedBy: fuzz2
-claimedAt: 2026-06-24T07:13:47.4354999+03:00
 ---
 
 # `material.authoring.create_material` requires `name`+`path` split; the natural "one full asset path" guess (`assetPath`) hard-fails

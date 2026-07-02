@@ -124,5 +124,3 @@ distinguish inset from outset.
   distance-35 `geometry.outset` grows it by ~35 — reverting the sign swap fails both
   halves. Files: `Source/PinWright/Private/Handlers/Geometry/MeshOpsHandler.cpp`,
   `Source/PinWright/Private/Tests/Geometry/TestGeometryInsetOutsetDirection.cpp`.
-</content>
-</invoke>

@@ -165,5 +165,3 @@ positioned so the survivor lands at internal index ≥ `Num()` (i.e. remove a
   `get_keys`/`has_key`/`get`/`contains` and that `Num()` matches the visible
   count. Reverting the bound to `Helper.Num()` makes the survivor invisible and
   fails the test. Not compiled/run here (later phase verifies).
-</content>
-</invoke>

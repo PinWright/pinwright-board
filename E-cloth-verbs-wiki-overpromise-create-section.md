@@ -174,5 +174,3 @@ clothing assets).
   skeletalMeshPath) AND the overlay markers (no-create note, UNKNOWN_PARAMS caveat,
   F- ticket cross-ref) — reverting either the summary edit or the overlay (or
   re-backticking the heading) fails it. Not compiled/run here (later phase).
-</content>
-</invoke>

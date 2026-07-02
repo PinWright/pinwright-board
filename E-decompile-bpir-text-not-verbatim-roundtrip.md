@@ -1,46 +1,69 @@
 ---
 id: E-decompile-bpir-text-not-verbatim-roundtrip
-title: "decompile canonicalizes BPIR jump-labels (@done -> @merge) and branch pin-target order (false-before-true) — round-trip is semantic, not literal, and that isn't documented"
-status: OPEN
+title: "decompile regenerates BPIR text (labels, SSA temp names, branch-arm order, expanded pin defaults) — round-trip is semantic (topology + coordinates), not literal, and that isn't documented"
+status: IN-REVIEW
 severity: Low
 category: ergonomic
-tags: [docs, bpir, decompile, round-trip, branch, labels]
+tags: [docs, bpir, decompile, round-trip, branch, labels, ssa, defaults]
 encounters: 9
 lastSeen: 2026-06-29T04:26:28Z
 ---
 
-# decompile output is semantically (not textually) equivalent to authored BPIR — document the canonicalizations
+# decompile regenerates BPIR text — round-trip is semantic (topology + coordinates), not literal text — and the canonicalizations aren't documented
 
-The round-trip equivalence promised for authored-position BPIR is **semantic**
-(coordinates + exec topology), not **literal** (byte-for-byte text). `blueprint.decompile`
-regenerates two things rather than reproducing what was authored:
+`blueprint.decompile` is a deterministic *re-emitter*: it reconstructs BPIR text from the
+compiled graph rather than reproducing what was authored byte-for-byte. Routing (the
+pin -> target *mapping*) is preserved exactly — this is NOT the semantic true/false swap
+fixed in DONE `B-bpir-select-true-false-swapped` — and authored `@(x, y)` node coordinates
+round-trip byte-exact. But the surface text is canonicalized in several ways:
 
-- **Jump-label names are regenerated.** An authored reconvergence label `@done`
-  comes back as `@merge` (the decompiler's `merge_N` reservation, the same mechanism
-  added by DONE `B-bpir-decompile-shared-tail-absorbed-into-branch`). The block body
-  is identical; only the label string differs.
-- **Branch pin-target order is canonicalized.** An authored
-  `branch(%ok) [true -> @then, false -> @else]` decompiles as
-  `[false -> @else, true -> @then]` (false-before-true), regardless of the authored
-  order. The pin→target *mapping* is preserved exactly — this is print order only,
-  NOT the semantic true/false swap fixed in DONE `B-bpir-select-true-false-swapped`.
+- **Jump / reconvergence labels are regenerated.** Labels are synthesized at emit time from
+  a fixed preferred base (`FEntryState::AllocLabel`, `BpirDecompiler.cpp:313-328`), never
+  read back from the authored string. A branch's arms always print `@then` / `@else`
+  (authored `@yes`/`@no`, `@truepath`/`@falsepath`, `@big`/`@small` all collapse to these);
+  a shared two-predecessor reconvergence prints `@merge` (authored `@done` -> `@merge`, the
+  reservation from DONE `B-bpir-decompile-shared-tail-absorbed-into-branch`).
+- **SSA temp names are renumbered.** Value names are always numeric
+  (`FEntryState::AllocValueName` -> `FormatNumericLocalId`, `BpirDecompiler.cpp:308-311`),
+  so authored temps like `%gt`/`%b` come back as `%n0`/`%n1`.
+- **Branch target lists print in a canonical order.** `FormatExecTargets` sorts the arm
+  parts alphabetically (`BpirTextEmitter.cpp:762`), so a branch always prints
+  `[false -> @else, true -> @then]` regardless of authored order — print order only; the
+  mapping is intact.
+- **Omitted optional pin defaults may be expanded.** Non-object-ref optional pins left off
+  the authored `call` (e.g. PrintString `bPrintToScreen`/`TextColor`/`Duration`) are spelled
+  out with their engine defaults in the readback (object-ref pins at their canonical "none"
+  are still omitted — see the existing `#### Optional-pin omission` note).
 
-The decompile wiki already states the general principle ("BPIR's round-trip principle
-is logical equivalence, not visual fidelity", `blueprint.decompile.md`), but does not
-call out these two specific text-level normalizations. A consumer doing a
-round-trip-equivalence check by **diffing decompiled text against authored text** will
-see spurious mismatches on the label string and the branch target ordering and may
-mistake cosmetic normalization for a wiring/coordinate defect.
+Net effect: a consumer doing a round-trip-equivalence check by **diffing decompiled text
+against authored text** sees spurious mismatches on labels, temp names, branch order, and
+expanded defaults, and may mistake cosmetic normalization for a wiring/coordinate defect. The
+general principle is stated for composites at `blueprint.md:156` ("BPIR's round-trip principle
+is logical equivalence, not visual fidelity") but is scoped there to composite visual grouping
+and does not call out these text-level normalizations; `bpir.entry-points.md:158` sets a
+round-trip expectation for authored positions without the text caveat.
 
-## What it should say
+## Fix
 
-`blueprint.decompile.md` (and `bpir.entry-points.md`, which sets the round-trip
-expectation) should state explicitly that:
-- jump/reconvergence labels are **regenerated** (`@done` may return as `@merge`/`merge_N`),
-- branch `[pin -> @label]` target lists are **canonicalized to a fixed order**
-  (false-before-true), and therefore
-- round-trip checks must compare **graph topology + node coordinates**, not the literal
-  label strings or target ordering.
+Docs-only. Add ONE general decompile round-trip caveat — do NOT enumerate every facet as a
+growing list (that churns and goes stale). The real fix surfaces are:
+- the `### blueprint.decompile` section of `Docs/wiki-src/blueprint.md` (there is **no**
+  `blueprint.decompile.md` — the decompile doc is an H3 section inside `blueprint.md`), and
+- `Docs/wiki-src/bpir.entry-points.md` (§1b Authored Node Positions, which sets the
+  round-trip expectation at the "manually moved nodes round-trip" sentence).
+
+State that decompile *regenerates* the text (labels -> `@then`/`@else`/`@merge`, SSA temps
+renumbered, branch arms canonical-ordered false-before-true, omitted defaults expanded), that
+only graph topology + authored `@(x, y)` coordinates round-trip, and that round-trip checks
+must compare topology + coordinates — confirming exec reconvergence with
+`blueprint.graph.get_graph_connections {edgeType: exec}` — not literal label/temp/order text.
+
+**Explicitly de-scoped:** the "single-live-predecessor reconvergence inlined / label dropped"
+facet from encounters #2/#5/#6/#9 is NOT a stable decompiler canonicalization — it is a
+symptom of the merge node having one predecessor because `B-bpir-fallthrough-reconverge-dropped`
+(IN-REVIEW, compiler-side) drops the fall-through exec edge. Once that lands, the merge has two
+predecessors and decompile renders `@merge` explicitly. Do not document single-pred inline as a
+"can't trust the text" facet here.
 
 ## Evidence
 
@@ -239,4 +262,23 @@ was not misled), hence Low.
   non-cosmetic divergence was the dropped fall-through edge (the bug ticket). No new facet; reach
   reinforcement of the "can't trust the decompile text, cross-check via `get_graph_connections`"
   tax. Dedup: matched this OPEN ticket on rg `decompile`/`round-trip`/`label`; appended rather than
-  re-filed. Severity unchanged Low.
+  re-filed.
+- `#10-reword-and-docs-fix` `IN-REVIEW` developer — Reworded (title/body/Fix/scope) and
+  implemented the docs-only fix. (1) Corrected the misattributed fix surface: there is **no**
+  `blueprint.decompile.md`; the decompile doc is the `### blueprint.decompile` H3 section inside
+  `Docs/wiki-src/blueprint.md`. (2) De-scoped from a growing per-facet enumeration to ONE general
+  caveat, and dropped the single-live-predecessor inline "facets" (#2/#5/#6/#9) — those are
+  symptoms of `B-bpir-fallthrough-reconverge-dropped` (IN-REVIEW, compiler-side fall-through edge
+  drop), not a stable decompiler canonicalization. Source-verified the four stable facets: SSA
+  temps always numeric (`FEntryState::AllocValueName` -> `FormatNumericLocalId`,
+  `BpirDecompiler.cpp:308-311`); labels synthesized from a fixed base, never the authored string
+  (`FEntryState::AllocLabel`, `:313-328`); branch arms added true-then-false (`:1315`/`:1319`) but
+  printed alphabetically -> false-before-true (`FormatExecTargets` `Parts.Sort()`,
+  `BpirTextEmitter.cpp:762`). Docs edited: added a `#### Round-trip is semantic (topology +
+  coordinates), not literal text` subsection to the `### blueprint.decompile` section of
+  `Docs/wiki-src/blueprint.md` (labels regenerated -> `@then`/`@else`/`@merge`, SSA temps
+  renumbered, branch arms canonical-ordered, omitted defaults expanded; compare topology + coords,
+  confirm exec wiring with `get_graph_connections {edgeType:exec}`), plus a matching
+  "positions + topology, not literal text" caveat in `Docs/wiki-src/bpir.entry-points.md` §1b
+  (corrects the fidelity implication at the "manually moved nodes round-trip" sentence). No
+  regression test: docs-only prose change, no production-code behavior change to guard. Severity unchanged Low.

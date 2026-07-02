@@ -5,8 +5,8 @@ status: OPEN
 severity: Low
 category: ergonomic
 tags: [docs, sequencer, add_keyframe, success-field, readback, round-trip]
-encounters: 1
-lastSeen: 2026-06-23T10:08:23Z
+encounters: 4
+lastSeen: 2026-07-02T13:30:46.7600928+03:00
 ---
 
 # `sequence.add_keyframe` (frame-numbered form) returns a bare `{}` — no `success` field to confirm the write
@@ -81,3 +81,12 @@ confirmation field, not a failure.
   `E-sequencer-set-track-state-no-readback-doc` (wasted verification probes from
   an unsignalled read-gap). Primary ask: emit `success`/echo from the
   frame-numbered writer; interim: a wiki note on the `add_keyframe` H3.
+- `#2-liveness` `OPEN` reporter — still observed. Struggle-audit of the
+  `sequencer.remove_track` cinematic task (`IntroEstablishingShot`, 18 calls):
+  both `sequence.add_keyframe` calls (Location, frames 0 and 120) returned a bare
+  `{}` again, and the agent again spent an extra `sequencer.list_sections`
+  (`includeKeys:true`) round-trip purely to confirm the two Location keys landed
+  (SAY: "Let me verify the keyframes actually landed on the transform track" ->
+  `keyCount:2`). Same symptom, same forced readback; no new angle.
+- `#3-liveness` `OPEN` reporter — still reproduces at HEAD (SEED-mode `sequencer.delete` cinematic task, `IntroMaster`; replayed `sequence.add_keyframe` Location frame 45 → bare `{}`, same forced `sequencer.list_sections` readback).
+- `#4-liveness` `OPEN` reporter — still observed (`CS_Establishing` 24fps 0-5s establishing-shot task, focus `sequencer`, 31 calls): both `sequence.add_keyframe` Location calls (frames 0 and 120) returned a bare `{}`, and the agent again ran a `sequencer.list_sections{includeKeys}` readback after EACH to confirm the key landed (2 extra RPCs). Same symptom, same forced readback; no new angle.

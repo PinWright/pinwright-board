@@ -5,6 +5,8 @@ status: IN-REVIEW
 severity: Medium
 category: ergonomic
 tags: [actor, duplicate, locked-level, error-message, diagnostic, discoverability]
+encounters: 2
+lastSeen: 2026-07-02T03:26:06.4106887+03:00
 ---
 
 # `actor.duplicate` hides the locked-level cause behind a bare `[DUPLICATE_FAILED]`
@@ -142,5 +144,28 @@ demonstrated case here.
   pre-check were reverted), then unlocks and confirms the identical call
   succeeds (lock is the sole variable) and restores the level's prior lock
   state.
-</content>
-</invoke>
+- `#3-additional-spawn-duplicate-lock-inconsistency` `OPEN` reporter —
+  Struggle-audit of a park-bollard-along-a-spline task (focus
+  `geometry.duplicate_along_spline`; 42 calls; outcome done). TWO signals: (a)
+  **Liveness / fix-confirmation** — the `#2` `[LEVEL_LOCKED]` diagnostic FIRED in
+  the wild: the agent's first `actor.duplicate` batch on the default-locked
+  `/Game/Maps/ExampleProjectWelcome` failed with the verbatim improved message
+  ("Cannot duplicate 'Bollard': its level '…ExampleProjectWelcome' is locked.
+  Unlock it first via level.set_locked {levelPath:'…', locked:false}."), the
+  agent read the named recovery and recovered instantly (`level.set_locked
+  locked:false` → the identical batch succeeded). The message-clarity fix works
+  as intended — no more opaque `DUPLICATE_FAILED` flail. (b) **New residual angle
+  the message fix does NOT address — spawn/duplicate lock inconsistency:** in the
+  same trace `actor.spawn` (Cylinder "Bollard") and `spline.create_spline_actor`
+  BOTH succeeded into that same locked persistent level with no lock complaint,
+  yet the immediately-following `actor.duplicate` of that just-spawned actor was
+  blocked by the lock. So the lock is enforced by `duplicate` but ignored by
+  `spawn`/`create_spline_actor` — a caller who just spawned successfully has no
+  reason to expect duplicate to be gated, and here it cost a wasted 8-call
+  duplicate batch (all `LEVEL_LOCKED`) before the unlock+retry. This is a
+  behavioral-consistency gap distinct from the wording fix: either the whole
+  spawn/duplicate family should honor the editor lock or none should (or
+  `actor.duplicate` should auto-unlock-then-relock like spawn tolerates). Low
+  severity, self-correcting (excellent error), but a real per-batch cost. Logged
+  here rather than as a near-duplicate file because it shares the `locked-level` +
+  `actor.duplicate` family; consider before closing the message-only fix.

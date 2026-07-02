@@ -134,5 +134,3 @@ string or `get_level_structure_info.dataLayers`.
   `create_datalayer` return-thinness (the only adjacent ticket,
   `B-configure-world-partition-silent-noop`, is a different method and a
   silent-no-op bug, not a readback-ergonomics gap).
-</content>
-</invoke>

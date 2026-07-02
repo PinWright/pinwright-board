@@ -167,5 +167,3 @@ pagination cursor.
   primitive-count fields, and a `boneName="Foot"` filter returns only the matching body —
   all against the production handler, so reverting the limit/projection/filter plumbing
   fails it.
-</content>
-</invoke>

@@ -147,5 +147,3 @@ selection must be passed as `actorNames:["X"]`, not `actorName:"X"`.
   empty `actorNames` array still succeeds with `selectedCount==0` (guards the empty-
   array "clears selection" semantics against the new fallback firing). Not yet compiled
   or unit-tested — a later phase verifies green.
-</content>
-</invoke>
