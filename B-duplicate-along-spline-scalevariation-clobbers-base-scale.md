@@ -1,7 +1,7 @@
 ---
 id: B-duplicate-along-spline-scalevariation-clobbers-base-scale
 title: "geometry.duplicate_along_spline with scaleVariation>0 sets an ABSOLUTE uniform scale near 1.0, silently discarding the source actor's own (possibly non-uniform) scale instead of multiplying it"
-status: OPEN
+status: IN-REVIEW
 severity: Medium
 category: bug
 tags: [geometry, duplicate_along_spline, spline, scale, scalevariation, silent-wrong-data, scalevariation-overwrites-base-scale]
@@ -85,4 +85,5 @@ specialized geometry array verb, not an every-session method; workaround: pass
 scaleVariation:0 and vary scale afterward via actor.set_transform) -> Medium
 
 ## History
+- `#2-fix` `IN-REVIEW` developer — Root-cause fix in `Plugins/PinWright/Source/PinWright/Private/Handlers/Geometry/AdvancedMeshOpsHandler.cpp` (the `scaleVariation>0` branch, verified at lines 848-851 in current source — ticket's cited 841-845/844 was a stale line offset; the quoted code matched verbatim). Changed `NewActor->SetActorScale3D(FVector(ScaleFactor))` (absolute uniform scale built from 1.0) to `NewActor->SetActorScale3D(SourceActor->GetActorScale3D() * ScaleFactor)` so the variation multiplies onto the template's base scale, preserving per-axis proportions; the `scaleVariation==0` path (which already retains the DuplicateActor-copied source scale) is unchanged and now continuous with `>0`. Added regression test `PinWright.geometry.duplicate_along_spline.ScaleVariationPreservesSourceScale` (`Plugins/PinWright/Source/PinWright/Private/Tests/Geometry/TestGeometryDuplicateAlongSplineScaleVariation.cpp`): builds an in-code fixture (create_box source forced to actor scale (0.35,0.35,1); a 3-point spline via spline.create_spline_actor), runs `geometry.duplicate_along_spline` count=4 scaleVariation=0.15 through the real dispatcher, and asserts every `_DupN` copy keeps the source Z/X ratio (~2.857) and is non-uniform. The pre-fix absolute scale collapses Z/X to a uniform 1.0, failing the test.
 - `#1-initial-repro` `OPEN` reporter — Seed method `geometry.duplicate_along_spline` (SEED mode). The attempt agent never called the seed (it hand-rolled the array via object.call_function GetTransformAtDistanceAlongSpline + actor.duplicate + actor.set_transform, and its friction wrongly claimed "there is no array-actors-along-spline helper" — the helper exists and works). Interrogating the seed directly surfaced this bug. Replay-confirmed live: source `ThinBollard` scale `(0.35,0.35,1)` arrayed with `scaleVariation:0.15` yields copies at uniform scale `~0.943` and `~1.119` (verbatim above) — the non-uniform source scale is discarded. Root cause: `AdvancedMeshOpsHandler.cpp:844` `SetActorScale3D(FVector(ScaleFactor))` sets an absolute uniform scale built from 1.0 rather than `SourceActor->GetActorScale3D() * ScaleFactor`. The base method otherwise works: 8 evenly-spaced, spline-aligned duplicates placed correctly along the S-curve.
