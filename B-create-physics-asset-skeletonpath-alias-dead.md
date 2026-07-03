@@ -1,8 +1,8 @@
 ---
 id: B-create-physics-asset-skeletonpath-alias-dead
 title: "skeleton.create_physics_asset's documented 'skeletonPath' alias is dead — the handler implements it body-side (GetStringFirstOf) but never registers it as a schema alias, so ValidateHandlerParams rejects a skeletonPath-only payload with MISSING_REQUIRED_PARAM before the body runs, contradicting the verb's own wiki/summary"
-status: OPEN
-severity: Medium
+status: IN-REVIEW
+severity: Low
 category: bug
 tags: [documented-alias-rejected, skeleton, physics-asset, create_physics_asset, skeletonpath, skeletalmeshpath, param-alias, schema-validation, ragdoll]
 encounters: 1
@@ -42,8 +42,9 @@ getter:
 - `Plugins/PinWright/Source/PinWright/Private/Handlers/Animation/PhysicsAssetHandler.cpp:207`
   — `RPC_PARAM_REQ("skeletalMeshPath", "string", "... (the 'skeletonPath' alias is also accepted). ...")`
   declares the required param and documents the alias, but registers **no**
-  schema alias (no `RPC_PARAM_REQ_ALIAS` / typed-alias entry — just a plain
-  `RPC_PARAM_REQ`).
+  schema alias — it is a bare `RPC_PARAM_REQ`, whose macro (`ParamSpec.h:31`)
+  leaves the `FParamSpec.Aliases` list empty, rather than the alias-carrying
+  spec that `ParamAliasUtils::MakeAliasParamSpec` builds.
 - `PhysicsAssetHandler.cpp:212` —
   `FString SkeletalMeshPath = Ctx.GetStringFirstOf({TEXT("skeletalMeshPath"), TEXT("skeletonPath")});`
   the body-level alias that would accept `skeletonPath` — but it is **never
@@ -92,9 +93,14 @@ handler body **implements it** — the caller supplied precisely the documented
 input and got a hard error. That is a valid documented input wrongly rejected: a
 tool contradicting its own contract, not a caller guessing wrong.
 
-severity rationale: impact=documented-input-wrongly-rejected (doc-contract
-violation, non-silent, one-retry self-correct) × reach=rare (physics-asset
-creation, not an every-session path) -> Medium
+severity rationale: impact=soft-blocker-at-worst — a documented input is
+rejected, but the canonical `skeletalMeshPath` (named in the same doc sentence
+AND, verbatim, in the error message itself: "Missing required parameter
+'skeletalMeshPath'") works as a non-silent one-retry self-correct, so a
+workaround exists (this is NOT the "no workaround, task impossible" band that
+would reach Medium/High) × reach=rare (physics-asset creation, not an
+every-session path → bump down one) -> Low. It is still `category: bug` (a
+tool contradicting its own advertised contract), just a low-cost one.
 
 ## Repro (verbatim, replay-confirmed at HEAD)
 
@@ -147,3 +153,25 @@ once it reaches the body. Only the schema-level registration blocks step 2.
   `FParamSpec` alias of the required `skeletalMeshPath` slot (or strike the alias
   clause from wiki + C++ summary). Severity Medium (documented-input-wrongly-
   rejected doc-contract violation on a rare path, one-retry self-correct).
+- `#2-reword-and-fix` `IN-REVIEW` developer — Reworded severity Medium -> Low:
+  per the board rubric, "rejecting valid input" only reaches Medium/High "with
+  no workaround." Here the canonical `skeletalMeshPath` (named in the same doc
+  sentence AND verbatim in the error message) works as a one-retry self-correct,
+  so the base impact is soft-blocker-at-worst, and physics-asset creation is a
+  rare edge path (bump down one) -> Low. Kept `category: bug` (the tool
+  contradicts its own advertised contract). Also corrected a body imprecision
+  (there is no `RPC_PARAM_REQ_ALIAS` macro; the real mechanism is
+  `ParamAliasUtils::MakeAliasParamSpec`). Fix: registered `skeletonPath` as a
+  schema alias of the required `skeletalMeshPath` slot by replacing the bare
+  `RPC_PARAM_REQ` at `PhysicsAssetHandler.cpp:207` with
+  `ParamAliasUtils::MakeAliasParamSpec(TEXT("skeletalMeshPath"), ..., true,
+  {skeletalMeshPath, skeletonPath})` (+ include `Handlers/ParamAliasUtils.h`);
+  the existing body-side `GetStringFirstOf` at `:212` then resolves it. The
+  dispatcher now accepts a `skeletonPath`-only payload past `ValidateHandlerParams`
+  instead of hard-failing `MISSING_REQUIRED_PARAM`. Regression test (new file
+  `Tests/Gameplay/TestCreatePhysicsAssetSkeletonPathAlias.cpp`): (1) static —
+  the registered `skeletalMeshPath` spec is required and carries the `skeletonPath`
+  alias; (2) end-to-end — a `skeletonPath`-only payload routed through the real
+  `FRpcDispatcher::ProcessRequest` is NOT rejected with `MISSING_REQUIRED_PARAM`
+  (reaches the body, yielding `MESH_NOT_FOUND` on the bogus probe path). Reverting
+  the alias fails both.
