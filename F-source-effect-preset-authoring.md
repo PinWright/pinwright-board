@@ -1,7 +1,7 @@
 ---
 id: F-source-effect-preset-authoring
 title: "No RPC to create a USoundEffectSourcePreset — add_source_effect dead-ends without one"
-status: OPEN
+status: IN-REVIEW
 severity: Medium
 category: feature
 tags: [audio, source-effect, authoring, missing-preset-creator]
@@ -95,4 +95,5 @@ preset inline, or drop the inert param so it stops implying a by-type shortcut
 that does not exist.
 
 ## History
+- `#2-create-source-effect-preset` `IN-REVIEW` developer — Added `audio.authoring.create_source_effect_preset(name, effectClass, path?, save?)` in `AudioAuthoringHandler.cpp` — the missing third verb, so `create_source_effect_chain` → `create_source_effect_preset` (×N) → `add_source_effect` now closes entirely inside the RPC surface. `effectClass` resolves a concrete `USoundEffectSourcePreset` subclass by reflection (new static `ResolveSourceEffectPresetClass`): accepts a short name (Filter/EQ/BitCrusher…), a class name (SourceEffectFilterPreset), or a `/Script/Module.Class` path — required because `USoundEffectSourcePreset` is abstract+MinimalAPI and the concrete presets live in the optional Synthesis plugin, so it's resolved by object path with NO build-dep added (per the plugin's non-`*_API`-UCLASS rule). Rejects an unresolvable class with `EFFECT_CLASS_NOT_FOUND` and a non-`USoundEffectSourcePreset`/abstract class with `INVALID_EFFECT_CLASS`; on success `NewObject<USoundEffectSourcePreset>(Package, Cls)` + `SaveAudioAsset` + `AddAssetVerification`, mirroring `create_source_effect_chain`/`create_sound_submix`. Left `add_source_effect`'s inert `effectType` param untouched — dropping/inlining it was the ticket's explicitly-optional secondary and conflating two verbs is out of core scope. Regression test `PinWright.Audio.SourceEffectPresetAuthoring` (`Source/PinWright/Private/Tests/Media/TestSourceEffectPresetAuthoring.cpp`) creates a Filter preset via short name and an EQ preset via `/Script` path, feeds the created preset into `add_source_effect` and asserts the chain gains exactly one entry pointing at it (the exact dead-end that regresses if the verb is reverted), and asserts a bogus `effectClass` returns `EFFECT_CLASS_NOT_FOUND`. Files: `AudioAuthoringHandler.cpp`, `TestSourceEffectPresetAuthoring.cpp`.
 - `#1-initial-repro` `OPEN` reporter — Filed against HEAD. `add_source_effect` requires a pre-existing `USoundEffectSourcePreset` (`AudioAuthoringHandler.cpp:2461-2486`) but no RPC creates one (only `create_source_effect_chain` at line 2381; no generic `asset.create`). `effectType` is inert (`:2437`, never read on the live `MCP_HAS_SOURCE_EFFECT` path). Replayed both dead-ends live: `effectType`-only and nonexistent-preset-path both return `[PRESET_NOT_FOUND] Effect preset path required or preset not found`. Task was only completable by fabricating the three preset assets via `python.execute`. Same class of gap as the now-DONE `F-audio-submix-asset-authoring`, on the source-effect side.
