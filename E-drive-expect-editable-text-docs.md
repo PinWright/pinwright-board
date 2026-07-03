@@ -1,85 +1,91 @@
 ---
 id: E-drive-expect-editable-text-docs
-title: "drive.md wiki omits that editor_chrome editable-input text is NOT read back — text_equals/text_contains compare the placeholder/label, forcing a C++ dive to learn a typed value can't be asserted"
-status: OPEN
-severity: Medium
+title: "drive.md wiki does not document editable-input read-back — observe now surfaces an editable input's live typed value in a distinct `value` field and text_equals/text_contains verify it (fallback to label), but drive.md mentions none of it"
+status: IN-REVIEW
+severity: Low
 category: ergonomic
-tags: [drive, editor_chrome, editable-text-reads-hint, text-verification, docs]
+tags: [drive, editor_chrome, editable-text-readback, value-field, text-verification, docs]
 encounters: 1
 lastSeen: 2026-07-02T12:22:54.0000000Z
 ---
 
-# drive wiki does not document that an editable input's typed value is unreadable via observe/expect
+# drive wiki does not document editable-input read-back (the `value` field and value-preferring text conditions)
 
-## What's unclear
-On the `editor_chrome` surface, `drive.observe`/`drive.expect` compute an
-element's text from `ExtractLabel`, which for editable-input widgets
-(`SEditableText`, `SSearchBox`, `SFilterSearchBox`, `SAssetSearchBox`) resolves
-to the widget's **hint/placeholder** text, not its live typed value (the code
-defect is tracked separately in `B-drive-editable-text-reads-hint-not-value`).
-The wiki (`docs/wiki-src/drive.md`) does not mention this at all:
+## What's missing
+On the `editor_chrome` (and `game`) surface, `drive.observe` now surfaces an
+editable input's **live typed value** in a distinct `value` field, and
+`drive.expect`/`drive.wait_for` `text_equals`/`text_contains` compare that `value`
+when present (falling back to `label`). This is the read-back path the companion
+code fix `B-drive-editable-text-reads-hint-not-value` added, and it is already
+live in the plugin source:
 
-- `drive.md:42` documents the conditions as
-  `` `text_equals` / `text_contains` — `target` + `expected_text`. `` with **no
-  caveat** that for an editable box these compare against the placeholder/label,
-  never the value the caller just typed.
-- There is no note on `drive.observe` or `drive.type` that a typed value is not
-  surfaced as `label`, and no pointer to a supported way (if any) to read an
-  input's current text back.
+- `DriveEditorChrome.cpp:156` / `DriveLiveResolver.cpp:330` set
+  `Element.Value = DriveSlateTextValue::ReadEditableWidgetText(SlateWidget)`, which
+  reads the live `GetText()` of `SEditableText` / `SEditableTextBox` /
+  `SMultiLineEditableText` / `SMultiLineEditableTextBox` (`DriveSlateTextValue.h:37-59`).
+- `DriveConditionEval.cpp:68-75` (`DriveTextComparand`) prefers `Element.Value` when
+  non-empty; `text_equals` (`:214-219`) / `text_contains` (`:237-242`) compare it and
+  report `actual="value=\"...\""`.
+- `DriveJson.cpp:96-101` emits a distinct per-element `value` (omitted when empty);
+  the backing field is `FDriveElement.Value` (`DriveTypes.h:39`).
 
-Consequence: the canonical `drive.type` -> `drive.expect text_*` verify pattern
-reads plausibly correct from the docs, so the agent tried it, got
-`met:false actual=label="Search Assets"`, and then — because nothing in the wiki
-explains the read-back behavior — had to **reverse-engineer the plugin and engine
-C++** (`DriveConditionEval.cpp`, `DriveEditorChrome.cpp`, engine
-`SEditableText.cpp`/`SWidget.cpp`) to learn that the typed value is simply not
-observable. That C++ dive is pure discoverability cost that a one-line wiki caveat
-would have avoided.
+So `drive.type "Cube"` into a search box, then
+`drive.expect {type:text_equals, expected_text:"Cube"}` now returns `met:true` —
+the round-trip the original audit thought impossible.
+
+But `docs/wiki-src/drive.md` documents **none** of this (ripgrep for
+`value|hint|placeholder|typed|editable|read.?back` returns zero hits):
+- The observe element-field list (`drive.md:17`) names `handle`, `type`, `label`,
+  the flags, `geometry.absolute`, `surface` — but not `value`.
+- The condition list (`drive.md:42`) is the bare
+  `` `text_equals` / `text_contains` — `target` + `expected_text`. `` with no note
+  that these compare the live typed `value` (falling back to `label`).
+- `drive.type` (`drive.md:70`) never says the text it enters is observable
+  afterwards as `value`.
+
+Consequence: an agent that types into an editable box has no doc telling it the
+typed text is now read back as a distinct `value` field (with `label` still holding
+that widget's hint/placeholder), so it cannot discover the supported
+`drive.type` -> `drive.expect text_*` verification pattern from the wiki.
 
 ## What it should say
-`docs/wiki-src/drive.md` (the single drive overlay; there are no per-method
-observe/expect/type overlays) should, near the `text_equals`/`text_contains`
-condition list and the `observe`/`type` sections:
-- state that Slate text is read via `ExtractLabel` — `STextBlock` content via
-  `GetText`, but **editable inputs surface their accessible/hint text, not the
-  live typed value** — so `text_equals`/`text_contains` **cannot assert a value
-  typed into a search/edit box** in `editor_chrome`;
-- point to the supported way to verify a typed value (if/when
-  `B-drive-editable-text-reads-hint-not-value` adds a `GetText()` branch or a
-  distinct `value` attribute) — or, until then, say to verify the *effect* of the
-  filter (e.g. the resulting asset grid) rather than the field contents.
+`docs/wiki-src/drive.md` should, near the `observe` element-field list, the
+`text_equals`/`text_contains` condition list, and the `drive.type` section:
+- state that an editable input's **live typed text** is surfaced by `observe` in a
+  distinct `value` field (present only when non-empty), separate from `label`,
+  which for an editable input holds its accessible/**hint** text;
+- state that `text_equals`/`text_contains` compare the element's `value` when present
+  (falling back to `label`), so after `drive.type` you **can** assert the text
+  actually entered into a search/edit box, and the failure `actual` names which
+  field it read (`value="..."` vs `label="..."`).
 
-So an agent does not need to dive into C++ to learn it can't read back what it
-typed.
+So an agent can discover the type-then-verify read-back from the wiki instead of
+diving into C++.
 
 ## Evidence
-- The agent read the relevant drive wiki pages (transcript observe read line 100,
-  expect line 141, type line 118) and still had to reverse-engineer the C++
-  (SAY line 372: "let me look at the plugin's drive/expect source to see how it
-  extracts text"; SAY line 622 concludes "the editor-chrome verification path
-  cannot read the live text value of an editable input widget"). The final
-  friction note calls the C++ dive "itself a discoverability gap".
-- Guilty read-back path (for the doc author's context, code fix is
-  `B-drive-editable-text-reads-hint-not-value`): `DriveConditionEval.cpp:194/213`
-  compare against `Label`; `DriveEditorChrome.cpp` `ExtractLabel` has no editable
-  `GetText()` branch; engine `SEditableText.cpp:704-706`
-  `GetDefaultAccessibleText` returns `GetHintText()`.
-- Call-trace source: `record.efficiency` inefficiency #2 (pattern=wiki-nav,
+- Code chain confirmed at plugin HEAD `561ed32` (the B-fix commit `79656cc` is a
+  confirmed ancestor): `DriveSlateTextValue.h:37-59`, `DriveEditorChrome.cpp:156`,
+  `DriveLiveResolver.cpp:330`, `DriveConditionEval.cpp:68-75` / `:214-219` / `:237-242`,
+  `DriveJson.cpp:96-101`, `DriveTypes.h:39`.
+- Docs gap confirmed: ripgrep of `docs/wiki-src/drive.md` for
+  `value|hint|placeholder|typed|editable|read.?back` returns zero hits;
+  `drive.md:17` / `:42` / `:62` / `:70` never mention the `value` field.
+- Original audit call-trace: `record.efficiency` inefficiency #2 (pattern=wiki-nav,
   method `drive.observe`), transcript
   `.../subagents/workflows/wf_458c51e4-8a7/agent-a12452cb010faaabc.jsonl`.
 
 ## Distinct from
-- `B-drive-editable-text-reads-hint-not-value` (OPEN, filed by the judge) — that is
-  the **code fix** (add a `GetText()` branch / expose the value). This ticket is the
-  orthogonal **docs** gap: even before the code is fixed, the wiki should warn the
-  caller that the round-trip is not supported, so the C++ dive is avoided. Downstream
-  the wiki edit is a separate process from the code fix.
+- `B-drive-editable-text-reads-hint-not-value` (IN-REVIEW) — the **code fix** that
+  added the `value` read-back (already an ancestor of plugin HEAD, with its own
+  regression test `Source/PinWright/Private/Tests/Drive/TestDriveEditableTextValue.cpp`).
+  This ticket is the orthogonal **docs** follow-up: commit `79656cc` did not touch
+  `docs/wiki-src/drive.md`, so the wiki still doesn't tell agents the read-back exists.
 
-severity rationale: impact=a blocker with a workaround — the docs silence forces a
-plugin+engine source dive to learn the read-back limitation (a genuine per-session
-cost on the editor_chrome type-then-verify path), but no data is lost or lied about
-(that lie is the B-ticket) × reach=drive.type -> drive.expect text verification is an
-every-session editor_chrome path -> Medium
+severity rationale: impact=minor completeness gap — an undocumented `value` field and
+value-preferring text conditions; the capability works, it just isn't in the wiki, so
+no data is lost/lied about and no source dive is forced now that the code round-trips ×
+reach=the `drive.type` -> `drive.expect text_*` path is a common editor_chrome flow ->
+Low
 
 ## History
 - `#1-initial-audit` `OPEN` reporter — Struggle audit of an editor_chrome
@@ -98,3 +104,24 @@ every-session editor_chrome path -> Medium
   verify (or to verifying the filter's effect instead). Deduped against
   `B-drive-editable-text-reads-hint-not-value` (the code fix) — filed separately as
   the orthogonal docs angle.
+- `#2-reword-and-docs` `IN-REVIEW` developer — REWORD + docs implementation. The
+  ticket's premise (an editable input's typed value is unreadable; `text_equals`/
+  `text_contains` compare the placeholder/label) is FALSE at plugin HEAD `561ed32`:
+  the companion code fix `B-drive-editable-text-reads-hint-not-value` (commit
+  `79656cc`, a confirmed ancestor) already landed the `value` read-back
+  (`DriveSlateTextValue.h:37-59`, `DriveEditorChrome.cpp:156`, `DriveLiveResolver.cpp:330`,
+  `DriveConditionEval.cpp:68-75`/`:214-219`/`:237-242`, `DriveJson.cpp:96-101`,
+  `DriveTypes.h:39`), so `drive.type` -> `drive.expect text_equals` now returns
+  `met:true`. Documenting the old "readback impossible / verify the effect instead"
+  caveat would ship a falsehood, so inverted the ticket to the real surviving gap:
+  `drive.md` never mentions the `value` field or the value-preferring text conditions
+  (rg for `value|hint|editable` = 0 hits). Fix (docs-only) in
+  `Plugins/PinWright/Docs/wiki-src/drive.md`: documented that observe surfaces an
+  editable input's live typed value in a distinct `value` field (separate from
+  `label`=hint), and that `text_equals`/`text_contains` compare `value` when present
+  (fallback to `label`) so `drive.type` -> `drive.expect text_*` verifies what was
+  typed — added to the `## Observation` element-field list (line 17), the
+  `## Verification` condition list (line 42), the `### drive.observe` return
+  description, and the `### drive.type` section. Severity Medium -> Low (completeness
+  gap, not a blocker). No code/test change — docs-only; the production behavior is
+  already covered by B's `TestDriveEditableTextValue.cpp`. Plugin compiles clean.
