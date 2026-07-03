@@ -1,34 +1,61 @@
 ---
 id: B-bpir-decompile-skel-qualified-cross-class-calls
-title: "Decompiler emits SKEL_<OtherClass>::Func qualifier for cross-Blueprint calls; compile_bpir cannot resolve SKEL_ classes, so output is not re-compilable"
-status: OPEN
+title: "Decompiler spuriously qualifies cross-Blueprint calls (SKEL/GEN UFunction-instance mismatch) and emits an unresolvable SKEL_<OtherClass>::Func token, breaking round-trip"
+status: IN-REVIEW
 severity: Medium
 category: bug
 tags: [bpir, decompiler, compiler, qualified-call, cross-class, skeleton-class, round-trip]
 ---
 
-# Decompiler emits `SKEL_<OtherClass>::Func` for cross-Blueprint calls; `compile_bpir` cannot resolve `SKEL_*` classes
+# Decompiler spuriously qualifies cross-Blueprint calls and emits an unresolvable `SKEL_<OtherClass>::Func` token
 
-For a `K2Node_CallFunction` whose target is a *different* widget Blueprint's function, the decompiler emits a
-qualified call using the SKELETON class name, e.g. `call SKEL_W_PDSSettingsUtils::DroneEditSaveAvailable(Target: $W_PDSSettingsUtils)`.
-Feeding that exact shape back into `compile_bpir` fails: `Unresolved class 'SKEL_W_PDSSettingsUtils' in qualified call ...;
-EmitInstruction failed for opcode 0`. This breaks the documented "decompile a graph and adapt the output" workflow.
+For a `K2Node_CallFunction` whose target is a *different* Blueprint's function (an explicit `Target:` pin,
+non-self-context), the decompiler emits a class-qualified call using the **skeleton** class name, e.g.
+`call SKEL_W_PDSSettingsUtils::DroneEditSaveAvailable(Target: $W_PDSSettingsUtils)`. Feeding that exact shape back into
+`compile_bpir` fails: `Unresolved class 'SKEL_W_PDSSettingsUtils' in qualified call ...; EmitInstruction failed for opcode 0`.
+This breaks the documented "decompile a graph and adapt the output" round-trip.
 
-Root cause (verified by source read): the qualifier is built in `Decompiler/BpirTextEmitter.cpp::GetFunctionDisplayName`
-(line ~514) from `Func->GetOuterUClass()->GetName()`, and `StripBPGeneratedClassSuffix` (line ~489) strips only the `_C`
-suffix — never the `SKEL_` prefix — so `SKEL_W_PDSSettingsUtils_C` renders as `SKEL_W_PDSSettingsUtils`. This is the
-non-self path: `ShouldQualifyFunctionName`'s `IsSelfContext()` short-circuit (line 436, from the DONE self-event sibling)
-does not fire for a cross-class target, so the qualifier is honestly emitted — but from the skeleton class object.
-On re-compile, `Compiler/BpirCompiler.cpp:5638` calls `ResolveUClass(Inst.TypeArg)`; `Utils/ClassUtils.cpp::ResolveUClass`
-(line 100) has no `SKEL_` handling and a bare `SKEL_W_PDSSettingsUtils` matches no script package and no loaded class
-(the skeleton's real `GetName()` is `SKEL_..._C`), so it returns null → the hard error at `BpirCompiler.cpp:5641-5644`.
+**Root cause (verified against source at HEAD).** The qualification is a **false positive** caused by a
+skeleton-vs-generated `UFunction`-instance mismatch — the same pathology the DONE self-event sibling
+(`B-bpir-decompile-emits-skel-class-prefix-on-self-event-calls`) fixed for self-context, but here on the **cross-class
+(non-self) arm** that fix does not cover:
+- `Decompiler/BpirTextEmitter.cpp::ShouldQualifyFunctionName` returns `Found != BoundFunc` (lines ~465-479), where
+  `BoundFunc = Node->GetTargetFunction()` is the **SkeletonGeneratedClass** copy the resolver handed back, while
+  `Found = TargetClass->FindFunctionByName(...)` is the **GeneratedClass** copy. These are two DISTINCT `UFunction`
+  objects for the SAME authored function, so the raw pointer `!=` spuriously reports a name collision and qualifies.
+- `GetFunctionDisplayName` (line ~514) then reads `Func->GetOuterUClass()->GetName()` = `SKEL_<Class>_C`, and
+  `StripBPGeneratedClassSuffix` (line ~489) chops only `_C` (never `SKEL_`), so the emitted token is the bare
+  `SKEL_<Class>`.
+- On re-compile, `Compiler/BpirCompiler.cpp:5635-5644` calls `ResolveUClass(Inst.TypeArg)` and hard-errors on null;
+  `Utils/ClassUtils.cpp::ResolveUClass` (lines 100-271) has no `SKEL_` handling and its only bare-BP-shortname path
+  (step 7, line ~236) requires a trailing `_C`, so `SKEL_W_PDSSettingsUtils` resolves nowhere → the hard error.
 
-Distinct from `B-bpir-decompile-emits-skel-class-prefix-on-self-event-calls` (DONE): that fix short-circuits **self-context**
-calls only (line 436) and its regression tests assert self-calls; the qualified emit here is a legitimately-needed
-disambiguator introduced by `B-bpir-target-shadowed-by-self-class` (DONE), so it cannot simply be dropped.
+**Not just a SKEL_ cosmetic issue.** The qualifier here is genuinely *not needed*: the ticket's own workaround (bare name
++ `Target:` pin — `call DroneEditSaveAvailable(Target: $W_PDSSettingsUtils)`) compiles, because DONE
+`B-bpir-target-shadowed-by-self-class` (Fix 1) reordered the compiler cascade to run target-class lookup first, so the
+`Target:` pin already disambiguates. The over-qualification is the sole defect. (A broader, latent edge also exists: for a
+*genuine* same-name/different-function collision whose bound func's outer is a generated class `W_Foo_C`, the emitter
+would still emit the bare `W_Foo`, which `ResolveUClass` also can't resolve — see below. That genuine-collision case is
+rare/contrived and out of scope for this ticket; this ticket is the false-positive SKEL_ case the reporter hit.)
 
-**Workaround:** Strip the qualifier and use the bare name + Target pin — `call DroneEditSaveAvailable(Target: $W_PDSSettingsUtils)` — which compiles fine (and re-decompiles back to the `SKEL_` qualified form again).
-**Fix:** Two acceptable directions. (A) Decompiler emits the *authored* class token instead of the skeleton object name: resolve the outer to the generated/authored BP class (or strip a leading `SKEL_` in `StripBPGeneratedClassSuffix`) — but the emitted token must be `ResolveUClass`-resolvable, and BP short names without `_C` currently aren't, so prefer emitting the BP's generated-class name / asset path. (B) Teach `Utils/ClassUtils.cpp::ResolveUClass` to map `SKEL_X`(`_C`) → X's skeleton/generated class. (A) also stops the misleading skeleton name from appearing in decompile output.
+**Distinct from siblings (both DONE, both present in HEAD):** `B-bpir-decompile-emits-skel-class-prefix-on-self-event-calls`
+fixed the SELF arm only (the `IsSelfContext()` short-circuit at line 436; its regression tests assert self-calls).
+`B-bpir-target-shadowed-by-self-class` introduced the qualified `Class::Method` emit + `ResolveUClass` compile path but
+only ever round-trip-verified a NATIVE token (`KismetSystemLibrary::PrintString`), never a BP-to-BP skeleton token.
+Neither covers this cross-class arm.
+
+**Workaround:** Strip the qualifier and use the bare name + Target pin — `call DroneEditSaveAvailable(Target: $W_PDSSettingsUtils)` — which compiles fine (and re-decompiles back to the `SKEL_` qualified form again until fixed).
+
+**Fix (implemented):** Extend the self-event sibling's suppression to the cross-class arm — in
+`Decompiler/BpirTextEmitter.cpp::ShouldQualifyFunctionName`, compare authored-function **identity** rather than raw
+`UFunction` pointers: normalize both the bound function and the cascade-`Found` function to their `GeneratedClass`
+instance (via `OwnerClass->ClassGeneratedBy` → `UBlueprint::GeneratedClass`) before the `!=` test. A SKEL BoundFunc and
+a GEN Found of the same authored function then compare equal → the call emits its bare, round-trippable name, and the
+misleading `SKEL_` token never appears. This needs **no** `ResolveUClass` change. (Rejected the reporter's original
+option B — "teach `ResolveUClass` to accept `SKEL_X`" — as the wrong layer: `SKEL_` is an editor-transient/corruption
+artifact that should never appear in authored BPIR; and rejected the "keep the qualifier but make its token resolvable"
+direction as unnecessary for the reported case, since the qualifier itself is the false positive.)
 
 ## History
 - `#1-initial-report` `OPEN` reporter — Filed after `blueprint.decompile` on `/App/App/UI/LobbyAndMenu/W_DroneSelect_EditDrone` (EventGraph) emitted `%n0: bool = call SKEL_W_PDSSettingsUtils::DroneEditSaveAvailable(Target: $W_PDSSettingsUtils)` and `call SKEL_W_DemoNavigationHelper::ShowNotAvailable(Target: $W_DemoNavigationHelper)`. Re-compiling those verbatim in a `widget_event` body → `Line 28: Unresolved class 'SKEL_W_PDSSettingsUtils' in qualified call 'SKEL_W_PDSSettingsUtils::DroneEditSaveAvailable'; Line 28: EmitInstruction failed for opcode 0; Line 29: Could not resolve value '%n0.Available' for pin ''` (the `%n0` error is consequential on the failed emit). Unqualified variants (`call DroneEditSaveAvailable(Target: $W_PDSSettingsUtils)`) compiled successfully in the same session. Verified by source read: `Decompiler/BpirTextEmitter.cpp::GetFunctionDisplayName` (line ~514, `Func->GetOuterUClass()->GetName()`) + `StripBPGeneratedClassSuffix` (line ~489, strips `_C` only, no `SKEL_`); `ShouldQualifyFunctionName` `IsSelfContext()` short-circuit (line 436) is self-only so the cross-class qualifier is emitted; compiler `BpirCompiler.cpp:5638-5644` (`ResolveUClass` → `Unresolved class` on miss) and `Utils/ClassUtils.cpp::ResolveUClass` (line 100, no `SKEL_` handling; bare `SKEL_*` matches no script package / no loaded class). New sibling to the DONE self-event item, scoped to cross-class (non-self) targets — that fix's self-context short-circuit and regression tests do not cover this path. Severity Medium: loud (not silent) compile failure with a clean documented workaround (soft blocker per rubric).
+- `#2-reword-and-fix` `IN-REVIEW` developer — Reworded to reflect the verified root cause and correct the original framing. The cross-class qualifier is a **false positive**, NOT a "legitimately-needed disambiguator that cannot be dropped" as the original body claimed: `ShouldQualifyFunctionName` returns `Found != BoundFunc` only because `BoundFunc` is the SkeletonGeneratedClass instance while `Found = TargetClass->FindFunctionByName` is the GeneratedClass instance of the SAME authored function (same SKEL/GEN pointer-mismatch pathology as DONE `B-bpir-decompile-emits-skel-class-prefix-on-self-event-calls`, on the non-self arm it left uncovered) — proven by the ticket's own working workaround (bare name + `Target:` pin compiles via the DONE `B-bpir-target-shadowed-by-self-class` target-first cascade). Fix: `Source/PinWright/Private/Decompiler/BpirTextEmitter.cpp::ShouldQualifyFunctionName` now normalizes both the bound and cascade-found `UFunction` to their `GeneratedClass` instance before the identity compare (`IsSameAuthoredFunction`/`NormalizeToGeneratedFunction` locals), so the SKEL-vs-GEN duplication no longer qualifies; only a genuine same-name/different-function collision qualifies. No `ResolveUClass` change (rejected original option B as the wrong layer). Regression test `PinWright.bpir.decompiler.CrossClassCallNoSkelPrefix` (`Source/PinWright/Private/Tests/Bpir/TestBpirDecompileCrossClassCallNoSkelPrefix.cpp`) builds two transient orphan Blueprints in-code (Target owns custom event `CrossFoo`; Self hosts the call), binds the call node to Target's SKELETON `CrossFoo`, links a Target-GeneratedClass-typed DynamicCast result into the self/target pin, then asserts `GetFunctionDisplayName` emits no `SKEL_`, no `::`, and the bare `CrossFoo`; fixture-validity gates assert non-self-context + SKELETON-instance binding so a green result can't be vacuous. Left OUT of scope (noted in body): the rare genuine-collision case where a resolvable qualified token would still be desirable.
