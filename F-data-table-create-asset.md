@@ -1,7 +1,7 @@
 ---
 id: F-data-table-create-asset
 title: "No RPC to create a DataTable asset — data_table.* is row-CRUD only, asset.* create is folder/material only"
-status: OPEN
+status: IN-REVIEW
 severity: Medium
 category: feature
 tags: [data-table, authoring, asset-create-gap, loot-table]
@@ -45,4 +45,5 @@ the next caller does not repeat the 5-grep discovery dead end.
 severity rationale: impact=missing verb with no workaround (creating a DataTable is impossible via MCP) × reach=rare path (loot-table authoring; bump down one from the missing-verb High) -> Medium.
 
 ## History
+- `#2-implement` `IN-REVIEW` developer — Added the `data_table.create(name, path, structPath)` RPC (aliases `savePath`/`rowStruct`) in `Handlers/DataTable/DataTableAuthoringHandler.cpp`: loads + `FDataTableEditorUtils::IsValidTableStruct`-gates the row struct (STRUCT_NOT_FOUND / INVALID_ROW_STRUCT), guards ASSET_EXISTS, then `IAssetTools::CreateAsset` with a `UDataTableFactory` whose `Struct` is pre-seeded (the factory binds `RowStruct` and needs `Struct` non-null), `MarkPackageDirty` (no auto-save), and returns the resolvable OBJECT path as `assetPath` so the create -> `add_row` -> `interaction.configure_chest_properties` lootTablePath loop works off the response. Confirmed the gap first: the 6 `data_table.*` verbs (list_rows/add_row/set_row/remove_row/set_row_struct/describe) all resolve an existing table and bail ASSET_NOT_FOUND, and no `asset.*` verb or `UDataTableFactory` created a UDataTable anywhere in source. Regression test `PinWright.data_table.create.BindsStructAndPopulates` (+ `.BadStructRejected`) in `Tests/DataTable/TestDataTableCreate.cpp` drives the real handler over the in-code `FTestAssetDumpDataTableRow` fixture: create -> struct-bound table -> add_row succeeds -> second create ASSET_EXISTS; and bogus struct -> STRUCT_NOT_FOUND with nothing created. Compiles clean.
 - `#1-initial-audit` `OPEN` reporter — Struggle-audit of an interaction-authoring task whose goal required a loot table. `interaction.configure_chest_properties` accepts `lootTablePath`, but no MCP verb creates a `UDataTable`: `data_table.*` is row-CRUD on an existing table (bails ASSET_NOT_FOUND otherwise) and `asset.*` create is folder/material/material-instance only. Agent ran ~5 greps/reads (`loot`, `DataTable|RowStruct`, `create_data_table|create_datatable|create_table|import_data_table|create_asset`, `data_table.md`, `asset.md`) to confirm the gap, then left `lootTablePath` unset. `F-data-table-row-authoring` (DONE) added the row surface but explicitly does not create the table asset. Proposed `data_table.create(name, savePath, rowStruct)`.
