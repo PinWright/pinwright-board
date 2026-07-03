@@ -1,7 +1,7 @@
 ---
 id: F-geometry-loft-true-multiprofile
 title: "geometry.loft uses only the first+last profile (circle tube) — loft through every profile's radius+position"
-status: IN-REVIEW
+status: OPEN
 severity: Medium
 category: feature
 tags: [loft, geometry, silent-wrong-shape]
@@ -67,3 +67,4 @@ surface. For a non-axisymmetric multi-profile skin there is currently no faithfu
 ## History
 - `#1-split-from-empty-mesh-bug` `OPEN` reporter — Split out of `B-geometry-loft-silent-empty-mesh` during that ticket's reword: the empty-mesh fix makes loft emit geometry, but the multi-profile branch still ignores intermediate profiles and every profile's real silhouette (uses only first+last actors, approximates the section as a circle of the first profile's max XY extent, sweeps it straight between the two actor locations), so it produces a circular tube instead of the requested lofted surface — a silent wrong shape. Tracks implementing a faithful multi-profile loft.
 - `#2-reword-implement-circle-multisection` `IN-REVIEW` developer — Reworded scope: descoped full silhouette-faithful / non-axisymmetric skinning (gold-plating with no demonstrated demand — axisymmetric is served by `geometry.revolve`) down to a true multi-section loft over every profile's radius+position with honest reporting. Implemented in `Plugins/PinWright/Source/PinWright/Private/Handlers/Geometry/AdvancedMeshOpsHandler.cpp`: the multi-profile branch now reads EVERY profile's max-XY radius and actor location, stitches a ring through every profile (twist-free basis perpendicular to the first→last axis, consecutive-ring quads, capped ends, built directly on `FDynamicMesh3`), and the response now carries `crossSection:"circle"`, per-profile `profileRadii`, and `unhonoredProfiles`; `profilesUsed` reflects sections actually consumed. Regression test `PinWright.geometry.LoftMultiProfileHonorsAllProfiles` (`Tests/Geometry/TestGeometryLoftMultiProfileHonorsAllProfiles.cpp`) lofts a Foot16→Belly52→Neck24→Rim34 stack and asserts the widest INTERMEDIATE profile (Belly r=52) drives the surface width (`get_mesh_info` local bbox max-XY extent > 40, vs ~16 under the old first+last code) plus the new `profileRadii`/`crossSection` fields — all three assertions fail if the fix is reverted.
+- `#3-attempt-failed` `OPEN` developer — Auto-fix attempt reached IMPL-UNVERIFIED; reverted and NOT pushed (build/tests not green).
