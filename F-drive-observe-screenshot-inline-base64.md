@@ -2,11 +2,11 @@
 id: F-drive-observe-screenshot-inline-base64
 title: "drive.observe returns the Set-of-Mark screenshot as a ~1MB inline base64 blob with no file-path delivery option"
 status: OPEN
-severity: Low
+severity: Medium
 category: feature
 tags: [drive, observe, screenshot, set-of-mark, base64, response-spill, editor_chrome, docs]
-encounters: 2
-lastSeen: 2026-07-02T12:22:54.0000000Z
+encounters: 3
+lastSeen: 2026-07-03T16:30:00.0000000Z
 ---
 
 # drive.observe screenshot is inline base64 only — no file-path delivery
@@ -98,3 +98,22 @@ reach=screenshot:true is a drive.observe visual-review sub-path, not every-sessi
   transcript `.../subagents/workflows/wf_458c51e4-8a7/agent-a12452cb010faaabc.jsonl`
   (5 observe spills; friction note "interactables_only/max_elements did not bring
   it under threshold").
+- `#3-additional-game-web-spill` `OPEN` reporter — Additional evidence extending
+  the same element-list `response-spill` family beyond editor_chrome to
+  `surface:game` AND `surface:web` on a live PIE drone-edit UI navigation via
+  `drive`. `drive.observe {surface:game, interactables_only:true, screenshot:false}`
+  spilled at 23898 chars for only ~26 elements (a second game observe at 24928);
+  `surface:web` observes spilled at 15344 and 26549 chars. Confirms `#2`:
+  `interactables_only:true` did NOT bring it under the 10000-char threshold —
+  long nested UMG handle paths (e.g.
+  `W_OverallUILayout_C_0/W_MyDrones_C_0/W_DroneSelectionButton_C_8/CustomiseButton/SCommonButton`)
+  dominate the payload. New angle: extraction went beyond a plain `Read` — the
+  dumped JSON had to be Grep/Read'd and parsed with an external Python script,
+  which hit a `cp1251` `UnicodeDecodeError` on Cyrillic (Russian) element labels
+  and forced an explicit utf-8 open, so the spill also has a non-ASCII-label
+  encoding-fragility angle. Bumped severity Low->Medium: the spill now reproduces
+  on the DEFAULT (interactables_only, no-screenshot) element projection across
+  editor_chrome + game + web — an every-session drive navigation path (reach
+  bump) — and recovery required an out-of-band script plus a utf-8 fix, past the
+  "only forces a Read" bar for Low. Call-trace source: this session's live PIE
+  drone-edit drive navigation.
