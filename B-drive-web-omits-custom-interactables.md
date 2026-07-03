@@ -1,7 +1,7 @@
 ---
 id: B-drive-web-omits-custom-interactables
 title: "drive web observe omits custom ARIA/tabindex controls (role=listbox etc.) from interactables — no clickable handle"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: bug
 tags: [drive, web, cef, observe, interactable-classification, aria, tabindex, custom-dropdown]
@@ -84,3 +84,19 @@ custom `.pdd` dropdowns are pervasive on every physics/HUD panel -> High
   their child value spans as `interactable:false`. DOM-injection click confirmed
   working on exposed header handles, so the gap is detection-only. Fix: add
   `[tabindex]` + ARIA interactive roles to the IS selector.
+- `#2-implement-selector-fix` `IN-REVIEW` developer — Root-cause fix implemented.
+  Extended the interactable selector `IS` in `BuildQueryElementsJs`
+  (`DriveWebBridge.cpp:768` — ticket cited :769, off by one; content exact) from the
+  native-only set to also match focusable elements and interactive ARIA widget roles:
+  `[tabindex]:not([tabindex="-1"])` (tightened past the ticket's bare `[tabindex]` so
+  programmatic-only `tabindex="-1"` focus targets are not over-emitted) plus
+  `[role=link|checkbox|radio|switch|tab|menuitem|menuitemcheckbox|menuitemradio|option|combobox|listbox|slider|spinbutton|textbox|searchbox|treeitem]`.
+  A `<div class="pdd" tabindex="0" role="listbox">` now matches `IS`, so `add(el,true)`
+  stamps it a `data-pw-id` handle with `interactable:true` and `drive.click` can target it.
+  Detection-only change; no C++ parser edit needed (`ParseQueryResult` copies the JS flag
+  verbatim). Files: `Source/PinWright/Private/Handlers/Drive/DriveWebBridge.cpp` (selector),
+  `Source/PinWright/Private/Tests/Drive/TestDriveWebBridge.cpp` (added regression test
+  `PinWright.drive.web.QueryJsInteractableSelector`, which asserts the produced query JS
+  covers `[tabindex]` + the ARIA roles and fails if the selector is reverted). Plugin builds
+  clean. Not a duplicate of the same-function `B-drive-web-handle-collision` (disjoint
+  `hid()` minter) nor the different-file `B-simulate-input-cef-click-noop`.
