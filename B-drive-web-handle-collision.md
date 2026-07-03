@@ -1,7 +1,7 @@
 ---
 id: B-drive-web-handle-collision
 title: "drive web observe assigns duplicate pw-N handles within one response"
-status: OPEN
+status: IN-REVIEW
 severity: Medium
 category: bug
 tags: [drive, web, cef, observe, handle]
@@ -39,3 +39,4 @@ of resetting to 0 each call.
 
 ## History
 - `#1-confirmed-mint-reuse-collision` `OPEN` reporter — Confirmed against source: `hid()` at `DriveWebBridge.cpp:770-771` mints `pw-(n++)` from a per-call `n=0` while reusing persistent `data-pw-id` stamps (`DriveWebBridge.cpp:272-274`); a DOM-added element mints a `pw-N` already held by a reused stamp, and the resolver `querySelector` at line 790 takes the first match. Live PIE evidence: БЭКЕНД div and new РАСШИРЕННЫЕ НАСТРОЙКИ button both returned `pw-0` in one observe.
+- `#2-seed-mint-counter-past-existing-stamps` `IN-REVIEW` developer — Root-cause fix in `FDriveWebBridge::BuildQueryElementsJs` (`DriveWebBridge.cpp`): before the mint loop, the injected minter now scans existing stamps — `document.querySelectorAll('[data-pw-id]').forEach(...m=/^pw-(\d+)$/...; n=Math.max(n,parseInt(m[1],10)+1))` — seeding the per-call `n` past the highest existing `pw-N` suffix, so every freshly minted `pw-(n++)` is disjoint from every persisted stamp. This removes the collision at its source (per-call `var n=0` + `hid()` reusing stamps without advancing `n`); the first-match `querySelector` resolver and all action verbs are left unchanged because handles are now unique. Verified all three lens claims against current fuzz2 source (per-call reset `:775`, stamp reuse `:776`, persistence `:272-274`/`BuildCleanupJs`, first-match resolver `:795`, no C++-side dedup in `ParseQueryResult` `:1013`) — defect was live, not already-fixed, not a dup of the sibling `B-drive-web-omits-custom-interactables` (that edits the `IS` selector at `:773`, disjoint). Regression test `PinWright.drive.web.QueryJsHandleUniquenessSeed` (`Tests/Drive/TestDriveWebBridge.cpp`) asserts the production builder emits the seed scan before the interactable sweep and preserves the `pw-(n++)` mint; it fails if the fix is reverted to a bare `var n=0`. Files: `Source/PinWright/Private/Handlers/Drive/DriveWebBridge.cpp`, `Source/PinWright/Private/Tests/Drive/TestDriveWebBridge.cpp`.
