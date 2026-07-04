@@ -1,7 +1,7 @@
 ---
 id: B-lighting-create-level-false-success-no-umap
 title: "lighting.create_lighting_enabled_level reports success:true/existsAfter:true but writes no .umap — the create/save disk-presence hardening (VerifyLevelSavedToDisk) was never applied to this handler"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: bug
 tags: [lighting, create-level, save, false-success, silent-noop, no-umap, mcp-safe-level-save]
@@ -125,3 +125,20 @@ is the very first step of a lighting-sandbox setup; not rare) -> High
   / `B-level-save-saved-true-in-memory-no-umap` / `B-level-create-makes-wp-map` (different
   handler/namespace, and this one still emits a false `success:true` rather than an honest
   error). Seeds the shared `mcp-safe-level-save` / `false-success` symptom family.
+- `#2-fix-regate-verifylevelsavedtodisk` `IN-REVIEW` developer — Applied the same disk-presence
+  hardening the sibling level.* verbs carry. `LightingHandler.cpp` (`lighting.create_lighting_enabled_level`)
+  now re-gates the bare `McpSafeLevelSave` boolean through the shared
+  `VerifyLevelSavedToDisk(Path, bSaveReported, OutFilename, OutErrorCode)` helper
+  (`AssetUtils.cpp:392`): it only reports `success:true`/`existsAfter:true` when the `.umap`
+  actually lands on disk, and otherwise drives `Ctx.SendError` with the honest
+  `SAVE_VERIFICATION_FAILED` (reported-success-but-no-file) / `SAVE_FAILED` code instead of a
+  false success — mirroring `level.save` (`LevelHandler.cpp:271`), `level.save_as`
+  (`LevelHandler.cpp:358`), and `level.structure.create_level` (`LevelStructureHandler.cpp:296-321`).
+  Files: `Source/PinWright/Private/Handlers/Environment/LightingHandler.cpp`. Regression test:
+  `PinWright.lighting.create_lighting_enabled_level.ReportsHonestPersistence` (added to
+  `Source/PinWright/Private/Tests/World/TestLevelHandlers.cpp`, reusing that file's safe
+  `DiscardProbeMapPackage` + `FScopedEditorWorldMapGuard` scaffolding) — drives the real handler
+  end-to-end and asserts the persistence-honesty invariant (reported `success` must agree with
+  `.umap`-on-disk reality; no file -> `success:false` + honest `SAVE_(VERIFICATION_)FAILED`). It
+  fails if the handler is reverted to trust the bare `McpSafeLevelSave` boolean. Plugin compiled
+  clean.
