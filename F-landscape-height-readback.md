@@ -1,8 +1,8 @@
 ---
 id: F-landscape-height-readback
-title: "No landscape height/region readback verb — landscape.sculpt/edit can WRITE heights but nothing samples them, so a sculpt round-trip can only be verified by emulating a readback through internal component fields (all of which come back stale or NOT_FOUND)"
-status: OPEN
-severity: Medium
+title: "No landscape height/region readback verb — landscape.sculpt/edit can WRITE heights but nothing samples them, so a sculpt/edit round-trip cannot be verified per region (the whole-actor bounding box is a single aggregate Z extent, not per-region relief)"
+status: IN-REVIEW
+severity: Low
 category: feature
 tags: [write-verb-no-content-readback, landscape, sculpt, edit, readback, verify, round-trip, get_heights, sample_region]
 encounters: 1
@@ -35,9 +35,9 @@ close that loop is a height sample the namespace does not offer.
 The judge filed `B-landscape-sculpt-stale-bounds` — a **bug**: `sculpt`/`edit`
 write + `Flush` but never refresh the component `CachedLocalBox`/collision, so
 every bounds readback (`actor.get_component_property CachedLocalBox` AND the live
-`actor.get_bounding_box`) reports Z=0 after a real raise. That ticket's fix
-(refresh bounds after the height write) restores the **actor's overall bounding
-box**.
+`actor.get_bounding_box`) reported Z=0 after a real raise. That ticket's fix
+(refresh bounds after the height write) is **now merged** (`SettleLandscapeLayers`,
+commit a1f0cfe), restoring the **actor's overall bounding box**.
 
 This ticket is a different axis and **survives that fix**:
 
@@ -73,14 +73,20 @@ baseline," "pad region flattened to a constant Z," and "ridge region raised less
 than the hill" — turning `modifiedVertices` (a write-side count) into an actual
 shape verification.
 
-**Workaround:** none that samples heights. The audited task fell back to reading
-internal component fields via `actor.get_component_property`
+**Workaround:** no first-class landscape verb samples heights, but the gap is not
+absolute. `python.execute` (a registered verb) can run arbitrary UE Python — a
+downward line trace against the landscape collision, or a direct height read — to
+sample terrain Z, and now that `B-landscape-sculpt-stale-bounds` is fixed the
+whole-actor `actor.get_bounding_box` (and per-component `CachedLocalBox`) reports
+correct *aggregate* relief. What none of these give is a coordinate-addressed
+per-region height — the thing that confirms "central region up, pad flat, ridge
+up less". The audited task did not try the `python.execute` path; it read internal
+component fields via `actor.get_component_property`
 (`CachedLocalBox.Max.Z`, full `CachedLocalBox`, `Bounds`, and the
 heightfield-collision component's `CachedLocalBox`) — 4 calls plus 2 discovery
-wiki reads — and got stale `0` or `[NOT_FOUND]` every time, never a live
-post-sculpt height. It ultimately trusted the ordered `modifiedVertices` counts
-(the success check's permitted alternative), i.e. it could not directly verify
-relief at all.
+wiki reads — got stale `0`/`[NOT_FOUND]` (the pre-bounds-fix symptom), and fell
+back to trusting the ordered `modifiedVertices` counts (the success check's
+permitted alternative).
 
 ## Friction evidence (this task — `landscape` prototype-hillside sculpt, 22 calls, outcome tool_bug/done)
 
@@ -100,7 +106,8 @@ sculpt result, not a failure. (The stale-`0` bounds themselves are the judge's
 `B-landscape-sculpt-stale-bounds`; the `Bounds` `NOT_FOUND` is an expected
 transient-field limit; this ticket is solely the missing height-sample verb.)
 
-severity rationale: impact=soft-blocker (a normal terrain-verify intent is doable only via a multi-call source-dive emulation that still fails to yield the value) × reach=every-landscape-session (sculpt/edit are the core terrain-shaping verbs and their result is normally verified) -> Medium
+severity rationale: impact=verification-precision (with `B-landscape-sculpt-stale-bounds` now fixed the aggregate relief IS verifiable via `actor.get_bounding_box`, and `python.execute` is an escape hatch; what is missing is first-class per-region/per-coordinate height sampling to confirm hill-up/pad-flat/ridge-up-less) × reach=every-landscape-session (sculpt/edit are the core terrain-shaping verbs) -> Low
 
 ## History
 - `#1-initial-audit` `OPEN` reporter — Struggle audit of the `landscape` prototype-hillside task (22 calls, outcome tool_bug; judge filed `B-landscape-sculpt-stale-bounds`, the missing bounds/collision refresh). Distinct PROCESS/capability angle: the landscape write verbs (`sculpt`, `edit`) have NO height/region readback counterpart — the namespace registers only create/create_grass_type/create_procedural_terrain/edit/sculpt/set_material, and an index-wide wiki Grep for height/sample/readback surfaced none. So after sculpting a hill/ridge/pad the agent could not sample the terrain to confirm relief and burned 4 `actor.get_component_property` emulation calls (CachedLocalBox Max.Z=0, full CachedLocalBox Max:[63,63,0], `Bounds` [NOT_FOUND], collision CachedLocalBox Max Z=0) + 2 discovery reads, none yielding a live height, then fell back to trusting `modifiedVertices` counts. This survives the judge's bounds-refresh fix: a whole-actor bounding box is one aggregate number and cannot confirm per-region relief (hill up, pad flat, ridge up-less), which is what the task asked. Proposed: add `landscape.get_heights` / `landscape.sample_region` (or `operation='get'` on `landscape.edit`) returning region uint16 samples or min/max/mean Z via the same `FLandscapeEditDataInterface::GetHeightData` the write path already uses. Precedent: `F-texture-pixel-stats-readback` (IN-REVIEW) — same shape (pixel-mutating verbs, no content readback → new stats verb, filed separately from the metadata bug). Dedup: ripgrep across OPEN+closed — no landscape height/sample/region-readback ticket exists; the landscape files are `B-landscape-sculpt-stale-bounds` (bounds-refresh bug — different axis), `B-landscape-create-*` (create geometry), `B-landscape-handler-bypasses-ctx`, `E-landscape-edit-extent-error-not-diagnostic` (error text), `E-generate-lods-landscapepath-misnomer` (unrelated param naming). Family tag `write-verb-no-content-readback` shared with `F-texture-pixel-stats-readback`.
+- `#2-implement-get-heights` `IN-REVIEW` developer — REWORD then implemented as GO. Verified against plugin HEAD: the `landscape` namespace registers exactly create/sculpt/set_material/create_grass_type/edit/create_procedural_terrain (`LandscapeHandler.cpp:182/562/753/824/922/1126`) with NO read/sample verb, and `landscape.edit`'s operation branch is write-only (set/raise/lower/flatten, `:1058-1074`); the write path already reads heights via `FLandscapeEditDataInterface::GetHeightData` (`:676` sculpt, `:1046` edit). REWORD basis (adversarial lens, both points verified in source): (a) the sibling `B-landscape-sculpt-stale-bounds` fix is ALREADY MERGED in HEAD (commit a1f0cfe; `SettleLandscapeLayers` `LandscapeHandler.cpp:164-179`), so whole-actor `actor.get_bounding_box` now reports correct AGGREGATE relief — the residual gap is per-region verification *precision*, so severity Medium->Low; (b) `python.execute` IS a registered verb (`PythonExecuteHandler.cpp:61`), an arbitrary-UE-Python escape hatch, so the "Workaround: none" claim was corrected. Implemented mirroring the accepted `F-texture-pixel-stats-readback` shape (new readback verb + exported helper + in-code-fixture test): new `landscape.get_heights` RPC (`LandscapeHandler.cpp`) resolves the landscape, clamps the region to the extent (with the same hollow-landscape `LANDSCAPE_NO_COMPONENTS` diagnosis as `landscape.edit`), reads via a read-only `FLandscapeEditDataInterface::GetHeightData` (the SAME read the write path uses — no new access mechanism), and delegates to a new exported helper `LandscapeHeightStats::BuildHeightStatsJson` (`Source/PinWright/Private/Handlers/Environment/LandscapeHeightStats.{h,cpp}`) returning per-region raw min/max/mean height and their world-space Z (`minZ`/`maxZ`/`meanZ`, the exact inverse of the sculpt/edit height math), plus optional raw uint16 samples (`includeSamples`/`maxSamples`). With region min/max/mean a caller can confirm "central region raised above baseline", "pad flattened to a constant Z", and "ridge raised less than the hill". Regression test `PinWright.landscape.get_heights.HeightStats` (`Source/PinWright/Private/Tests/Environment/TestLandscapeHeightStats.cpp`) feeds a known 2x2 uint16 buffer and asserts the raw aggregates, the world-Z conversion (32768 midpoint -> actor Z, 1/128 scale, actor Z scale/offset), sample ordering + `maxSamples` truncation, and a size-mismatch rejection; reverting the fix removes the helper so the test fails to compile/link. Dedup: no other landscape height/sample/region-readback ticket on the board.
