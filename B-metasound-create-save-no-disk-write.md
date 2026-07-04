@@ -1,10 +1,12 @@
 ---
 id: B-metasound-create-save-no-disk-write
-title: "create_metasound_patch / create_metasound_preset save:true never writes the .uasset — McpSafeAssetSave only marks dirty, but existsAfter:true implies persistence"
+title: "create_metasound (Source) / create_metasound_patch / create_metasound_preset save never writes the .uasset — McpSafeAssetSave only marks dirty, but existsAfter:true implies persistence (cold-load-confirmed loss)"
 status: IN-REVIEW
-severity: Medium
+severity: Critical
 category: bug
-tags: [audio, metasound, save, create-metasound-patch, mcp-safe-asset-save, silent-failure, false-success]
+tags: [audio, metasound, save, create-metasound, create-metasound-source, create-metasound-patch, mcp-safe-asset-save, no-disk-write, cold-load, persistence, silent-failure, false-success]
+encounters: 2
+lastSeen: 2026-07-04T17:07:57.2290217+03:00
 ---
 
 # create_metasound_patch's save:true claims the asset is saved but writes nothing to disk
@@ -84,6 +86,30 @@ the same task: that is the mutators rejecting a Patch with a false
 `ASSET_NOT_FOUND`; this is the *create* path's `save:true` not persisting
 to disk — an orthogonal save-fidelity defect on the same handler family.)
 
+## Additional affected method — `audio.authoring.create_metasound` (Source), cold-load-confirmed loss
+
+The #2 fix rerouted only the two handlers in `MetaSoundPatchPresetHandler.cpp`. The **Source** create — `audio.authoring.create_metasound` (builds a `UMetaSoundSource`) — is a SEPARATE handler in `AudioAuthoringHandler.cpp` that still routes its save through the mark-dirty-only `McpSafeAssetSave` and is NOT touched by that fix, so it still loses the whole asset on cold load.
+
+Guilty source (verbatim, verified in-tree):
+
+- `Source/PinWright/Private/Handlers/Audio/AudioAuthoringHandler.cpp:836` — `McpSafeAssetSave(MetaSound);` inside the `create_metasound` handler (the `save` param read at `:814` is not even consulted), immediately followed by `AddAssetVerification(Result, MetaSound);` (`:841`) which sets `existsAfter:true` from the asset registry, not from disk.
+- `Source/PinWright/Private/Utils/AssetUtils.cpp:214-226` — `McpSafeAssetSave` only `MarkPackageDirty()` + `FAssetRegistryModule::AssetCreated(Asset)` then returns true; it never calls any package-save API.
+
+### Cold-load repro (confirmed by a real editor restart)
+
+A build-an-engine-rev-synth task built `/Game/Audio/MS_EngineRev` (a MetaSound Source): `create_metasound` (save=true) then 3 Float inputs (Frequency / Gain / Detune) then set defaults (120 / 0.8 / 5) then `remove_metasound_input Detune` (save=true) then `describe_metasound` confirmed exactly two user inputs in-session. Every call returned success. A CorruptionCheck cold restart then found the asset ENTIRELY ABSENT on disk:
+
+- `editor.open_asset /Game/Audio/MS_EngineRev` -> `[ASSET_NOT_FOUND]`
+- `asset.dump_folder /Game/Audio` -> `assetCount: 0`
+- no `MS_EngineRev.uasset` anywhere under `Content/Audio` on disk
+
+The save reported success but never flushed — a no-disk-write persistence loss identical in shape to the patch/preset defect this ticket already covers, on the same `McpSafeAssetSave` helper. The subsequent input-mutation verbs on the task operated in-memory on the same never-persisted package, so nothing they did survives either — but the create is the root loss (the whole asset never lands on disk).
+
+Fix must extend the #2 real-save reroute to `create_metasound` (Source) in `AudioAuthoringHandler.cpp` (route `save` through `SaveAssetToDiskReportingPresence` / `SaveLoadedAssetThrottled(bForce=true)` — a fresh `UMetaSoundSource` is not a Blueprint/SCS asset, so the bulkdata-corruption vector that pins `McpSafeAssetSave` on Blueprint edits does not apply), and report an honest `saved` / `pendingFlush` instead of an unqualified `existsAfter:true`.
+
+severity rationale (elevated from Medium): impact=corruption/silent-persistence-loss × reach=every-session -> Critical. The prior Medium reflected the patch/preset "workaround = save_all" framing; the cold-load confirmation on the Source create proves genuine silent asset loss with no signal.
+
 ## History
 - `#1-initial-audit` `OPEN` reporter — PROCESS/save-fidelity friction surfaced by the `audio.authoring.create_metasound_patch` "GainStage_Patch" fuzz task (outcome tool_bug; this save defect is orthogonal to the judge-filed mutator-cast bug). `create_metasound_patch`/`create_metasound_preset` default `save:true` to `McpSafeAssetSave(Patch)` (`MetaSoundPatchPresetHandler.cpp:90-93` / `:217-220`), which only `MarkPackageDirty()` + `AssetCreated()` and never writes the `.uasset` — but the response sets `existsAfter:true` (registry, not disk), implying persistence. The user observed the patch was not on disk until a separate `editor.save_all` ("saved 1") flushed it; the create's own `save:true` gave no hint the asset was memory-only. Same root cause/code as `B-niagara-save-no-disk-write`, which explicitly names the MetaSound path as affected but scopes its fix to niagara only — no MetaSound save ticket exists, so this fills the gap. Proposes the accepted sibling pattern: route MetaSound create `save:true` through the real-save helper `SaveLoadedAssetThrottled`, probe disk presence, and gate via `ShouldTreatAssetSaveAsSuccess` with a `pendingFlush:true` signal when dirty-only — leaving the shared corruption-sensitive `McpSafeAssetSave` untouched.
 - `#2-route-create-save-through-disk-write` `IN-REVIEW` developer — Fixed both MetaSound create handlers in `MetaSoundPatchPresetHandler.cpp`: `create_metasound_patch` (was `:90-93`) and `create_metasound_preset` (was `:217-220`) now route `save:true` through the in-tree real-save helper `SaveAssetToDiskReportingPresence(Asset, /*bForce=*/true)` (which wraps `SaveLoadedAssetThrottled` -> `UEditorAssetLibrary::SaveLoadedAsset`, probes `IFileManager::FileSize` for on-disk presence, and gates via `ShouldTreatAssetSaveAsSuccess`) instead of the mark-dirty-only `McpSafeAssetSave`. Each response now carries honest `saveRequested`/`saved` booleans plus `pendingFlush:true` when the asset is dirty-only (mirrors the accepted `niagara.create_*` and `create_level` fixes). The shared corruption-sensitive `McpSafeAssetSave` and its ~220 other callers are untouched. Considered the adversarial suggestion to scope down to a `pendingFlush`-only honesty signal (relying on the existing generic `asset.save`), but a signal-only change leaves `save:true` silently not persisting — strictly worse than the sibling-accepted real-save, and the per-handler real-save reuses the centralized turnkey helper rather than reinventing per-site, so kept the real-save scope. Regression test: added `FMetaSoundCreateSaveWritesToDiskTest` (`PinWright.Assets.MetaSoundCreateSaveWritesToDisk`) to `Tests/Assets/TestMetaSoundPatchPreset.cpp` — factory-creates a real MetaSound patch, asserts no `.uasset` on disk pre-save, then drives the production helper `SaveAssetToDiskReportingPresence` and asserts the `.uasset` genuinely lands on disk (`IFileManager::FileSize >= 0`, reported `OutSize > 0`); reverting either handler to `McpSafeAssetSave` (mark-dirty only, no file written) fails the disk-presence assertions.
+- `#3-additional-cold-load` `IN-REVIEW` reporter — Additional evidence (SYMPTOM-FAMILY, new method + new angle): the #2 fix rerouted only the two `MetaSoundPatchPresetHandler.cpp` handlers; the **Source** create `audio.authoring.create_metasound` (`AudioAuthoringHandler.cpp:836`) still calls the mark-dirty-only `McpSafeAssetSave` (`AssetUtils.cpp:214-226`) and reports `existsAfter:true`, so it STILL loses the asset on cold load. A CorruptionCheck cold restart of a build-an-engine-rev-synth task (`create_metasound MS_EngineRev` save=true -> 3 Float inputs with defaults -> `remove_metasound_input Detune` -> `describe_metasound` confirmed 2 inputs in-session) found `/Game/Audio/MS_EngineRev` ENTIRELY ABSENT on disk: `editor.open_asset` -> `[ASSET_NOT_FOUND]`, `asset.dump_folder /Game/Audio` -> assetCount 0, no `MS_EngineRev.uasset` under `Content/Audio`. Added `create_metasound` (Source) to the affected-methods list; bumped `encounters` -> 2. Severity raised Medium -> Critical: the cold-load confirmation proves silent persistence loss (asset corruption per rubric), not a workaround-covered Medium. Fix must extend the #2 real-save reroute to the Source create in `AudioAuthoringHandler.cpp`.
