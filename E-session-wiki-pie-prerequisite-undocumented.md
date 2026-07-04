@@ -1,7 +1,7 @@
 ---
 id: E-session-wiki-pie-prerequisite-undocumented
 title: "session wiki overlay doesn't say which session.* methods require live PIE — callers eat a [NO_GAME_INSTANCE] on the first add/remove_local_player"
-status: OPEN
+status: IN-REVIEW
 severity: Low
 category: ergonomic
 tags: [session, docs, pie-prerequisite, discoverability, voice-chat-plugin]
@@ -9,19 +9,25 @@ encounters: 5
 lastSeen: 2026-07-01T16:42:43.2664492+03:00
 ---
 
-# `session` wiki overlay omits the live-PIE prerequisite for local-player / split-screen methods
+# `session` wiki overlay omits the live-PIE prerequisite for the local-player roster methods (and the voice-chat-plugin prerequisite)
 
-Most `session.*` methods that touch the local-player roster or split-screen
-config operate on the **active game instance**, which only exists while
-Play-In-Editor is running. With PIE stopped, the internal
-`SessionsHandler::GetGameInstance()` helper (`SessionsHandler.cpp:44`, returns
-`GEditor->PlayWorld->GetGameInstance()`) is null and the handler aborts with
+The local-player roster methods `add_local_player` / `remove_local_player`
+operate on the **active game instance**, which only exists while Play-In-Editor
+is running. With PIE stopped, the internal `GetGameInstance()` helper (free
+function in namespace `SessionsHelpers`, `SessionsHandler.cpp:45-50`, returns
+`GEditor->PlayWorld->GetGameInstance()`) is null and both methods abort with
 `[NO_GAME_INSTANCE] No active game instance. Start Play-In-Editor first.`
-(`SessionsHandler.cpp:232` for `add_local_player`, `:268` for
-`remove_local_player`). `session.get_sessions_info`, by contrast, works
-pre-PIE (returns `count 0, inPlaySession:false`), so the two halves of the
-namespace have different prerequisites with nothing in the docs to flag the
-split.
+(`SessionsHandler.cpp:267` for `add_local_player`, `:303` for
+`remove_local_player`). **Only these two methods return `[NO_GAME_INSTANCE]`.**
+The split-screen setters do *not* share the prerequisite: `configure_split_screen`
+(`:164-221`) succeeds pre-PIE via `GameUserSettings` and only consults the game
+instance to enrich its status string (`:199-206`, no `NO_GAME_INSTANCE` guard),
+and `set_split_screen_type` (`:223-252`) merely validates the enum and stores the
+layout — both persist the requested layout to plugin state and round-trip through
+`get_sessions_info.splitScreenType` with PIE stopped. `get_sessions_info` is
+likewise pre-PIE-safe (`localPlayerCount 0`, `inPlaySession:false`). So the two
+halves of the namespace have different prerequisites, and the split is invisible
+until a caller eats the failed roster call — with nothing in the docs to flag it.
 
 The `session` wiki overlay (`docs/wiki-src/session.md`) is a single descriptive
 line enumerating what the namespace covers (local player add/remove, split-screen
@@ -84,15 +90,25 @@ overlay-omits-the-precondition failure mode as the PIE gap, different
 precondition (plugin-loaded vs PIE-running).
 
 **Fix (downstream wiki process):** extend the `docs/wiki-src/session.md` overlay
-to note (a) that the local-player roster and split-screen methods
-(`add_local_player`, `remove_local_player`, `configure_split_screen`,
-`set_split_screen_type`, travel) operate on the active game instance and require
-PIE to be running, returning `[NO_GAME_INSTANCE]` otherwise, while
-`get_sessions_info` is safe to call pre-PIE for a baseline; and (b) that
-`enable_voice_chat` requires a voice-chat plugin to be loaded on the host and
-returns `[VOICE_CHAT_ERROR] IVoiceChat interface not available` otherwise — a
-host-capability gap that retries can't clear, so callers shouldn't re-attempt it.
-This is a wiki edit, not a code change.
+to note (a) that **only** the local-player roster methods `add_local_player` /
+`remove_local_player` operate on the active game instance and require PIE to be
+running, returning `[NO_GAME_INSTANCE]` otherwise — while the split-screen setters
+(`configure_split_screen`, `set_split_screen_type`) do **not** require PIE (they
+persist their layout to plugin state, read back via `get_sessions_info`, and
+succeed with PIE stopped, so there is no need to re-run them after starting PIE),
+`get_sessions_info` is safe to call pre-PIE for a baseline, and LAN/travel config
+is pre-PIE-safe too (`host_lan_server executeTravel:true` needs a world, erroring
+`HOST_FAILED`, not `[NO_GAME_INSTANCE]`); and (b) that `enable_voice_chat` requires
+a voice-chat provider plugin loaded on the host and returns
+`[VOICE_CHAT_ERROR] IVoiceChat interface not available` otherwise — a host-capability
+gap that retries can't clear, so callers shouldn't re-attempt it, and the sibling
+voice setters (`configure_voice_settings`, `set_voice_channel`, `set_voice_attenuation`,
+`configure_push_to_talk`, `mute_player`) only stage settings and return success even
+where voice can never enable. This is a wiki edit, not a code change. (Note: an
+earlier draft of this Fix and History `#4` wrongly grouped the split-screen setters
+/ travel with the `[NO_GAME_INSTANCE]` methods — corrected on reword against source;
+the pre-PIE split-screen values genuinely persist, so `#4`'s "wasted REDO" was an
+unnecessary agent re-run, not a hard requirement.)
 
 ## History
 - `#1-initial-audit` `OPEN` reporter — Process/struggle audit of a couch co-op
@@ -211,3 +227,25 @@ This is a wiki edit, not a code change.
   (this exact task appended there as its `#5-additional-voice-channel-readback`, which
   explicitly delegates the false-"wired up" discoverability process half here); not a
   separate ticket. No new ticket; appended as cross-task evidence.
+- `#6-reword-and-fix` `IN-REVIEW` developer — Reworded + implemented. **Reword:** the
+  prior Fix and History `#4` wrongly grouped the split-screen setters / travel with the
+  `[NO_GAME_INSTANCE]` methods. Verified against source: `configure_split_screen`
+  (`SessionsHandler.cpp:164-221`) has no game-instance guard — it succeeds pre-PIE via
+  `GameUserSettings` and only reads the game instance to enrich its status string
+  (`:199-206`); `set_split_screen_type` (`:223-252`) just validates the enum and stores
+  the layout; both persist to plugin state and round-trip through `get_sessions_info`
+  with PIE stopped. **Only** `add_local_player` (`:267`) / `remove_local_player` (`:303`)
+  return `[NO_GAME_INSTANCE]`. Corrected the title/body/Fix to that reality (severity
+  Low / category ergonomic unchanged); so `#4`'s "wasted REDO" was an unnecessary agent
+  re-run, not a hard requirement. **Fix:** added two `## Prerequisite:` sections to
+  `Docs/wiki-src/session.md` (they render on the `session` namespace page via
+  `WikiHandler::RenderPage` / `WikiOverlay` — H2 prelude — but stay off the root index):
+  (a) the live-PIE prerequisite for the roster methods, with the split-screen /
+  LAN-travel / `get_sessions_info` pre-PIE-safe distinction; (b) the voice-chat
+  provider-plugin prerequisite for `enable_voice_chat` (`[VOICE_CHAT_ERROR]`, retries
+  can't clear it) plus the sibling-voice-setter false-"wired up" caveat. **Test:**
+  `PinWright.infra.wiki_handler.Namespace.SessionPiePrerequisite`
+  (`Source/PinWright/Private/Tests/Infra/TestSessionPiePrerequisiteDocs.cpp`) renders the
+  page through the live `WikiHandler::RenderPage` path and asserts the `NO_GAME_INSTANCE`
+  / `Start Play-In-Editor first` / `do not require PIE` / `VOICE_CHAT_ERROR` /
+  `no voice chat plugin loaded` markers survive; reverting the overlay edit fails it.
