@@ -5,8 +5,8 @@ status: OPEN
 severity: Low
 category: ergonomic
 tags: [texture, srgb, setter-parity, property-set, fallback, docs]
-encounters: 1
-lastSeen: 2026-06-23T10:08:23Z
+encounters: 2
+lastSeen: 2026-07-04T16:51:49.1377515+03:00
 ---
 
 # `texture.*` exposes no sRGB setter, despite `describe` reporting `srgb` and the linear/mask workflow needing it
@@ -71,6 +71,39 @@ for compression/group, i.e. the sRGB step is the one that fell off the typed
 surface. Source confirmation: no `set_srgb` / `"srgb"` setter token exists in
 `TextureHandler.cpp`; the only sRGB write path is the generic reflection setter.
 
+## Additional angle — `set_compression_settings` to a mask/normal type leaves `srgb:true` (internal inconsistency with the plugin's own create paths)
+
+A second run (single procedural roughness mask: `create_noise_texture` →
+`adjust_levels` → `set_compression_settings TC_Masks` → `set_texture_group`) hit
+the same gap from a different direction. The agent expected
+`set_compression_settings` to `TC_Masks` to also clear sRGB (mask/normal
+compression is linear data), but the handler writes only `CompressionSettings`
+and leaves `SRGB` untouched — so the caller still has to fall back to
+`property.set SRGB=false` + `asset.save`.
+
+This is not merely a missing setter; it is an **internal inconsistency**. The
+plugin's own mask/normal *create* paths already pair `SRGB=false` with the
+mask/normal compression type — `TextureHandler.cpp:948-949`
+(`AOTexture->SRGB = false; AOTexture->CompressionSettings = TC_Masks;`) and
+`TextureHandler.cpp:746-747`
+(`NormalMap->SRGB = false; NormalMap->CompressionSettings = TC_Normalmap;`) —
+yet the standalone `set_compression_settings` handler
+(`TextureHandler.cpp:1068`, `Texture->CompressionSettings = NewSetting;`) never
+applies that pairing. So the plugin "knows" mask/normal compression wants linear,
+but only when it creates the texture, not when it re-compresses one.
+
+**Alternative / complementary fix:** have `set_compression_settings` also set
+`SRGB=false` when the target is a known-linear compression type
+(`TC_Masks` / `TC_Normalmap` / `TC_Grayscale` / …) — matching both the plugin's
+own create-path convention and the UE texture-editor UX — in addition to (or
+instead of) the dedicated `texture.set_srgb` proposed above.
+
+Verbatim replay (HEAD, this iteration):
+
+- `texture.create_noise_texture {name:"T_ReplaySrgb", path:"/Game/Textures/ReplayTmp", noiseType:"Perlin", width:128, height:128, seamless:true}` → created; `texture.describe` → `"compressionSettings":"TC_Default", "srgb":true`.
+- `texture.set_compression_settings {assetPath:".../T_ReplaySrgb", compressionSettings:"TC_Masks", save:true}` → `"Compression set to TC_Masks"`.
+- `texture.describe {...}` → `"compressionSettings":"TC_Masks", ..., "srgb":true` — sRGB left unchanged.
+
 ## History
 - `#1-initial-audit` `OPEN` reporter — Authoring three procedural utility
   textures (`/Game/Textures/Procedural`), the attempt configured compression,
@@ -83,3 +116,14 @@ surface. Source confirmation: no `set_srgb` / `"srgb"` setter token exists in
   `SRGB` UPROPERTY name. Distinct from `E-texture-describe-omits-lodbias-wrap`
   (read-side omission). Fix: add `texture.set_srgb`; tag `docs` to enumerate the
   setter family + workaround on `docs/wiki-src/texture.md`.
+- `#2-additional-set-compression-no-srgb-clear` `OPEN` reporter — Additional
+  evidence / new angle: `set_compression_settings TC_Masks` leaves `srgb:true`
+  (replay-confirmed at HEAD — `describe` after → `"compressionSettings":"TC_Masks","srgb":true`).
+  Same sRGB-workflow gap, but from the setter side rather than the missing-setter
+  side: the plugin's own create-mask / create-normal paths pair `SRGB=false` with
+  `TC_Masks` / `TC_Normalmap` (`TextureHandler.cpp:948-949`, `746-747`), yet the
+  standalone `set_compression_settings` (`TextureHandler.cpp:1068`) writes only
+  `CompressionSettings`, so authoring a non-color mask still forces
+  `property.set SRGB=false` + `asset.save`. Complementary fix: auto-clear `SRGB`
+  for known-linear compression types in `set_compression_settings`, alongside the
+  proposed `texture.set_srgb`. encounters→2.
