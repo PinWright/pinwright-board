@@ -5,8 +5,8 @@ status: OPEN
 severity: Low
 category: ergonomic
 tags: [blueprint, add_event, node-id, no-echo, readback, response-shape, creation-verb-no-node-id]
-encounters: 1
-lastSeen: 2026-07-04T19:17:43.9468829+03:00
+encounters: 2
+lastSeen: 2026-07-04T23:27:52.7255778+03:00
 ---
 
 # `blueprint.add_event` omits the created node's id — you can't wire the event without a follow-up `get_nodes`
@@ -117,3 +117,4 @@ the analogous `E-compile-bpir-creatednodes-opaque` (Low).
 
 ## History
 - `#1-initial-repro` `OPEN` reporter — Filed from a realism task (build a small Actor BP `BP_SpawnBeacon`: BeginPlay -> PrintString -> Set bInitialized, wired end to end). The attempt completed but its friction note flagged that `blueprint.add_event` "returned only the event name (no node GUID), so I had to read the graph back to obtain the BeginPlay node GUID and exact pin names before connecting." Replay-confirmed on a fresh `/Game/BP_OracleReplayEvent` Actor BP: `blueprint.add_event {eventType:"BeginPlay"}` returned `eventName:"ReceiveBeginPlay"` with NO `nodeId`, while `blueprint.graph.create_node` on the same BP returned `nodeId:"0D6FE3C8…"`. Source-confirmed: `BlueprintEventHandler.cpp:359-367` builds the response without ever reading the created `EventNode`'s `NodeGuid` (the node is a local scoped inside the create block at 308-314); the sibling `BlueprintGraphCrudHandler.cpp:366` echoes `nodeId`. Both add_event branches (custom + lifecycle) share the one omitting response builder. Dedup: ripgrep across OPEN/closed — distinct from `E-add-event-then-default-compile-bpir-unundoable` (undo), `E-ai-bt-authoring-verbs-dead-end` (deprecated ai.* surface, no live alternative), and `E-compile-bpir-creatednodes-opaque` (opaque-not-absent id list). No existing ticket covers `add_event` omitting the created node's id. Proposed: echo `nodeId` (+ `nodeName`) on the `add_event` response so the event is directly connectable.
+- `#2-liveness` `OPEN` reporter — still reproduces at HEAD
