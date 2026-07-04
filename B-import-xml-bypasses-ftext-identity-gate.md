@@ -1,0 +1,46 @@
+---
+id: B-import-xml-bypasses-ftext-identity-gate
+title: "widget.import_xml accepts INVTEXT/culture-invariant FText that widget.set rejects — import bypasses the persisted-FText identity gate"
+status: WONTFIX
+severity: Medium
+category: bug
+tags: [ftext, localization, widget-set, widget-xml, import-export-asymmetry]
+---
+
+# `widget.import_xml` accepts INVTEXT/culture-invariant FText that `widget.set` rejects
+
+Two persisted-`FText` authoring entry points disagree on invariant/transient FText literals. `widget.set` rejects `INVTEXT("...")` (and any plain/culture-invariant value) with `INVALID_PROPERTY: Persisted FText values require a non-empty namespace and key; pass NSLOCTEXT(...)`, forcing the caller to switch to `NSLOCTEXT("ns","key","src")`. `widget.import_xml` accepts the very same `INVTEXT(&quot;...&quot;)` attribute silently and stores a culture-invariant FText. The format that works depends on which call you use, which is surprising, and — more importantly — `import_xml` still lets culture-invariant persisted text into widget assets, the exact thing the identity policy was created to stop.
+
+## Mechanism (verified at source)
+
+- **`widget.set` — gated, no fallback.** The `FTextProperty` branch of `ApplyJsonValueToProperty` (`Source/PinWright/Private/Utils/PropertyImport.cpp:334-351`) routes through `CoerceJsonValueToPersistedFText` → `CoerceStringToPersistedFText` (`:218-256`). That helper parses with `FTextStringHelper::CreateFromBuffer` (`:226`), then requires `HasLocalizationIdentity` (`:17-...`, i.e. non-empty `FTextInspector::GetNamespace`/`GetKey`). `INVTEXT("Score: 42")` parses to a culture-invariant FText with no namespace/key, is not string-table-backed, and (on an empty/culture-invariant existing value) has no identity to inherit — so it hits the error return at `PropertyImport.cpp:254`. `widget.set` has no secondary path, so the whole call fails.
+- **`widget.import_xml` — gated path fails, then falls through to UE-native import.** `ApplyAttributeToObject` (`Source/PinWright/Private/Handlers/UI/WidgetXmlImportHandler.cpp:268-275`, and the nested-path branch `:240-247`) first tries `ApplyJsonValueToProperty` — which fails on INVTEXT for the identity-gate reason above — then **falls through** to `ImportTextToProperty` (`WidgetXmlImportHandler.cpp:272`). `ImportTextToProperty` calls `Property->ImportText_Direct` (`PropertyImport.cpp:1072`), UE's native FText text importer, which parses `INVTEXT("PLAYER HUD")` into a culture-invariant FText and stores it with no identity gate. So `import_xml` succeeds and silently persists culture-invariant text.
+
+Net: the identity gate is enforced on `widget.set` but the `ImportText_Direct` fallback in `import_xml`'s attribute applier bypasses it for FText.
+
+## Relation to `F-require-ftext-localization-identity` (DONE, High)
+
+That ticket introduced the identity gate deliberately to stop MCP from "silently storing culture-invariant text in widget assets." Its Scope (line 22) **explicitly lists `widget.import_xml`** among the RPCs the policy should cover, but its verification (`#4-verified-widget-ftext-policy`) only exercised `widget.set`. `import_xml` was never actually verified and, because of the `ImportText_Direct` fallback, does not enforce the policy. This is a coverage gap in that ticket's implementation, filed as its own bug the same way `B-variable-category-ftext-localization-error` carved out the sibling over-reach of the same gate.
+
+## Session evidence (replayable)
+
+1. `call{path:"widget.set", args:{widgetPath:"/Game/_FabGallery/WBP_ScoreDisplay", widgetName:"ScoreText", properties:{Text:"INVTEXT(\"Score: 42\")"}}}` → `[INVALID_PROPERTY] Failed to set 'Text': Persisted FText values require a non-empty namespace and key; pass NSLOCTEXT("Namespace","Key","Source") or update an existing localized value`.
+2. Re-run with `Text:"NSLOCTEXT(\"ScoreNS\",\"Disp\",\"Score: 42\")"` → `{"success":true,"propertiesSet":1}`.
+3. Separately, `widget.import_xml` accepted `Text="INVTEXT(&quot;PLAYER HUD&quot;)"` without complaint (`widget_count:6`).
+
+## Workaround
+
+For `widget.set`, use `NSLOCTEXT("ns","key","src")` (or overwrite an already-localized property with a plain string, which identity-preserves). No workaround is needed for `import_xml` today — it already accepts INVTEXT — but that acceptance is the policy hole.
+
+## Fix
+
+Two directions; the choice is a design decision for the implementer:
+
+1. **Enforce the policy on `import_xml` (consistent with `F-require-ftext-localization-identity`'s stated scope).** Route the `FTextProperty` case in `ApplyAttributeToObject` through the same `CoerceStringToPersistedFText` gate and do **not** let the `ImportText_Direct` fallback silently store a culture-invariant FText for FText properties. This makes both paths reject INVTEXT/plain text and require NSLOCTEXT.
+2. **Relax `widget.set` to accept INVTEXT as an explicit invariant declaration.** INVTEXT is an explicit author choice of invariance (unlike a bare plain string, which is an accidental invariant), so the gate could accept a successfully-parsed `INVTEXT(...)` literal even though it has no namespace/key, while still rejecting bare plain strings.
+
+**Open consideration (blocks picking direction 1 blindly):** `import_xml` is a round-trip mechanism (export → edit → import). If `widget.export_xml` emits already-present culture-invariant FText as `INVTEXT(...)`, a strict import that rejects INVTEXT would break export→import round-trips for any invariant text already in the widget. Confirm the exporter's FText emission before choosing direction 1; if round-trip fidelity requires preserving invariant text, direction 2 (or documenting import_xml as the deliberately-permissive bulk path) is the reconciliation.
+
+## History
+- `#1-initial-repro` `OPEN` reporter — Verified at source that `widget.set` and `widget.import_xml` disagree on invariant FText literals. `widget.set` FTextProperty writes go through `CoerceStringToPersistedFText` (`PropertyImport.cpp:334-351` → `:218-256`), whose `HasLocalizationIdentity` gate rejects a parsed INVTEXT (no namespace/key) at `:254` with no fallback → call fails `INVALID_PROPERTY`. `import_xml`'s `ApplyAttributeToObject` (`WidgetXmlImportHandler.cpp:268-275`) tries the same gated `ApplyJsonValueToProperty`, then falls through to `ImportTextToProperty` → `ImportText_Direct` (`PropertyImport.cpp:1072`, UE-native, ungated) and stores the culture-invariant FText → succeeds. Session evidence: `widget.set Text:"INVTEXT(\"Score: 42\")"` rejected with the namespace/key error, same call with `NSLOCTEXT(...)` succeeded; `widget.import_xml` accepted `Text="INVTEXT(&quot;PLAYER HUD&quot;)"` (widget_count:6). Root cause is a coverage gap in `F-require-ftext-localization-identity` (DONE, High): its Scope line 22 lists `widget.import_xml` but its verification (#4) only tested `widget.set`, and the `ImportText_Direct` fallback bypasses the gate. Not a dup of `F-widget-set-ftext-nsloctext-parse` (DONE; that fixed NSLOCTEXT *macro parsing*, a different mechanism predating the gate). Sibling of `B-variable-category-ftext-localization-error` (same gate, different call site).
+- `#2-wontfix-by-design-roundtrip` `WONTFIX` developer — Asymmetry confirmed at source, but it is by design and required, not a defect. `widget.set` routes FText only through the gated `ApplyJsonValueToProperty` (`WidgetSetHandler.cpp:281`) → `CoerceStringToPersistedFText` (`PropertyImport.cpp:243-281`, reject at `:279`), no fallback; `import_xml`'s `ApplyAttributeToObject` tries that same gate then falls through to the ungated `ImportText_Direct` (`WidgetXmlImportHandler.cpp:244`, `:272` → `PropertyImport.cpp:1097`), so it stores culture-invariant FText. **Decisive:** `widget.export_xml` emits culture-invariant FText attributes AS `INVTEXT("...")` via `ExportTextItem_Direct` (`WidgetXmlExporter.cpp:293` `CollectOverriddenAttributes` → `PropertyExport.cpp:596-601`), so `import_xml` MUST accept `INVTEXT` through the `ImportText_Direct` fallback to preserve export→edit→import round-trips — the same permissive-import precedent as `B-widget-xml-import-rejects-export-braces` (import accepts what export emits). Fix direction 1 (gate import, reject INVTEXT) is therefore a confirmed round-trip regression; direction 2 (relax `widget.set` to accept INVTEXT) regresses `F-require-ftext-localization-identity`'s deliberate High gate by admitting culture-invariant text on the interactive authoring path (F's stated rule requires namespace+key and rejects empty/culture-invariant, F lines 14/44-48). Reporter is not blocked (this ticket's Workaround, line 35): `import_xml` works and `widget.set` has the documented `NSLOCTEXT(...)` workaround. F's Scope line 22 over-reached in listing `import_xml` — it assumed import routes solely through the gated helper and did not account for the deliberate round-trip fallback, exactly as F's line 24 over-reached on variable categories (reconciled in `B-variable-category-ftext-localization-error` by narrowing, not extending, the gate). Reconciliation: `import_xml` is the deliberately-permissive bulk round-trip channel, distinct from `widget.set`'s strict interactive authoring; the asymmetry is intended and no code change is warranted.
