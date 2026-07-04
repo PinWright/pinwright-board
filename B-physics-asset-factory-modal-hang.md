@@ -1,7 +1,7 @@
 ---
 id: B-physics-asset-factory-modal-hang
 title: "physics.setup_physics_simulation & skeleton.create_physics_asset (mesh-backed) hang the editor — UPhysicsAssetFactory opens a modal body-generation dialog on the game thread that an unattended MCP session can never answer"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: bug
 tags: [physics-asset-factory-modal-hang, game-thread-hang, modal-dialog, physics, skeleton, ragdoll, setup_physics_simulation, create_physics_asset, unattended-editor]
@@ -166,3 +166,28 @@ Critical.)
   on the game thread in this non-`-unattended` editor. Filed as a family hang
   spanning both physics-asset-creation verbs (mesh-backed only; the bare-skeleton
   branch is unaffected).
+- `#2-fix` `IN-REVIEW` developer — Root-caused against UE 5.7 engine source and fixed
+  via the ticket's primary option (bypass the factory). Verified the hang chain at HEAD:
+  `UPhysicsAssetFactory::FactoryCreateNew` with `TargetSkeletalMesh` set unconditionally
+  calls `CreatePhysicsAssetFromMesh` (PhysicsAssetFactory.cpp:85), which calls
+  `OpenNewBodyDlg` (:122) -> `GEditor->EditorAddModalWindow`
+  (PhysicsAssetEditorSharedData.cpp:3558) with no unattended guard — the game-thread modal
+  wedge. Both plugin call sites (PhysicsHandler.cpp:415-426, PhysicsAssetHandler.cpp:315-325)
+  now bypass the factory and drive the same non-interactive core the engine factory runs
+  *after* the modal returns Ok: `NewObject<UPhysicsAsset>` +
+  `FPhysicsAssetUtils::CreateFromSkeletalMesh(..., bSetToMesh=false, bShowProgress=false)`
+  (mirroring the existing bare-skeleton branch's factory-free shape). Files:
+  `Handlers/Physics/PhysicsHandler.cpp` (setup_physics_simulation),
+  `Handlers/Animation/PhysicsAssetHandler.cpp` (create_physics_asset mesh-backed),
+  `PinWright.Build.cs` (+`PhysicsUtilities` dep for `FPhysicsAssetUtils` /
+  `FPhysAssetCreateParams`). Regression test
+  `Tests/Gameplay/TestPhysicsAssetFactoryModalHang.cpp` drives BOTH verbs end-to-end against
+  `/Game/Characters/Mannequins/Meshes/SKM_Manny` and asserts a physics asset with >0
+  auto-generated bodies is produced headlessly (tests
+  `PinWright.physics.setup_physics_simulation.MeshBackedCreatesBodiesHeadless` and
+  `PinWright.skeleton.create_physics_asset.MeshBackedCreatesBodiesHeadless`) — under
+  `-unattended` the reverted factory returns nullptr (`NewBodyResponse != Ok`), so both
+  tests fail if the fix is reverted. Note: the ticket's secondary fix option 2
+  (force-unattended / skip the modal) is NOT viable — under `GIsRunningUnattendedScript` the
+  factory leaves `NewBodyResponse` unset and returns nullptr, converting the hang into a
+  silent no-asset failure; option 1 (used here) is the correct root-cause fix.
