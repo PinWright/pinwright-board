@@ -1,10 +1,10 @@
 ---
 id: E-drive-settle-changed-false-on-value-edit
-title: "drive action verbs report outcome=no_change_within_budget / changed:false after a SUCCESSFUL text edit — the settle change-detector's fingerprint is value-blind, contradicting drive.md's 'changed is honest / no observable UI change' guarantee"
-status: OPEN
+title: "drive settle `changed`/`no_change_within_budget` and the one-shot `diff` missed a successful `drive.type` value edit — drive.md over-claimed 'no observable UI change' and the diff ignored editable `value` it already carries (the per-tick settle fingerprint is intentionally shape-only; fix = correct the doc + make the one-shot diff value-aware, NOT fold value into the settle fingerprint)"
+status: IN-REVIEW
 severity: Medium
 category: ergonomic
-tags: [drive, settle, drive.type, settle-change-detector-value-blind, no-change-misreport]
+tags: [drive, settle, drive.type, diff-value-blind, doc-over-claim]
 encounters: 1
 lastSeen: 2026-07-04T15:47:49.8351918+03:00
 ---
@@ -56,19 +56,33 @@ the value-blind signal; any action whose only effect is an editable value change
 demonstrated and most-common case is `drive.type` (and `drive.key`) doing text entry.
 
 ## What it should do
-Either make `changed` honest for value edits, or stop the wiki claiming it covers
-"any observable UI change":
-- Preferred: fold each element's `value` into the settle change signal — e.g. have
-  `FDriveChangeDetector::Compute` include `value` in the digest, and/or
-  `SignatureEquals` compare `Value` — so a successful `drive.type` yields
-  `outcome:"settled_changed"` / `changed:true` and a `changed` diff entry for the
-  edited handle. The value is already tracked per element (`FDriveElement.Value`), so
-  the data is on hand.
-- At minimum: correct `drive.md` (line 29) to say `changed`/`no_change_within_budget`
-  reflect only a **structural/shape** change (element type/geometry/visibility), NOT
-  content/value edits, and note that a successful text entry legitimately reports
-  `no_change_within_budget` — so an agent verifies typed text via `drive.observe`
-  `value` / `drive.expect text_equals` rather than trusting `changed`.
+The per-tick settle fingerprint (`FDriveChangeDetector::Compute`) is intentionally
+shape-only and MUST stay so. It is polled every engine frame (`DriveSettleDriver.cpp:64`)
+and the settle loop needs it churn-tolerant: folding a live `value` into it would make
+any live-updating text (a HUD score/timer/ammo counter, an auto-refreshing field) move
+the fingerprint every tick, so the loop never reaches `stable_ticks` and ends in
+`timeout` instead of a clean settle. So the original "fold value into `Compute`" idea is
+NOT the fix — it would regress every settle on a HUD with live text. The correct fix is
+two safe, scoped changes:
+
+- **Doc (primary):** correct `drive.md` "Timing and settle" — state that `changed` /
+  `outcome` reflect a **structural/shape** change (element type/geometry/visibility) only,
+  that a successful `drive.type` into a fixed-geometry field legitimately reports
+  `changed:false` / `no_change_within_budget`, and that typed text is verified via
+  `drive.expect`/`drive.wait_for` `text_equals` or `drive.observe` `value` — the
+  purpose-built channel, already correct after `B-drive-editable-text-reads-hint-not-value`.
+- **Behavior (scoped to the ONE-SHOT diff, NOT the settle fingerprint):** make
+  `SignatureEquals` / `FDriveChangeDetector::Diff` also compare `Value`, so the response
+  `diff.changed` set surfaces a value-only edit (`FDriveElement.Value` is already carried).
+  `Diff` is one-shot (before→after), used ONLY for the response `diff` on game
+  (`DriveActionCommon.cpp:281`) and web (`DriveWebHandlers.cpp:114`) — never in the
+  per-tick settle poll — so it cannot destabilize a settle. On web, where the `diff` IS
+  the change signal (no settle loop), this also makes `drive.type` change-detection honest.
+
+The settle `changed`/`outcome` stay tied to the structural signal (so `changed:false`
+⟺ `no_change_within_budget` remain internally consistent); the richer `diff` is where a
+value-only edit now shows up, and asserting the actual typed text remains
+`drive.expect text_equals`.
 
 ## Verbatim repro
 Task: type a name into a live PIE HUD `EditableTextBox` and confirm it captured the
@@ -142,3 +156,27 @@ workaround × reach=drive.type text entry is an every-session verb -> Medium
   `FDriveSettleDriver`; demonstrated on `drive.type`. Live MCP re-issue blocked this
   iteration (editor down, connection refused); confirmed from the guilty source chain
   + the attempt's structured call-log.
+- `#2-reword-and-fix` `IN-REVIEW` developer — REWORDED then fixed. The original
+  "preferred" fix (fold `value` into the settle fingerprint `FDriveChangeDetector::Compute`)
+  is UNSOUND: `Compute` is polled every engine frame (`DriveSettleDriver.cpp:64`) and the
+  settle loop settles only on `stable_ticks` consecutive stable fingerprints
+  (`DriveSettleDecision.cpp:52-69`), so hashing a live `value` would make any live-updating
+  text (HUD score/timer/ammo, auto-refreshing field) churn the fingerprint every tick →
+  never settle → `timeout` regression across every drive verb. The fingerprint's
+  shape-only-ness is intentional and documented (`DriveFingerprint.h:12-16`). Verified the
+  full chain: settle change signal derives purely from `Compute`
+  (`DriveSettleDriver.cpp:50,64,66` → `DriveSettleDecision.cpp:17,82-85`), and the
+  value-blind `diff` comes from `SignatureEquals` (`DriveFingerprint.cpp:63-66`) used ONLY
+  by the one-shot `Diff` (`DriveActionCommon.cpp:281` game, `DriveWebHandlers.cpp:114` web) —
+  never in the per-tick settle poll. Applied the reworded fix: (1) corrected
+  `Docs/wiki-src/drive.md` "Timing and settle" + diff sections so `changed`/`outcome` are
+  described as the structural/shape settle signal (a successful `drive.type` legitimately
+  reports `no_change_within_budget`; verify typed text via `expect text_equals` /
+  `observe value`); (2) made `SignatureEquals`/`Diff` compare `Value` so the one-shot
+  `diff.changed` surfaces a value-only edit (also makes web `drive.type` honest, where the
+  diff is the whole change signal), leaving the settle fingerprint `Compute` shape-only and
+  churn-tolerant. Files: `DriveFingerprint.cpp`, `DriveFingerprint.h`, `Docs/wiki-src/drive.md`,
+  `Tests/Drive/TestDriveFingerprint.cpp`. Regression test
+  `PinWright.drive.fingerprint.ValueOnlyEditDiffedNotFingerprinted` asserts a value-only
+  edit IS flagged by `Diff` yet leaves `Compute` identical — it fails if the SignatureEquals
+  value check is reverted OR if `value` is ever folded into the settle fingerprint.
