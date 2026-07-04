@@ -1,7 +1,7 @@
 ---
 id: B-ui-stop-play-fails-active-pie
 title: "ui.stop_play returns STOP_FAILED on a live PIE session because it Exec's a non-console command string instead of RequestEndPlayMap()"
-status: OPEN
+status: IN-REVIEW
 severity: Medium
 category: bug
 tags: [ui, pie, stop-play, exec-string]
@@ -42,3 +42,4 @@ handler summary), or `python.execute` with
 
 ## History
 - `#1-initial-repro` `OPEN` reporter — Reproduced live: with PIE started via `editor.play` (same session, ~20 min earlier) and demonstrably alive, `ui.stop_play {}` returned `[STOP_FAILED] Failed to stop play in editor`; `python.execute` with `LevelEditorSubsystem.editor_request_end_play()` ended PIE cleanly in the same second. Grounded in source: `ui.stop_play` (`UiHandler.cpp:201-213`) gates on `GEditor->PlayWorld` (non-null, so no `NOT_PLAYING`) then stops via `GEditor->Exec(nullptr, TEXT("Stop Play In Editor"))` and trusts the bool. `"Stop Play In Editor"` is not a console-exec verb — no `FParse::Command` routing for it in `Editor/UnrealEd/Private` (UE 5.7), so `Exec` returns false → `STOP_FAILED`, independent of PIE state. `editor.stop` (`PIEHandler.cpp:97`) and the python workaround both call `GEditor->RequestEndPlayMap()` directly and succeed. No duplicate on the board (checked B-inspect-misses-pie-world, B-editor-save-all-pie-diagnostic, E-session-wiki-pie-prerequisite-undocumented — none touch ui.stop_play/ui.play_in_editor).
+- `#2-already-fixed` `IN-REVIEW` developer — Defect already absent from current source (pre-probe); flipped to IN-REVIEW for tester verification.
