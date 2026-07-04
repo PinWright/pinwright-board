@@ -1,15 +1,15 @@
 ---
 id: E-vehicle-componentpath-host-discovery
-title: "vehicle.* wheel-setup/suspension RPCs give no steer for finding the wheeled-vehicle Blueprint host — agent whole-project-dumps 364 BPs instead of one asset.search parentClassPath"
-status: OPEN
-severity: Low
-category: ergonomic
-tags: [vehicle, chaos-vehicle, componentPath, discovery, asset-search, docs]
+title: "vehicle.* componentPath rejects the `.Default__<BP>_C:` CDO shape that scs.get/asset.dump emit (non-round-trippable resolver bug); also no steer for finding the vehicle host Blueprint"
+status: IN-REVIEW
+severity: Medium
+category: bug
+tags: [vehicle, chaos-vehicle, componentPath, resolver, round-trip, discovery, asset-search, docs]
 encounters: 5
 lastSeen: 2026-06-24T06:10:13Z
 ---
 
-# The `vehicle.*` component-targeting RPCs document `componentPath` but offer no affordance for *finding* the host Blueprint — agents fall back to a whole-project Blueprint dump
+# `vehicle.*` `componentPath` rejects the `.Default__<BP>_C:` CDO shape that `scs.get`/`asset.dump` emit (non-round-trippable resolver bug), and gives no steer for finding the host Blueprint
 
 `vehicle.set_wheel_setup`, `vehicle.remove_wheel_setup`, and
 `vehicle.set_suspension` all operate on a `componentPath` pointing at a
@@ -52,10 +52,32 @@ hosts this component."
 
 ## What it should do
 
-Capability is present; the gap is discovery/usage guidance. Cheapest fix
-ships in docs. Amend `docs/wiki-src/vehicle.md` (currently a single sentence)
-to add a short "finding the vehicle component host" note on the
-`componentPath`-taking methods:
+**Reworded (fuzz1): this is NOT docs-only.** Verified against plugin HEAD
+`e7c57c1`, it bundles two facets, and the primary one is a code defect docs
+cannot fix — hence severity Medium / category bug.
+
+**Facet A — resolver round-trip bug (primary).** The read RPCs
+`blueprint.scs.get` and `asset.dump` emit component object-refs in the
+`<BP>.Default__<BP>_C:<Sub>` CDO-instance shape, but the `vehicle.*` write path
+rejects it: `PinWrightRpc::ComponentPath::Resolve` →
+`ResolveBlueprintCdoSubobject` (`Source/PinWright/Private/Utils/ComponentPathUtils.cpp:16-39`)
+`LoadObject`s the left half and sets `OwnerClass` only if it casts to
+`UBlueprint` or `UClass`; a `Default__<BP>_C` left-half loads the CDO *instance*
+(a plain `UObject`), so both casts fail → `OwnerClass` null →
+`COMPONENT_NOT_FOUND`. So the exact path a read RPC hands back is
+non-round-trippable (the `#3`/`#4` finding). Note the lenses' "shared resolver"
+premise is wrong: `ComponentPath::Resolve` is consumed **only** by `vehicle.*`
+(`ChaosVehicleHandler.cpp:111`; the header is included nowhere else) — the
+`property.*` CDO route is the separate `UtilityPropertyHandler` resolver — so
+this vehicle ticket rightly owns it and no split is warranted. **Fix:** redirect
+a loaded CDO via `GetClass()` (`else if (Loaded->HasAnyFlags(RF_ClassDefaultObject))`)
+so the `Default__<BP>_C` form resolves, mirroring the `E-property-blueprint-cdo`
+`_C`/CDO redirect.
+
+**Facet B — host-discovery + concrete-example docs (secondary; the original
+ergonomic).** Capability is present; the gap is discovery/usage guidance. Amend
+`docs/wiki-src/vehicle.md` (currently a single sentence) to add a short "finding
+the vehicle component host" note on the `componentPath`-taking methods:
 
 - To locate the wheeled-vehicle Blueprint, run
   `asset.search parentClassPath="/Script/ChaosVehicles.WheeledVehiclePawn"`
@@ -95,3 +117,4 @@ instead of `asset.list`-dumping every `/Game` Blueprint.
 
 - `#5-no-concrete-cdo-path-example-host-absent` `OPEN` reporter — Additional evidence (same `componentPath` no-steer/no-example gap, viewed from the *host-absent* angle; seed `vehicle.create_wheel_asset`, finding about `vehicle.set_wheel_setup`/`vehicle.set_suspension`; task outcome `clean`, so ERGONOMIC). A 4-wheel off-road-buggy authoring task whose step 4 said "I have a wheeled-vehicle Blueprint at /Game/Vehicles/BP_OffroadBuggy with a movement component. Mount all four wheels … " and step 5 routed suspension through that same component. The Blueprint did not exist (`asset.exists`=false, `/Game/Vehicles` absent from the registry), so the agent reasonably guessed the conventional path form `/Game/Vehicles/BP_OffroadBuggy.BP_OffroadBuggy_C:MovementComponent` and both `vehicle.set_wheel_setup {wheelIndex:0,...}` and `vehicle.set_suspension {all wheels,...}` returned `[COMPONENT_NOT_FOUND] Failed to resolve component: /Game/Vehicles/BP_OffroadBuggy.BP_OffroadBuggy_C:MovementComponent` (correct — there is no host; the agent then cleanly reported the BP/movement-comp must be created to proceed). Friction note (verbatim): *"the wiki for set_suspension/set_wheel_setup gives no concrete componentPath example for a BP CDO movement component (only \"BP CDO subobject path or live actor component path\"), so I had to guess the path form — though since the BP doesn't exist it would have failed regardless, and the resulting error was clear."* This is the same docs gap as `#3`/`#4` (the `componentPath` param doc gives no concrete accepted-shape example), distinct manifestation: the agent had to *invent* the path form from a one-line param description with the host absent — strengthening fix-facet (1) docs (give a concrete `<BlueprintPath>:<ComponentName>` example on the `componentPath` param). Note the conventional component name the agent guessed (`MovementComponent`) also differs from the real Chaos default (`VehicleMovement`/`VehicleMovementComp`), a second reason a concrete example helps. Also exercised step 5's suspension on **standalone wheel assets** via `vehicle.set_wheel_asset_property` (8 single-field calls, 4 per asset) — see `F-vehicle-wheel-asset-batch-properties` for that batch facet. Dedup: ripgrep OPEN+closed — same `vehicle.*` `componentPath` no-steer/no-example root cause as `#1`–`#4`; appended here rather than a new file.
 - `#3-scs-get-emits-non-roundtrippable-componentpath` `OPEN` reporter — Additional evidence: a third, sharper facet of the same `componentPath` contract gap — the **read RPC emits a path shape the write RPC rejects** (seed `vehicle.remove_wheel_setup`, finding about `vehicle.set_wheel_setup`; task outcome was `done` so this is an ERGONOMIC round-trip mismatch, not a tool bug). A six-wheel-hauler build task. The agent inspected the freshly-created `WheeledVehiclePawn` BP with `blueprint.scs.get`, whose `VehicleMovementComp` `properties` block reports an object-ref field as the literal CDO-instance path `"/Game/.../BP.Default__BP_C:VehicleMesh"` (the `AssetName.Default__AssetName_C:Subobject` shape). The agent copied that exact shape into `vehicle.set_wheel_setup`'s `componentPath` (param doc: *"BP CDO subobject path or live actor component path"* — so the shape looks like precisely what is asked for) and got `[COMPONENT_NOT_FOUND]`; only after reading `ComponentPathUtils.cpp` did it find the working plain package path `"/Game/.../BP:VehicleMovementComp"`. Replay-confirmed verbatim via `mcp__editor-automation__call` on a fresh `/Game/FuzzVeh/BP_ReproHauler` (`WheeledVehiclePawn`): (a) `blueprint.scs.get` emits `"UpdatedComponent":"/Game/FuzzVeh/BP_ReproHauler.Default__BP_ReproHauler_C:VehicleMesh"` (the misleading shape, verbatim); (b) `vehicle.set_wheel_setup {componentPath:"/Game/FuzzVeh/BP_ReproHauler.Default__BP_ReproHauler_C:VehicleMovementComp", wheelIndex:0}` → `[COMPONENT_NOT_FOUND] Failed to resolve component: /Game/FuzzVeh/BP_ReproHauler.Default__BP_ReproHauler_C:VehicleMovementComp`; (c) the `_C`-without-`Default__` form `"/Game/FuzzVeh/BP_ReproHauler.BP_ReproHauler_C:VehicleMovementComp"` → SUCCESS (`wheelSetupCount:1`); (d) the plain package path `"/Game/FuzzVeh/BP_ReproHauler:VehicleMovementComp"` → SUCCESS (`wheelSetupCount:2`). Root cause: `ComponentPath::Resolve` (`ComponentPathUtils.cpp`) splits on the last `:`, then `LoadObject`s the LEFT half and accepts it only if it casts to `UBlueprint` (uses `GeneratedClass`) or `UClass`; the `Default__BP_C` left-half loads to the **CDO instance** (a plain `UObject`), so `OwnerClass` stays null → `COMPONENT_NOT_FOUND`. So three of the four shapes a reasonable agent would copy work/fail inconsistently, and the one shape the read RPC literally hands back is the failing one. Two additive fixes alongside the host-find + wheel-asset-CDO steers already proposed here: (1) **docs** — on `set_wheel_setup`/`set_suspension`/`remove_wheel_setup` `componentPath`, state the accepted shapes explicitly (`<BlueprintPath>:<ComponentName>` plain package path, or `<BlueprintPath>.<BlueprintName>_C:<ComponentName>`) and warn that the `.Default__<Name>_C:` form that `blueprint.scs.get`/`inspect` emit is NOT accepted; (2) **resolver (cheap, robust)** — in `ResolveBlueprintCdoSubobject`, when the loaded left-half is itself a `UObject` CDO (or any object), redirect via `Loaded->GetClass()`/`Loaded->IsDefaultSubobject` to the owning class so the `Default__BP_C` form round-trips, mirroring the `E-property-blueprint-cdo` `_C`-path redirect that was already accepted for the `property.*` resolver. Dedup: ripgrep OPEN+closed — no ticket mentions `UpdatedComponent` or the `scs.get`→`vehicle.*` round-trip; `E-spawn-returns-actor-not-component-path` (OPEN) is typed-spawn verbs *withholding* a componentPath (different — here a componentPath IS emitted but is non-round-trippable); `E-property-blueprint-cdo` (DONE) is the analogous `_C`/CDO redirect in the separate `UtilityPropertyHandler` resolver, not `ComponentPathUtils`; same `vehicle.*` `componentPath` no-contract root cause as `#1`/`#2` → appended here rather than a new file.
+- `#6-reword-and-fix-resolver-round-trip` `IN-REVIEW` developer — REWORD (Low/ergonomic/docs → Medium/bug) + implemented. Verified against plugin HEAD `e7c57c1` that this ticket bundles a real CODE defect docs cannot fix, so the Low/docs framing misrepresented it. **Root cause (confirmed):** `PinWrightRpc::ComponentPath::Resolve` → `ResolveBlueprintCdoSubobject` (`Source/PinWright/Private/Utils/ComponentPathUtils.cpp:16-39`) set `OwnerClass` only on `Cast<UBlueprint>`/`Cast<UClass>`; the `<BP>.Default__<BP>_C:<Sub>` shape that `blueprint.scs.get`/`asset.dump` EMIT loads the CDO *instance* (a plain `UObject`), so both casts fail → `OwnerClass` null → `COMPONENT_NOT_FOUND` (the `#3`/`#4` read-emits/write-rejects round-trip). **Corrected the lenses' "shared resolver" premise:** `ComponentPath::Resolve` is consumed ONLY by `vehicle.*` (`ChaosVehicleHandler.cpp:111`; header included nowhere else) — the `property.*` CDO route is the separate `UtilityPropertyHandler` resolver (`UtilityPropertyHandler.cpp:322`) — so this vehicle ticket rightly owns the fix; no split. **Fix:** (1) `ComponentPathUtils.cpp` — added `else if (Loaded->HasAnyFlags(RF_ClassDefaultObject)) OwnerClass = Loaded->GetClass();` so a loaded CDO redirects to its generating class and the `Default__<BP>_C` form round-trips, mirroring `E-property-blueprint-cdo`; updated `ComponentPathUtils.h` doc. Non-CDO objects are unchanged (still `COMPONENT_NOT_FOUND`). (2) docs — `Docs/wiki-src/vehicle.md` `## Finding the vehicle component host` steer to `asset.search parentClassPath="/Script/ChaosVehicles.WheeledVehiclePawn"` + accepted-shape guidance + movement-host-vs-wheel-asset-CDO clarification (`#2`); concrete `<BlueprintPath>.<BP>_C:<Component>` example on the `set_wheel_setup`/`remove_wheel_setup`/`set_suspension` `componentPath` param docs (`#5`). **Test:** `PinWright.vehicle.ComponentPathCdoDefaultShapeRoundTrip` (`Source/PinWright/Private/Tests/Utility/TestComponentPathCdoRoundTrip.cpp`) builds an in-code BP (parent `AStaticMeshActor`, native default-subobject component), discovers the component name from the CDO, and asserts the `.Default__<BP>_C:<Comp>` shape resolves (fails pre-fix) with the `._C:` form as an additive-fix control. Files: `Utils/ComponentPathUtils.cpp`, `Utils/ComponentPathUtils.h`, `Handlers/Physics/ChaosVehicleHandler.cpp`, `Docs/wiki-src/vehicle.md`, `Tests/Utility/TestComponentPathCdoRoundTrip.cpp`.
