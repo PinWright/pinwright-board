@@ -20,9 +20,16 @@ Scope constraints (from research; keep all):
 - Wire job progress events (the `Ctx.StartJob` ticket stream / jobs.jsonl source) into `notifications/progress` for the streaming request; final result terminates the stream.
 - Epic parity note: UE 5.8's built-in server is SSE-always with a heartbeat-only counter; ours should send REAL job progress.
 
-NOT in scope (user decision): sessions, `tools/list_changed`, MCP resources.
+NOT in scope (user decision): sessions, `tools/list_changed`, MCP resources. (These are orthogonal to SSE: sessions are an optional spec feature, list_changed needs a standing GET stream and is useless for a single never-changing `call` tool, resources are plain request/response.)
+
+Engine constraint (verified 2026-07-05): incremental response writes (`EHttpServerResponseFlags::MultipleWriteStream`/`HasAdditionalWrites`/`SkipHeaderWrite`, Runtime\Online\HTTPServer) are NEW in UE 5.8 and absent in 5.6/5.7 engine source. **Version-gate the SSE path to 5.8+**; 5.3-5.7 builds keep plain JSON + job polling unchanged. Do not build a custom socket listener for older engines. Epic's ModelContextProtocolServer.cpp is the working reference, including the synchronous write-callback reentry contract (HttpResultCallback.h) and mid-stream disconnect teardown (HttpConnection.cpp:183).
+
+Job-system interplay (design decisions):
+- Job tickets remain the canonical handle; SSE is a live view. First progress event on a stream must carry the job ticket id so a dropped stream degrades to polling.
+- Do NOT infer block-and-stream from progressToken alone: Codex's rmcp auto-injects a progressToken on every call, which would flip all job RPCs to blocking for that client. Streaming a job to completion requires an explicit per-call opt-in (e.g. `wait: true`) in addition to token + Accept.
 
 Acceptance: a long `system.run_tests` call from Claude Code with a progressToken streams progress and survives past 5 minutes; the same call from a plain-JSON client (no Accept: text/event-stream) behaves byte-identically to today.
 
 ## History
 - `#1-sse-strict-superset` `OPEN` reporter — Gateway is JSON-only + poll-only; research confirms SSE via Accept+progressToken gating is a spec-mandated superset (no client lock-out) and Claude Code both renders progress and resets its 5-min idle abort on it. Add opt-in SSE with real job progress; stay stateless.
+- `#2-version-gate-and-job-interplay` `OPEN` reporter — Verified engine streaming flags (MultipleWriteStream) are new in UE 5.8 and absent in 5.6/5.7: version-gate SSE to 5.8+, older engines unchanged. Added design constraints: job tickets stay canonical (stream embeds ticket id), and streaming a job to completion needs explicit per-call opt-in because Codex auto-injects progressToken on every call.
