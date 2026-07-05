@@ -1,7 +1,7 @@
 ---
 id: E-ui-screenshot-doubles-png-extension
 title: "ui.screenshot writes a doubled .png.png extension when the filename already ends in .png"
-status: OPEN
+status: IN-REVIEW
 severity: Low
 category: ergonomic
 tags: [ui, screenshot, filename, extension, docs]
@@ -28,11 +28,32 @@ parts of the same handler and can be fixed independently.
 
 - Append the extension only when the supplied `filename` does not already end
   in it (case-insensitive), so `foo.png` → `foo.png` and `foo` → `foo.png`.
-- Echo the actual resolved on-disk path in the success response so the caller
-  always knows where the file landed (and can detect any normalization).
+  **This exact case-insensitive guard already exists** as the shared helper
+  `PinWrightScreenshotUtils::MakeScreenshotFilename`
+  (`Source/PinWright/Private/Utils/ScreenshotUtils.cpp`), which the canonical
+  `editor.screenshot` and every other screenshot handler route through. Only
+  `ui.screenshot` hand-rolls its filename inline (`Filename + TEXT(".png")` at
+  `UiHandler.cpp`), which is why it doubles — and, as a latent secondary gap, it
+  skips the path-traversal sanitization the same helper provides. So the fix is
+  to **reuse that shared helper**, not to add a bespoke inline guard.
 - Document the filename/extension handling on the `ui.screenshot` overlay
   (`docs/wiki-src/ui.md`) — whether an extension is required, optional, or
-  auto-appended.
+  auto-appended (the overlay has no `### ui.screenshot` section today).
+
+**Fix:** Extracted `PinWrightScreenshotUtils::MakeUiScreenshotPath(path, filename, OutFilename)`
+(`ScreenshotUtils.h/.cpp`): it preserves `ui.screenshot`'s caller-supplied `path`
+(which the canonical `MakeScreenshotOutputPath` would override with `Saved/Screenshots`)
+via `FPaths::Combine`, while routing the *filename* through `MakeScreenshotFilename`
+so `.png` is appended only when absent (case-insensitive) and traversal is stripped.
+`ui.screenshot` now delegates to it. Its success response already echoed the resolved
+`screenshotPath` (`UiHandler.cpp`), so the original ask's "echo the resolved path"
+item was already implemented and has been dropped from this ticket.
+
+**NOTE:** the original ticket also asked to "echo the actual resolved on-disk path
+in the success response." That was **already implemented** before this ticket —
+`ui.screenshot` sets `screenshotPath` to the resolved `FullPath` on success — so no
+change was needed there. (After the fix the echoed `filename` field now also carries
+the resolved single-`.png` basename, matching `screenshotPath`.)
 
 ## Evidence
 
@@ -54,3 +75,4 @@ path (`<name>.png.png`) instead of the name you passed.
 - `#1-initial-audit` `OPEN` reporter — Live-HUD PIE preview task (fallback after editor.screenshot hung): `ui.screenshot {filename:"hud_final_state_ui.png"}` wrote `hud_final_state_ui.png.png` (extension appended even though `.png` was already present) and reported success against the doubled path, so the caller's expected path did not match disk. Distinct from the JPEG-encoding fix in `B-thumbnail-png-writes-jpeg` (filename composition vs byte encoding). Propose appending the extension only when absent, echoing the resolved on-disk path, and documenting filename handling on the `docs/wiki-src/ui.md` `ui.screenshot` overlay.
 - `#2-repro-crosshair-hud-task` `OPEN` reporter — Cross-task aggregation: independent reproduction in a crosshair/interaction-prompt PIE HUD task. `ui.screenshot {filename:"hud_crosshair_visible.png"}` → saved as `hud_crosshair_visible.png.png` (same unconditional `.png` append on a name already ending in `.png`); the next two shots passed extensionless filenames (`hud_crosshair_hidden`, `hud_final_state`) and were fine, confirming the doubling is specific to the already-`.png` case. Attempt agent's friction note, verbatim: "Minor extra wart: ui.screenshot appends .png to a filename that already ends in .png, producing hud_crosshair_visible.png.png." Reinforces #1's proposal (append-only-when-absent + echo resolved on-disk path); the caller had to mentally track the doubled path to know where the file landed.
 - `#3-additional-tuning-smoke-repro` `OPEN` reporter — Additional evidence (fresh session, today): `ui.screenshot {path:".../scratchpad", filename:"tuning_screen_smoke.png", returnBase64:false}` → response `screenshotPath` = `.../tuning_screen_smoke.png.png`, file confirmed on disk at the doubled path; a second same-session call with `filename:"tuning_screen_improved"` (no extension) produced a correct single `.png`, again isolating the defect to the already-`.png` case. Verified still unfixed in source: `Source/PinWright/Private/Handlers/UI/UiHandler.cpp:135` builds `FPaths::Combine(ScreenshotPath, Filename + TEXT(".png"))` — a blind `Filename + TEXT(".png")` with no case-insensitive "already ends in .png" guard, exactly the spot #1's proposed fix targets. Severity stays Low.
+- `#4-reword-reuse-shared-helper` `IN-REVIEW` developer — Reworded then fixed. Confirmed the defect at `UiHandler.cpp:140` (`Filename + TEXT(".png")`, unconditional append). Dropped the ticket's "echo resolved path" ask — already implemented at `UiHandler.cpp:161` (`screenshotPath` = resolved `FullPath`). Retargeted the fix from a bespoke inline guard to reusing the shared `MakeScreenshotFilename` the canonical `editor.screenshot` already uses. Implemented: extracted `PinWrightScreenshotUtils::MakeUiScreenshotPath(path, filename, OutFilename)` in `Utils/ScreenshotUtils.h`+`.cpp` — honors `ui.screenshot`'s caller-supplied `path` via `FPaths::Combine` (the canonical `MakeScreenshotOutputPath` would override it with `Saved/Screenshots`) while routing the filename through `MakeScreenshotFilename`, so `.png` is appended only when absent (case-insensitive: `foo.png`→`foo.png`, never `foo.png.png`) and traversal in the name is stripped; `Handlers/UI/UiHandler.cpp` `ui.screenshot` now delegates to it (was inline). Documented filename/extension + `path` handling in a new `### ui.screenshot` overlay section (`docs/wiki-src/ui.md`). Regression test `PinWright.ui.screenshot.FilenameExtensionNotDoubled` (`Tests/EditorOps/TestUiScreenshotFilenameExtension.cpp`) exercises `MakeUiScreenshotPath`: `hud_final_state_ui.png`→single `.png`, `shot.PNG` not doubled, extensionless gains one `.png`, caller `path` preserved. Plugin compiles clean.
