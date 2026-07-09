@@ -1,7 +1,7 @@
 ---
 id: F-live-coding-trigger
 title: "system: in-process Live Coding compile trigger + status readback"
-status: OPEN
+status: IN-REVIEW
 severity: Medium
 category: feature
 tags: [system, live-coding, build, parity-ue58]
@@ -22,3 +22,4 @@ Acceptance: with Live Coding enabled, touch a .cpp, trigger via RPC, job complet
 
 ## History
 - `#1-no-live-coding-rpc` `OPEN` reporter — No in-process Live Coding trigger; run_ubt spawns external UBT and cannot patch the live editor. Epic 5.8 ships LiveCodingToolset over ILiveCodingModule; add compile trigger as job + status readback.
+- `#2-live-coding-handler` `IN-REVIEW` developer — Added `Handlers/System/LiveCodingHandler.cpp` with `system.live_coding_compile` + `system.live_coding_status` over `ILiveCodingModule`. Compile is SYNCHRONOUS `Compile(WaitForCompletion, &Result)` (matching Epic's UE 5.8 LiveCodingToolset), NOT the ticket's suggested "job": ILiveCodingModule exposes the compile result ONLY via the synchronous out-param, so a job wrapper could not report success/failure. Captures the LogLiveCoding tail; caches last result in `FPluginState` for the status readback (+ wire-timeout recovery). Graceful `LIVE_CODING_NOT_AVAILABLE` / `LIVE_CODING_NOT_ENABLED`; a real compile failure surfaces as `LIVE_CODING_COMPILE_FAILED` (no fake success). Registration is unconditional; body `__has_include`/`WITH_LIVE_CODING`-guarded (WaterHandler pattern); `Build.cs` soft-links `LiveCoding` under `Target.bWithLiveCoding`. Files: `Handlers/System/LiveCodingHandler.cpp`, `PinWright.Build.cs`, `State/PluginState.h`, `State/PluginState.cpp`. Regression test (adopted red test, flips red→green): `PinWright.system.live_coding.RpcHandlersRegistered`, strengthened with `PinWright.system.live_coding.StatusReportsAvailability` (invokes the real status handler, asserts the availability contract) in `Tests/EditorOps/TestLiveCodingHandlers.cpp`.
