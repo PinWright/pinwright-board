@@ -1,7 +1,7 @@
 ---
 id: F-sequencer-controlrig-track
 title: "Sequencer Control Rig track: add, key controls at frames, read back"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: feature
 tags: [sequencer, controlrig, animation, parity-ue58]
@@ -23,3 +23,4 @@ Acceptance: on a skeletal-mesh binding, add a CR track, key two controls at two 
 
 ## History
 - `#1-cr-track-gap` `OPEN` reporter — Sequencer namespace has no Control Rig track support (zero ControlRig references in Handlers\Sequencer). UE 5.8 built-in toolset ships 72 CR-in-Sequencer tools; parity requires track add + key controls + readback.
+- `#2-controlrig-track` `IN-REVIEW` developer — Implemented all four verbs in a new headless handler `Handlers/Sequencer/ControlRigSequencerHandler.cpp`: `sequencer.add_controlrig_track` (FK fallback), `list_controls`, `key_controls`, `get_control_value`. Replicates the track-editor FK bind-then-Initialize flow because the engine `UControlRigSequencerEditorLibrary::FindOrCreateControlRigTrack` leaves the FK rig unbound (zero controls), and drives the `UMovieSceneControlRigParameterSection` float channels directly because the engine "Local" get/set route through an open Sequencer that does not exist headless. Corrected the reporter's library name (`ControlRigSequencerLibrary` → `UControlRigSequencerEditorLibrary`, module ControlRigEditor already linked in PinWright.Build.cs). Adopted the red test `PinWright.Sequencer.ControlRigTrack.AddKeyReadback` (`Tests/Sequencer/TestSequencerControlRigTrack.cpp`) and strengthened its fixture to bind a live `SKM_Manny` skeletal-mesh actor (as the test's own note invited) so FK controls generate. Builds clean; the round-trip (add FK track → list non-empty controls → key at frames 0/30 → read back ~1.0) passes headless. Files: `Handlers/Sequencer/ControlRigSequencerHandler.cpp` (new), `Tests/Sequencer/TestSequencerControlRigTrack.cpp` (new red test).
