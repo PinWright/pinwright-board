@@ -5,6 +5,7 @@ status: OPEN
 severity: High
 category: feature
 tags: [sequencer, controlrig, bake, animation, parity-ue58]
+blockedBy: [F-sequencer-controlrig-track]
 ---
 
 # Sequencer bake: anim sequence to Control Rig track and back, space-switch bake
@@ -24,3 +25,4 @@ Acceptance: round trip an AnimSequence -> CR track -> edited key -> exported Ani
 
 ## History
 - `#1-no-bake-ops` `OPEN` reporter — No bake in sequencer handlers (grep verified). Epic 5.8 ships bake_to_control_rig / export_anim_sequence / bake_space; both directions plus space-switch bake needed for a usable CR cinematics loop.
+- `#2-defer-blocked-cr-track` `OPEN` developer — Deferred, blockedBy F-sequencer-controlrig-track (OPEN, unbuilt). Verified in current source: zero `bake|controlrig` matches in Handlers/Sequencer/ (only SequenceHandler.cpp + SequencerHandler.cpp), and no ControlRigSequencerEditorLibrary / add_controlrig_track anywhere in non-test Source — the parent's typed CR-track surface is genuinely absent from HEAD (a real unbuilt gate, not the code-present anti-pattern). bake_to_controlrig + bake_control_space and the AnimSequence->CR-track->edited-key->exported-AnimSequence acceptance need the parent's CR-track/key/read RPCs first; export_anim_sequence is CR-independent and should be split into its own ticket when un-deferred; proposed bake_control_space signature needs reshaping (FRigSpacePickerBakeSettings + live UControlRig*) against the parent's control model. Red test PinWright.sequencer.bake.ControlRigVerbsRegistered confirms all three verbs unregistered. No code.
