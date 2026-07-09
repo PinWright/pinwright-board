@@ -4,9 +4,9 @@ title: "performance.configure_texture_streaming and world_partition.create_datal
 status: OPEN
 severity: Low
 category: ergonomic
-tags: [docs, performance, world-partition, texture-streaming, datalayer, readback, verify-after-mutate, wiki]
-encounters: 1
-lastSeen: 2026-06-17T09:14:18Z
+tags: [docs, performance, world-partition, texture-streaming, datalayer, readback, verify-after-mutate, wiki, cvar-write-no-echo]
+encounters: 2
+lastSeen: 2026-07-09T11:25:33.2635718+03:00
 ---
 
 # `configure_texture_streaming` / `create_datalayer` confirm with a bare message, not the applied values
@@ -134,3 +134,37 @@ string or `get_level_structure_info.dataLayers`.
   `create_datalayer` return-thinness (the only adjacent ticket,
   `B-configure-world-partition-silent-noop`, is a different method and a
   silent-no-op bug, not a readback-ergonomics gap).
+- `#2-additional-family-scope` `OPEN` reporter — Additional evidence (broader
+  scope, replay-confirmed live at HEAD): re-hit directly from a
+  `performance.configure_texture_streaming` seed (raise the texture-streaming
+  pool to ~1.5 GB on a large open-world level, then confirm the pool actually
+  took effect — not just that the call returned OK). Replay via
+  `mcp__pinwright__call`: `configure_texture_streaming {enabled:true,
+  poolSize:800, boostPlayerLocation:true}` returned the same bare
+  `{message: "Texture streaming configured"}` — no echo of
+  enabled/poolSize/boostPlayerLocation — so a follow-up
+  `system.console.search r.Streaming.PoolSize` was required to confirm
+  currentValue flipped 1536 -> 800. NEW ANGLE: the bare-string-no-echo shape is
+  NOT confined to `configure_texture_streaming` + `create_datalayer` — it spans
+  the WHOLE `performance` CVar-write verb family. Current source
+  `PerformanceHandler.cpp`: `set_resolution_scale` (:472 "Resolution scale
+  set"), `set_vsync` (:488 "VSync configured"), `set_frame_rate_limit` (:506
+  "Max FPS set"), `configure_nanite` (:522 "Nanite configured"), `configure_lod`
+  (:551 "LOD settings configured"), `configure_texture_streaming` (:591 "Texture
+  streaming configured") all `SendSuccess` a flat literal with no readback. By
+  contrast two siblings in the SAME namespace already read the CVars back and
+  report effective values: `set_scalability` (:445-451 returns
+  requestedLevel/appliedGroups/requestedLevelApplied bool, documented "so a
+  success can never silently mean 'nothing changed'") and
+  `apply_baseline_settings` (per its wiki "reports the exact CVar names and
+  values applied") — those two are the reference implementation the rest of the
+  family should copy. Replay also settles the #1 silent-no-op fear on the normal
+  path: `CVar->Set((float)PoolSize)` uses the default `ECVF_SetByCode` priority
+  (2nd-highest), so the write DID land in replay (1536 -> 800) over the
+  Scalability-flagged CVar — the harm here is purely the missing echo, not an
+  actual no-op (the real no-op tracked in `B-configure-world-partition-silent-noop`
+  is a different method that targets nonexistent CVars). Also seen this run but
+  NOT filed: `system.inspect.get_memory_stats` is a clean, intentional
+  NOT_IMPLEMENTED stub whose wiki redirects to the `performance.*` memreport/stat
+  verbs — well-documented discoverability, not a defect. Fix unchanged: widen the
+  family returns to echo the read-back CVar values (mirror `set_scalability`).
