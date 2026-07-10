@@ -1,12 +1,14 @@
 ---
 id: B-attach-render-target-phantom-param
 title: "render.attach_render_target_to_volume reports attached:true for a nonexistent texture parameter (silent false-success)"
-status: OPEN
+status: IN-REVIEW
 severity: Medium
 category: bug
 tags: [render, render-target, post-process, unvalidated-texture-param, silent-false-success]
 encounters: 1
 lastSeen: 2026-07-10T22:06:52.1197512+03:00
+claimedBy: fuzz2
+claimedAt: 2026-07-10T23:46:02.1540542+03:00
 ---
 
 ## What's wrong
@@ -93,3 +95,4 @@ specialized render-target->PPV method) -> Medium
 ## History
 
 - `#1-initial-repro` `OPEN` reporter — Replay-confirmed at HEAD: passing a nonexistent `parameterName` (`ThisParameterDoesNotExist_XYZ123`) to `render.attach_render_target_to_volume` returns `attached: true` with no error; the handler (`RenderHandler.cpp:447`) calls `SetTextureParameterValue` without validating the parameter exists, so the render target is never actually sampled by the volume. Seeded family tag `unvalidated-texture-param`; noted sibling `material.authoring.set_texture_parameter_value` (`MaterialAuthoringHandler.cpp:1973`) has the same non-validation pattern via a separate code path.
+- `#2-triage` `IN-REVIEW` developer — GO. Defect confirmed present at `RenderHandler.cpp:444-455` and reproduced by a red test. Fix: validate `parameterName` exists as a texture parameter on the base material before creating/attaching the MID, rejecting an unknown name with an error that lists the valid texture parameter names. Using the already-registered `PARAMETER_NOT_FOUND` code rather than the ticket's proposed (unregistered) `PARAM_NOT_FOUND`. Scope unchanged; sibling `material.authoring.set_texture_parameter_value` remains out of scope per the ticket.
