@@ -97,14 +97,20 @@ window state -> Medium.
   window-normalization task (seed method `editor.resize_window`; culprit `drive.list_windows`).
   Live repro shows `list_windows` and `resize_window` disagreeing about the same window at the
   same instant.
-- `#2-reword-scope` `IN-REVIEW` developer — Reworded + adopted. Confirmed defect from source:
-  `drive.list_windows` omits per-window window state, so a maximized window reads as plain and
-  contradicts `editor.resize_window`'s WINDOW_MAXIMIZED gate. Narrowed scope: add `maximized`
-  AND `minimized` booleans (mirroring the shipped `editor.set_window_state`
-  isMaximized/isMinimized readback at `EditorWindowHandlers.cpp:847-857`), and DROPPED the
-  ticket's speculative "report true on-screen bounds / stale restored geometry" half — the
-  geometry claim is unverified/reporter-hedged and `GetWindowGeometryInScreen()` on a real host
-  reflects the maximized bounds (the fuzz-host `1280x720` is a likely headless/borderless
-  artifact), so that load-bearing readback is left untouched. Corrected the stale "no
-  window-state control RPC" note (`editor.set_window_state` shipped, commit d757f40).
-  Implementing the state-field fix now.
+- `#2-reword-scope` `IN-REVIEW` developer — Reworded (over-scoped title + false "no
+  window-state RPC" note) and fixed. Confirmed defect from source: `drive.list_windows` omitted
+  per-window window state, so a maximized window read as plain and contradicted
+  `editor.resize_window`'s WINDOW_MAXIMIZED gate. Fix: added `bMaximized`/`bMinimized` to
+  `FDriveWindowInfo` (`DriveEditorChrome.h`), populated from `SWindow::IsWindowMaximized()`/
+  `IsWindowMinimized()` in `FDriveEditorChrome::ListWindows()` (`DriveEditorChrome.cpp`), emitted
+  `maximized`/`minimized` per record in `DriveListWindowsHandler.cpp` (+ summary/doc comment), and
+  documented both fields in the `drive` wiki overlay (`docs/wiki-src/drive.md`) — mirroring
+  `editor.set_window_state`'s isMaximized/isMinimized readback (`EditorWindowHandlers.cpp:847-857`).
+  DROPPED the ticket's speculative geometry-rewrite half (unverified/reporter-hedged; the
+  fuzz-host `1280x720` is a likely headless/borderless artifact; `GetWindowGeometryInScreen()`
+  left untouched). Regression: adopted + strengthened the red test
+  `PinWright.drive.editorint.ListWindowsReportsMaximizedState`
+  (`Tests/Drive/TestDriveListWindowsMaximizedState.cpp`) — asserts both fields' presence +
+  value-equality against live `IsWindowMaximized()`/`IsWindowMinimized()`; observed RED pre-fix,
+  now GREEN against a genuinely-maximized fixture (`Result={Success}`, "Maximize() took effect").
+  Plugin built clean (`Result: Succeeded`).
