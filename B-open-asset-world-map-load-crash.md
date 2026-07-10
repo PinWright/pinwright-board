@@ -1,12 +1,14 @@
 ---
 id: B-open-asset-world-map-load-crash
 title: "editor.open_asset on a World hard-crashes the editor — routes maps through OpenEditorForAsset → Map_Load, tripping !LevelList.Contains(TickTaskLevel) during outgoing-world teardown"
-status: OPEN
+status: IN-REVIEW
 severity: Critical
 category: bug
 tags: [editor, open_asset, world, map-load, editor-crash, cold-load, ticktaskmanager, open-asset-world-crash]
 encounters: 1
 lastSeen: 2026-07-10T21:38:22.4092205+03:00
+claimedBy: fuzz2
+claimedAt: 2026-07-10T21:56:53.0570649+03:00
 ---
 
 # `editor.open_asset` on a World hard-crashes the editor (TickTaskManager assertion during Map_Load teardown)
@@ -120,4 +122,5 @@ severity rationale: impact=corruption/editor-crash × reach=every-session (openi
 a level asset is a routine action; here it is also the startup map) -> Critical
 
 ## History
+- `#2-fix-route-world-to-open-level` `IN-REVIEW` developer — GO (hypothesis 1; severity Critical unchanged, full scope, no splits). Decision: `editor.open_asset` must special-case `UWorld` — detect the World target and cross-dispatch to the dedicated `editor.open_level` verb (which delegates to `level.load`, no-oping via `DoesRequestedLevelMatchCurrentWorld` when the requested map is already active) instead of handing it to the generic `OpenEditorForAsset -> Map_Load` that destroys-and-reloads the live world. This fixes only the crashing self-reload case and preserves the working different-map load through the vetted level.load path; hypothesis 2 (World save-time integrity gate) deliberately NOT pursued (ruled out as the trigger — the assertion fires in outgoing-world teardown, not from saved bytes). Implementation + compile/test verification to follow.
 - `#1-initial-repro` `OPEN` reporter — Cold-restart CorruptionCheck crashed the freshly cold-booted editor when `editor.open_asset` opened the saved startup World `/Game/Maps/ExampleProjectWelcome`. Fatal assertion `!LevelList.Contains(TickTaskLevel)` (TickTaskManager.cpp:1987) fires in `FTickTaskManager::FreeTickTaskLevel` during `~ULevel` GC inside `UEditorEngine::Map_Load` teardown, dispatched from `editor.open_asset` (EditorCommandHandler.cpp:408, `AutoHandler_318_`). Confirmed via source read: `editor.open_asset` routes ALL asset types through `OpenEditorForAsset`, which for a World does a full `Map_Load` that tears down the live world; the target here is also the `EditorStartupMap`, so the cold editor already had that world loaded and open_asset forced a destroy-and-reload. Leading hypothesis is that `editor.open_asset` must special-case Worlds (route to the map-load path like `editor.open_level`, no-op on the active map, or reject) rather than Map_Load over the live world; secondary hypothesis is a missing World save-time integrity gate. Distinct from `B-open-level-engine-mount-mangled` (that is `editor.open_level` path-string mangling, no crash) and from the Widget-Blueprint cold-load corruption in `B-bp-saved-state-corruption-mcp-edits` (different asset type + crash signature).
