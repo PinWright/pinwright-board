@@ -56,6 +56,7 @@ user-approved proposed-edits.
 ## Error conventions
 
 - Codes are domain-specific UPPERCASE (`ASSET_NOT_FOUND`, `SPAWN_FAILED`); full generated inventory: `Docs/error-code-catalog.md` (553 unique codes; registry migration tracked in ticket `E-error-code-vocabulary-registry`).
+- Every `SendError` code a NEW handler emits must also be registered as an `ERR_<CODE>` constant in `Handlers/ErrorCodes.h` (alphabetical order, `=` column-aligned) — the suite test `PinWright.core.error_codes.AllEmittedCodesAreRegistered` scans emit sites against that header and fails the WHOLE suite otherwise. Register the codes in the SAME edit that introduces them (a missing registration costs a full compile+test cycle to discover).
 - Every error must carry diagnostic context: what was searched, what class/path was checked, and an actionable hint. Generic "Could not resolve X" makes callers blame the tool instead of their input.
 - Never return bare `compiled: true` from anything IR/graph-shaped — surface `UBlueprint::Status` and `FCompilerResultsLog` entries; IR compile success ≠ Kismet compile success.
 - `UNSUPPORTED_ENGINE_VERSION` is reserved for the `SendUnsupportedEngineVersion` helper.
