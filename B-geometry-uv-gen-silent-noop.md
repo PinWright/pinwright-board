@@ -1,12 +1,14 @@
 ---
 id: B-geometry-uv-gen-silent-noop
 title: "geometry.project_uv / unwrap_uv / auto_uv / pack_uv_islands report success but create ZERO UV elements when the target UV layer doesn't already exist (silent no-op on a hand-authored mesh)"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: bug
 tags: [uv-gen-silent-noop, geometry, project_uv, unwrap_uv, auto_uv, pack_uv_islands, uv, success-no-effect, append_buffers]
 encounters: 1
 lastSeen: 2026-07-10T21:10:50.8332607+03:00
+claimedBy: fuzz2
+claimedAt: 2026-07-10T22:54:32.3096639+03:00
 ---
 
 # UV-generation verbs silently no-op (success:true, 0 UV elements) on a mesh whose UV layer was never enabled
@@ -108,4 +110,5 @@ ordinary workflow; primitives carry UVs so the trap only bites hand-built meshes
 -> High.
 
 ## History
+- `#2-triage-go` `IN-REVIEW` developer — GO (valid; severity High upheld). Defect reproduced at HEAD and confirmed against ENGINE source, not just asserted: both UV-gen sites — `project_uv` (MeshOpsHandler.cpp:1682) and the shared `ApplyXAtlasUnwrap` (GeometryUtils.cpp:159, which unwrap_uv/auto_uv/pack_uv_islands all route through) — write into `UVChannel` with no layer-ensure and a nullptr GeometryScriptDebug, so the engine's `ApplyMeshUVEditorOperation` guard (MeshUVFunctions.cpp:324-332) returns without running the edit while the handler unconditionally reports success. Confirmed NOT already-fixed (neither site calls any ensure in current source), NOT a duplicate (B-convert-static-mesh-uvless-crash is the bake/MikkT crash path; E-geometry-auto-uv-redundant-with-unwrap-uv is naming), no regression/defer. Intended scope: add a grow-only, UVChannel-aware `GeometryUtils::EnsureMeshHasUVChannel` and call it at BOTH sites (covers all four verbs); a bare `SetNumUVSets(Mesh,1)` is rejected as the fix because engine SetNumUVSets truncates pre-existing higher UV sets and can't address channel>0. Adopt the reporter's red test as the regression gate. No shipped-code claim until compile+test verified.
 - `#1-initial-repro` `OPEN` reporter — Family-level silent no-op confirmed by direct replay at HEAD. `geometry.project_uv` (box) and `geometry.unwrap_uv` (XAtlas) both returned `success:true` on a 5-vertex/6-triangle append_buffers pyramid built without `uvs`, yet `geometry.get_mesh_info` reported `hasUVs:false` after each; `geometry.set_uvs` then errored `[NO_UV_ELEMENTS]`. Root cause: `project_uv` (MeshOpsHandler.cpp:1682-1683) and the shared `ApplyXAtlasUnwrap` (GeometryUtils.cpp:159-160 — used by `unwrap_uv`/`auto_uv`/`pack_uv_islands`) write into `UVChannel` without ensuring that UV layer exists (no `SetNumUVSets`/`SetNumUVLayers`), pass `nullptr` for the GeometryScript debug, and never check the result, so a missing-layer no-op is reported as success — while `GeometryUtils::EnsureMeshHasUVs` (GeometryUtils.cpp:236-238) and `geometry.set_uvs` (MeshInfoHandler.cpp:565-571) both DO enable the layer first, proving the requirement is known. Distinct from `B-convert-static-mesh-uvless-crash` (that's the convert/bake MikkT crash on a UV-less mesh — different code path and symptom; its EnsureMeshHasUVs fix is why convert now injects a box UV and the mesh only gains hasUVs after conversion) and from `E-geometry-auto-uv-redundant-with-unwrap-uv` (auto_uv/unwrap_uv naming/discovery duplication, not a silent no-op).
