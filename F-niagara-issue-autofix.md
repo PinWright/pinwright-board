@@ -1,7 +1,7 @@
 ---
 id: F-niagara-issue-autofix
 title: "niagara: enumerate + apply engine stack-issue fixes via RPC"
-status: IN-REVIEW
+status: OPEN
 severity: Medium
 category: feature
 tags: [niagara, diagnostics, autofix, stack-issues]
@@ -53,3 +53,4 @@ Acceptance: on a Niagara System with a fixable stack issue, list_stack_issues ->
 ## History
 - `#1-no-fix-application` `OPEN` reporter — validate reports issues but engine-proposed fixes cannot be applied via RPC (grep verified). Epic 5.8 GetStackIssues/ApplyStackIssueFix loop is the parity target; add issue ids + apply_issue_fix.
 - `#2-reword-and-implement` `IN-REVIEW` developer — REWORDED then implemented. Two load-bearing mis-statements corrected against source: (1) the cited `UNiagaraExternalEditUtilities::ApplyStackIssueFix` is UE 5.8-only (absent from C:\UE_5.7 NiagaraEditor; `NiagaraToolsets` plugin not present on 5.7) — used the 5.7-available low-level `UNiagaraStackEntry::GetIssues()`/`FStackIssue::GetFixes()` API instead (all `NIAGARAEDITOR_API`-exported); (2) the "extend niagara.validate output" scope was wrong — validate's issues are PinWright-synthesized compile-log/disabled-emitter JSON (`NiagaraInspectHandler.cpp` AddCompileIssues/AddDisabledEmitterIssues:130-196), not engine stack issues, so this is a new SVM stack-issue path. Implemented as two verbs sharing an enumerator: `niagara.list_stack_issues` (read) + `niagara.apply_issue_fix` (mutate), registered unconditionally. Files: Handlers/Niagara/NiagaraApplyIssueFixHandler.cpp (both verbs), Handlers/Niagara/NiagaraStackIssueHelpers.h (shared stack walk + JSON), Tests/Niagara/TestNiagaraApplyIssueFix.cpp (adopted red registration test PinWright.niagara.apply_issue_fix.Registration + behavioral list/apply tests over a SimpleExplosion-derived fixture).
+- `#3-attempt-failed` `OPEN` developer — Auto-fix attempt not published: the test loop and its abandon agent both died in an API-limit blip before the suite went green; the uncommitted implementation was discarded by the next baseline sweep (by invariant). The #2 implementation notes remain a valid design reference for the retry, including the diff-review escalation: after FixDelegate.Execute(), the re-enumeration path only calls RefreshChildren() — verify the issue list is genuinely refreshed post-apply.
