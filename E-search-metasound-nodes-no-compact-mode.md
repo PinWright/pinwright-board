@@ -5,8 +5,8 @@ status: OPEN
 severity: Low
 category: ergonomic
 tags: [metasound, audio, authoring, search_metasound_nodes, response-size, oversized-readback, compact, node-discovery, docs]
-encounters: 1
-lastSeen: 2026-07-01T18:40:28.0956489+03:00
+encounters: 2
+lastSeen: 2026-07-10T20:49:10.4771811+03:00
 ---
 
 # search_metasound_nodes returns full per-node vertex lists with fully-expanded enum variants, so a common generator query overflows the inline limit
@@ -99,4 +99,5 @@ round-trip on the very first search of the build.
 severity rationale: impact=response-spill (recovers via Read) × reach=metasound-authoring node-discovery (not every editor session) -> Low
 
 ## History
+- `#2-liveness` `OPEN` reporter — still reproduces at HEAD (replayed `search_metasound_nodes` query="Sine" → same 16902-char overflow spilled to a `Saved/.../HttpResponses` JSON; hit again in a clean `audio.authoring.create_metasound` build of MS_EngineRev).
 - `#1-initial-audit` `OPEN` reporter — PROCESS friction from the clean `audio.authoring.add_metasound_input` fuzz task (built MS_VehicleEngine end-to-end; every call first-try, judge filed nothing on outcome). `audio.authoring.search_metasound_nodes` has no compact/summary mode and a default `limit` of 50, and emits full per-node vertex lists with fully-expanded enum type variants (`Enum:SineGenerationType:Variable`), so `query="Sine"` (12 matches) produced 16902 chars > the 10000-char MCP display threshold and spilled to a Saved/.../HttpResponses JSON file the agent had to Read to recover the className/pins; the sibling `query="Multiply"` (5 matches) fit inline. Same oversized-readback shape already given an opt-in `compact`/`nodeIds` knob for `describe_metasound` (`E-describe-metasound-no-compact-mode`, IN-REVIEW) and DONE for `widget.export_xml` (`E-widget-export-xml-token-limit`) and `get_graph_connections` (`E-graph-connections-pagination`); `search_metasound_nodes` is the node-discovery member of the family with no such mode. Distinct from `E-metasound-shorthand-search-mismatch` (search *content* gap) and `F-search-api-metasound-nodes` (added the RPC). Proposes `compact:true` (className+displayName+flat name:type pins, dropping enum-variant expansion) and/or a smaller default `limit` on `Private/Handlers/Audio/MetaSound/MetaSoundSearchHandler.cpp`. Low severity — recovers via disk Read but taxes the first discovery search of every enum-heavy MetaSound build.
