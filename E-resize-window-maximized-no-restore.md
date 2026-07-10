@@ -81,11 +81,19 @@ existing drive.click workaround -> Medium.
   `B-list-windows-maximized-geometry`, which carves this gap out as out-of-scope context.
 - `#2-go` `IN-REVIEW` developer — GO. Defect confirmed in current source: `editor.resize_window`
   (`EditorWindowHandlers.cpp:701-707`) hard-errors WINDOW_MAXIMIZED "restore it first" while no
-  restore/maximize/minimize/window-state verb exists in any namespace (only unrelated
+  restore/maximize/minimize/window-state verb existed in any namespace (only unrelated
   `actor.restore_snapshot`). Not a duplicate of `B-list-windows-maximized-geometry` (a distinct
-  readback bug). Implementing the dedicated-verb remedy — a new `editor.set_window_state`
-  {state:'restored'|'maximized'|'minimized'} verb — favored over the resize_window mode-flag by
-  the split-verb convention; plus renaming the WINDOW_MAXIMIZED message + wiki to name it so
-  "restore it first" is a real callable/discoverable path. This is one of the ticket's two offered
-  "one of" alternatives (dedicated verb vs auto-restore-in-resize); the ticket goal (maximized
-  state recoverable through the API) is fully met, no scope dropped, no follow-on ticket needed.
+  readback bug). Shipped the dedicated-verb remedy (favored over the resize_window mode-flag by the
+  split-verb convention); one of the ticket's two "one of" alternatives, so the goal (maximized
+  state recoverable through the API) is fully met with no scope dropped / no follow-on ticket.
+  Changes: (1) NEW handler `editor.set_window_state` in
+  `Source/PinWright/Private/Handlers/Editor/EditorWindowHandlers.cpp` — `state`:
+  'restored'/'normal' | 'maximized' | 'minimized' via `SWindow::Restore()`/`Maximize()`/`Minimize()`,
+  reusing the shared window selector; reports was/is maximized+minimized + clientSize; (2) renamed
+  the WINDOW_MAXIMIZED error message + resize_window wiki summary to name `editor.set_window_state`
+  {state:'restored'} so "restore it first" is now callable+discoverable; (3) wiki overlay
+  `Docs/wiki-src/editor.md` — resize_window mention + new `### editor.set_window_state` section.
+  Regression tests in `Source/PinWright/Private/Tests/EditorOps/TestEditorHandlers.cpp`:
+  `PinWright.editor.set_window_state.RestoresMaximizedWindow` (+ `.MissingRequiredParam`) — build
+  clean, both pass post-fix, and stash-verified failing pre-fix (differential). No new error codes
+  (EDITOR_NOT_AVAILABLE / SLATE_NOT_INITIALIZED / INVALID_ARGUMENT already registered).
