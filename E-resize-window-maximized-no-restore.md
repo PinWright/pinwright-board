@@ -1,12 +1,14 @@
 ---
 id: E-resize-window-maximized-no-restore
 title: "editor.resize_window rejects a maximized window and says 'restore it first', but no restore/un-maximize RPC exists — stranding the caller in a heavyweight UI-automation workaround"
-status: OPEN
+status: IN-REVIEW
 severity: Medium
 category: ergonomic
 tags: [window-maximized-no-restore, resize-window, window-state-control, no-recovery-path]
 encounters: 1
 lastSeen: 2026-07-10T23:02:14.0957993+03:00
+claimedBy: fuzz2
+claimedAt: 2026-07-11T00:36:42.5397482+03:00
 ---
 
 # editor.resize_window dead-ends on a maximized window with no restore verb to recover
@@ -77,3 +79,13 @@ existing drive.click workaround -> Medium.
   workaround + a plugin C++ source read to recover. Propose auto-restore in resize_window (or an
   `editor.restore_window` / `editor.set_window_state` verb). Distinct from the readback bug
   `B-list-windows-maximized-geometry`, which carves this gap out as out-of-scope context.
+- `#2-go` `IN-REVIEW` developer — GO. Defect confirmed in current source: `editor.resize_window`
+  (`EditorWindowHandlers.cpp:701-707`) hard-errors WINDOW_MAXIMIZED "restore it first" while no
+  restore/maximize/minimize/window-state verb exists in any namespace (only unrelated
+  `actor.restore_snapshot`). Not a duplicate of `B-list-windows-maximized-geometry` (a distinct
+  readback bug). Implementing the dedicated-verb remedy — a new `editor.set_window_state`
+  {state:'restored'|'maximized'|'minimized'} verb — favored over the resize_window mode-flag by
+  the split-verb convention; plus renaming the WINDOW_MAXIMIZED message + wiki to name it so
+  "restore it first" is a real callable/discoverable path. This is one of the ticket's two offered
+  "one of" alternatives (dedicated verb vs auto-restore-in-resize); the ticket goal (maximized
+  state recoverable through the API) is fully met, no scope dropped, no follow-on ticket needed.
