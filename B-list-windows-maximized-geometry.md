@@ -1,75 +1,92 @@
 ---
 id: B-list-windows-maximized-geometry
-title: "drive.list_windows misreports a maximized window: restored (pre-maximize) geometry and no maximized/state field, contradicting editor.resize_window's WINDOW_MAXIMIZED gate"
-status: OPEN
+title: "drive.list_windows omits per-window maximize/minimize state, contradicting editor.resize_window's WINDOW_MAXIMIZED gate and editor.set_window_state's readback"
+status: IN-REVIEW
 severity: Medium
 category: bug
-tags: [window-maximized-state, drive, editor_chrome, list_windows, stale-readback, doc-mismatch]
+tags: [window-maximized-state, window-minimized-state, drive, editor_chrome, list_windows, doc-mismatch]
 encounters: 1
 lastSeen: 2026-07-10T22:58:29.9710450+03:00
+claimedBy: fuzz2
+claimedAt: 2026-07-11T02:26:22.1214402+03:00
 ---
 
-# drive.list_windows misreports a maximized window
+# drive.list_windows omits per-window window state
 
 ## What's wrong
 For a top-level editor window that is **maximized** (`SWindow::IsWindowMaximized() == true`),
-`drive.list_windows` reports a `geometry.absolute` that is the window's **restored /
-pre-maximize** rectangle (a non-maximized `1280x720 @ (1039,273)` on this host, not the
-on-screen maximized/fullscreen bounds), and the per-window record carries **no
-`maximized` / window-state field at all**. An agent therefore has no way to learn from
-`list_windows` that a window is maximized, and the geometry it does return does not match
-the window's actual on-screen state.
+`drive.list_windows` carries **no `maximized` / window-state field at all** in the per-window
+record. An agent therefore has no way to learn from `list_windows` — the every-session
+editor-chrome discovery verb it hits first — that a window is maximized (or minimized).
 
 This directly contradicts a sibling verb: `editor.resize_window` on the very same window
 refuses with `WINDOW_MAXIMIZED` ("... is maximized and will not visibly resize; restore it
-first"). So one verb says "here is a plain 1280x720 window" while the other says "this
-window is maximized." The window is genuinely maximized — the Slate title bar renders a
-"Restore Down" affordance (only shown for a maximized window) and clicking it un-maximizes
-the window, after which `resize_window` succeeds. `resize_window`'s gate is correct;
-`list_windows`' readback is the one that misreports.
+first via `editor.set_window_state {state:'restored'}`"). So one verb reports a plain window
+while the other reports it as maximized. `resize_window`'s gate is correct; `list_windows`'
+readback is the one that under-reports — it omits the state entirely.
 
-The harm lands on exactly the common task of normalizing a window to a target size and then
-verifying it: the caller reads `list_windows` geometry as ground truth, sees `1280x720`,
-and is misled about both the window's real size and the fact that it must be restored first.
+The authoritative signal exists and is already surfaced by two sibling `editor.*` verbs:
+`editor.resize_window` reads `Window->IsWindowMaximized()` (`EditorWindowHandlers.cpp:701`),
+and `editor.set_window_state` reports both `isMaximized` and `isMinimized`
+(`EditorWindowHandlers.cpp:847-857`) from `IsWindowMaximized()`/`IsWindowMinimized()`.
+`drive.list_windows` simply never queries them.
 
-## What it should do
-`drive.list_windows` should let an agent detect the maximized condition that
-`editor.resize_window` enforces. Concretely: add a per-window `maximized` boolean (query
-`SWindow::IsWindowMaximized()`, the same signal `resize_window` uses), and/or report the
-window's true current on-screen bounds when maximized rather than the stale restored
-geometry. Either fix makes the two verbs agree.
+The harm lands on the common task of normalizing/targeting a window: the caller reads
+`list_windows`, sees a window with no state, and is not told it must be restored first (via
+`editor.set_window_state {state:'restored'}`) before `resize_window` will act.
 
-## Verbatim repro (live, replay-confirmed at HEAD)
-1. `mcp__pinwright__call` method=`drive.list_windows` args=`{}` -> main window index 0:
-   `{"title":"EAContentExamples57 - Unreal Editor","type":"Normal","index":0,"geometry":{"absolute":{"x":1039,"y":273,"w":1280,"h":720}}}`
-   (no `maximized`/state field anywhere in the record).
-2. `mcp__pinwright__call` method=`editor.resize_window` args=`{"window_index":0,"width":1600,"aspect":"16:9"}` ->
-   `[WINDOW_MAXIMIZED] Window 'EAContentExamples57 - Unreal Editor' is maximized and will not visibly resize; restore it first`
+## What it should do (Fix)
+Add a per-window **`maximized`** boolean and a **`minimized`** boolean to `drive.list_windows`,
+sourced from `SWindow::IsWindowMaximized()` / `SWindow::IsWindowMinimized()` — the same signals
+`editor.resize_window` and `editor.set_window_state` use — so the discovery verb agrees with
+the control verbs. This mirrors `editor.set_window_state`'s `isMaximized`/`isMinimized`
+readback shape (`EditorWindowHandlers.cpp:847-857`).
 
-Same window, same instant: `list_windows` presents it as a non-maximized `1280x720 @ (1039,273)`
-window while `resize_window` reports it as maximized.
+Concretely: add `bMaximized`/`bMinimized` to `FDriveWindowInfo` (`DriveEditorChrome.h`),
+populate them in `FDriveEditorChrome::ListWindows()` (`DriveEditorChrome.cpp`), emit
+`maximized`/`minimized` in `DriveListWindowsHandler.cpp`, and document the two fields in the
+`drive` wiki overlay + the handler summary string.
+
+## Out of scope — the geometry claim (dropped, unverified)
+The original report also alleged `list_windows` returns the **restored / pre-maximize**
+geometry (`1280x720 @ (1039,273)`) for a maximized window rather than its on-screen maximized
+bounds, and proposed rewriting the geometry readback. That half is **dropped**: it is
+unverified and reporter-hedged ("Could be High if the restored-geometry readback reproduces on
+non-fuzz hosts"). `GetWindowGeometryInScreen()` returns the window's *current* geometry, and a
+genuinely OS-maximized `SWindow` reshapes to the work area — so the fuzz-host `1280x720`
+observation most likely reflects a headless / `-RenderOffScreen` borderless quirk (the state
+flips maximized without a real window manager reshaping the window), not a systematic
+stale-geometry bug. `GetWindowGeometryInScreen()` is a load-bearing readback; it is left
+untouched unless the staleness is independently reproduced on a real host — that would be a
+separate ticket.
+
+## Verbatim repro (live)
+1. `drive.list_windows {}` -> main window index 0:
+   `{"title":"EAContentExamples57 - Unreal Editor","type":"Normal","index":0,"geometry":{"absolute":{...}}}`
+   — no `maximized` / `minimized` / state field anywhere in the record.
+2. `editor.resize_window {"window_index":0,"width":1600,"aspect":"16:9"}` ->
+   `[WINDOW_MAXIMIZED] Window 'EAContentExamples57 - Unreal Editor' is maximized and will not
+   visibly resize; restore it first via editor.set_window_state {state:'restored'}, then retry`
+
+Same window, same instant: `list_windows` presents it with no state while `resize_window`
+reports it as maximized.
 
 ## Guilty source (ground truth, read verbatim)
-- `Plugins/PinWright/Source/PinWright/Private/Handlers/Drive/DriveEditorChrome.cpp:387-389` — the only geometry `list_windows` exposes, with no maximized query:
-  - `const FGeometry WindowGeometry = Window->GetWindowGeometryInScreen();`
-  - `Info.AbsolutePosition = WindowGeometry.GetAbsolutePosition();`
-  - `Info.AbsoluteSize = WindowGeometry.GetAbsoluteSize();`
-- `Plugins/PinWright/Source/PinWright/Private/Handlers/Drive/DriveEditorChrome.h:25-37` — `FDriveWindowInfo` fields are `Title`, `Type`, `AbsolutePosition`, `AbsoluteSize`, `Index`. There is no maximized / window-state member, so the handler at `DriveListWindowsHandler.cpp:27-44` cannot emit one.
-- `Plugins/PinWright/Source/PinWright/Private/Handlers/Editor/EditorWindowHandlers.cpp:701` — the authoritative, correct maximized signal that `list_windows` never surfaces:
-  - `const bool bWasMaximized = Window->IsWindowMaximized();`
+- `Plugins/PinWright/Source/PinWright/Private/Handlers/Drive/DriveEditorChrome.h:25-37` —
+  `FDriveWindowInfo` = `Title`, `Type`, `AbsolutePosition`, `AbsoluteSize`, `Index`. No
+  window-state member, so `DriveListWindowsHandler.cpp:29-42` (which emits only
+  title/type/index/geometry) cannot surface one.
+- `Plugins/PinWright/Source/PinWright/Private/Handlers/Drive/DriveEditorChrome.cpp:379-393` —
+  the per-window loop populates geometry via `GetWindowGeometryInScreen()` and never calls
+  `IsWindowMaximized()` / `IsWindowMinimized()`.
+- `Plugins/PinWright/Source/PinWright/Private/Handlers/Editor/EditorWindowHandlers.cpp:701`
+  (`editor.resize_window`) and `:835-857` (`editor.set_window_state`) — the authoritative
+  maximized/minimized signals `list_windows` never surfaces.
 
-## Related (out of scope for this ticket)
-Once an agent knows a window is maximized, there is still **no window-state control RPC**
-(no restore / un-maximize / maximize / minimize verb) in the `editor` or `drive` namespaces,
-so `resize_window`'s "restore it first" instruction is only actionable via fragile UI
-automation (`drive.observe` the editor chrome + `drive.click` the title-bar "Restore Down"
-button). That capability gap is distinct from this readback bug; noted here only as context.
-
-severity rationale: impact=misleading/stale readback trusted on a normal path + omitted
-state field (a sibling verb, resize_window, provides a cross-check that keeps it from a
-fully-silent lie) x reach=list_windows is the every-session editor-chrome discovery verb but
-the maximized mismatch is a specific state -> Medium. Could be High if the restored-geometry
-readback (not just the missing flag) reproduces on non-fuzz hosts.
+severity rationale: impact=omitted state field on a normal discovery path (a sibling verb,
+`resize_window`, provides a cross-check that keeps it from a fully-silent lie) x reach=
+`list_windows` is the every-session editor-chrome discovery verb but the mismatch is a specific
+window state -> Medium.
 
 ## History
 - `#1-initial-repro` `OPEN` reporter — Filed: `drive.list_windows` reports a maximized main
@@ -80,3 +97,14 @@ readback (not just the missing flag) reproduces on non-fuzz hosts.
   window-normalization task (seed method `editor.resize_window`; culprit `drive.list_windows`).
   Live repro shows `list_windows` and `resize_window` disagreeing about the same window at the
   same instant.
+- `#2-reword-scope` `IN-REVIEW` developer — Reworded + adopted. Confirmed defect from source:
+  `drive.list_windows` omits per-window window state, so a maximized window reads as plain and
+  contradicts `editor.resize_window`'s WINDOW_MAXIMIZED gate. Narrowed scope: add `maximized`
+  AND `minimized` booleans (mirroring the shipped `editor.set_window_state`
+  isMaximized/isMinimized readback at `EditorWindowHandlers.cpp:847-857`), and DROPPED the
+  ticket's speculative "report true on-screen bounds / stale restored geometry" half — the
+  geometry claim is unverified/reporter-hedged and `GetWindowGeometryInScreen()` on a real host
+  reflects the maximized bounds (the fuzz-host `1280x720` is a likely headless/borderless
+  artifact), so that load-bearing readback is left untouched. Corrected the stale "no
+  window-state control RPC" note (`editor.set_window_state` shipped, commit d757f40).
+  Implementing the state-field fix now.
