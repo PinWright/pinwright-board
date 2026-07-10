@@ -5,8 +5,8 @@ status: OPEN
 severity: Low
 category: ergonomic
 tags: [niagara, niagara-graph, graph-get, response-size, oversized, projection, spills, docs]
-encounters: 1
-lastSeen: 2026-07-05T11:42:41.6664801+03:00
+encounters: 2
+lastSeen: 2026-07-11T01:58:10.9079381+03:00
 ---
 
 # `niagara.graph.get` has no compact/projection mode — a small script graph spills, and the spill is too big to Read
@@ -112,4 +112,5 @@ infrequent — the spill-file-too-big-for-Read wrinkle raises the tax but not th
 severity class, since the data is still fully recoverable off disk).
 
 ## History
+- `#2-liveness` `OPEN` reporter — Second independent occurrence, same friction. Clean `niagara.graph.search_ops` fuzz task (add a `Numeric::Mul` op + two `NiagaraNodeInput` nodes to `/Game/ExampleContent/Effects/ParticleSystems/NS_EQ_Reactive` emitter `EQ` ParticleUpdate, wire A/B, compile+validate clean; outcome ergo — judge filed the orthogonal `E-niagara-search-ops-multiply-keyword-misses-scalar`). The two `niagara.graph.get` calls (initial read + post-save readback of the Mul node) both overflowed the 10000-char threshold and spilled to file (~247KB / ~258KB), forcing an off-disk Grep to read node/pin state — same no-projection/no-single-node-filter root as `#1`, different system/graph. Still Low (works, just spills+Read). Confirms the projection/`nodeId`-filter/`list_nodes` fix would keep both the initial "pick a node" read and the post-create verify inline.
 - `#1-initial-audit` `OPEN` reporter — PROCESS friction from the clean/`done` `niagara.graph.create_node` task on `/Game/ExampleContent/Niagara/Simple/Simple_system` (emitter `Simple_Emitter`, ParticleUpdate; 10 MCP RPCs; the focus `create_node` worked first-try and the judge filed nothing on the outcome). `niagara.graph.get` has no `namesOnly`/`fields` projection, no single-node `nodeId` filter, and no compact `list_nodes` companion, so it emits every node's full per-pin type object + `present`/`defaultValue`/`defaultObject`/`defaultText`. On this **28-node** graph it spilled at **207308 chars** (post-save readback **214341 chars**), and the spill file was itself too large to `Read` (`90372 tokens > 25000 cap`), forcing ~5 `jq` Bash calls (one erroring first on a bad regex escape) to pull out emitter name / node ids/titles / pin types. Proposes a `namesOnly`/`fields` projection (drop the per-pin default metadata), a single-node `nodeId` filter, and/or a `niagara.graph.list_nodes` companion, plus a `docs/wiki-src/niagara.graph.md` note that a full `graph.get` spills (and the spill can exceed the Read cap). Dedup: ripgrep across OPEN/closed found no ticket naming `niagara.graph.get` as a spilling reader; `E-niagara-inspect-no-param-readback-projection` (different method — inspect; its history escapes *to* graph.get), `E-niagara-search-modules-no-compact-spills` (module search, not graph read), and `E-get-nodes-pins-spill-no-projection` (Blueprint graph reader) are the same family on different methods, all distinct.
