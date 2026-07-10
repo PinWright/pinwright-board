@@ -34,9 +34,12 @@ Fix (extend, do NOT add a parallel verb — dual-surface convention + the origin
   and the `niagara_stack.json` dump sidecar — with a `moduleInputs` array. Each entry:
   `name`, `type` (+ canonical `typeInfo`), `valueMode` (default/local/linked/dynamicInput),
   the current `value` / `linkedParameter` / `dynamicInput` script, and `enumOptions` for enum
-  inputs. Reuse `NiagaraEdit::EnumerateScriptInputs` for the declared schema and an
-  override-node walk (mirroring `SnapshotInputOverrides`) for the value modes; bump the
-  `niagara_stack.json` aspect version.
+  inputs. Enumerate the module's stack inputs via
+  `FNiagaraStackGraphUtilities::GetStackFunctionInputs` (EnumerateScriptInputs surfaces only
+  the ParameterMap input node, not the `Module.*` inputs) and classify each value mode by
+  walking the override node (`NiagaraResetModuleInput::FindStackFunctionOverrideNode`) —
+  handling BOTH linked-parameter wirings (classic `UNiagaraNodeInput` and modern
+  `UNiagaraNodeParameterMapGet`). Bump the `niagara_stack.json` aspect version.
 - Coordinate with the deferred emitter/entryId single-module stack projection carved out in
   `E-niagara-inspect-no-param-readback-projection` (that is the response-SIZE concern; this is
   the orthogonal CONTENT concern). A large share of the cited `set_module_input`
@@ -48,4 +51,4 @@ value mode, matching the editor UI.
 
 ## History
 - `#1-inputs-opaque` `OPEN` reporter — Module stack inputs have no schema/type/value-mode readback, forcing guesswork in set_module_input. Epic 5.8 ships typed per-input schemas + GetDynamicInputChain; add get_module_inputs (dedup with any existing readback first).
-- `#2-reword-extend-builder` `IN-REVIEW` developer — REWORD: reproduced (no structured per-input schema in the module readback), but dropped the overstated "no readback" premise (decompile_nir already gives value modes as NIR text) and the parallel-verb proposal (dual-surface rule + the dedup note). Implemented by extending the shared stack builder, not a new verb: added `moduleInputs` to `NiagaraDumpBuilder::BuildStackModuleJson` (name/type/typeInfo/valueMode/value/linkedParameter/dynamicInput/enumOptions), via new `NiagaraEdit::ClassifyModuleInputBindings` (override-node walk mirroring SnapshotInputOverrides) + `NiagaraDumpBuilder::BuildModuleInputsJson`; bumped `niagara_stack.json` aspect version to 2. Files: NiagaraDumpBuilder.cpp/.h, NiagaraEditTypes.cpp/.h, AssetDumpCache.cpp. Test: PinWright.niagara.ModuleInputsSchema (Tests/Niagara/TestNiagaraGetModuleInputs.cpp) — lists SpawnRate typed, and reports valueMode "linked" after binding it to User.Speed.
+- `#2-reword-extend-builder` `IN-REVIEW` developer — REWORD: reproduced (no structured per-input schema in the module readback), but dropped the overstated "no readback" premise (decompile_nir already gives value modes as NIR text) and the parallel-verb proposal (dual-surface rule + the dedup note). Implemented by extending the shared stack builder, not a new verb: added `moduleInputs` to `NiagaraDumpBuilder::BuildStackModuleJson` (name/type/typeInfo/valueMode/value/linkedParameter/dynamicInput/enumOptions) via new `NiagaraDumpBuilder::BuildModuleInputsJson`. Declared inputs come from new `NiagaraEdit::EnumerateModuleStackInputs` (wraps `FNiagaraStackGraphUtilities::GetStackFunctionInputs`, ModuleInputsOnly — EnumerateScriptInputs only surfaces the ParameterMap input node); value modes from new `NiagaraEdit::ClassifyModuleInputBindings` (walks `FindStackFunctionOverrideNode`, classifying literal / linked (both `UNiagaraNodeInput` and `UNiagaraNodeParameterMapGet` wirings) / dynamic-input). Short input names via `FNiagaraParameterHandle`. Bumped `niagara_stack.json` aspect version to 2. Files: NiagaraDumpBuilder.cpp/.h, NiagaraEditTypes.cpp/.h, AssetDumpCache.cpp. Test: PinWright.niagara.ModuleInputsSchema (Tests/Niagara/TestNiagaraGetModuleInputs.cpp) — lists SpawnRate typed, and reports valueMode "linked"→User.Speed after binding; differential-verified (pre-fix tree fails to compile without BuildModuleInputsJson).
