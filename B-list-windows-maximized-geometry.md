@@ -114,3 +114,21 @@ window state -> Medium.
   value-equality against live `IsWindowMaximized()`/`IsWindowMinimized()`; observed RED pre-fix,
   now GREEN against a genuinely-maximized fixture (`Result={Success}`, "Maximize() took effect").
   Plugin built clean (`Result: Succeeded`).
+- `#3-test-phase-fix` `IN-REVIEW` developer — Resolved the escalated adversarial-review
+  correctness concern by DROPPING the always-false `minimized` field (kept `maximized`).
+  Confirmed against engine source that `FSlateApplication::GetAllVisibleWindowsOrdered`
+  (`SlateApplication.cpp:3742/3751`) filters every top-level and child window through
+  `IsVisible() && !IsWindowMinimized()`, and that both `ListWindows()` and the shared
+  `window_index` selector (`ResolveSelectedWindow`, `DriveEditorChrome.cpp:222`) enumerate that
+  same minimized-excluded set — so `bMinimized` could only ever read `false`, a minimized window
+  never appears in `list_windows`, and broadening the enumeration would shift the `window_index`
+  targeting order for every editor-chrome drive verb (resize_window/set_window_state/screenshot)
+  — a design change that belongs in its own ticket. Removed `bMinimized` from `FDriveWindowInfo`
+  (`DriveEditorChrome.h`), the `IsWindowMinimized()` populate in `ListWindows()`, the `minimized`
+  emit + summary/doc in `DriveListWindowsHandler.cpp`, the `minimized` field from the `drive` wiki
+  overlay, and the now-tautological `minimized` presence + value-equality assertions in
+  `TestDriveListWindowsMaximizedState.cpp`. `maximized` — which fixes the ticket's actual reported
+  bug (the `resize_window` WINDOW_MAXIMIZED contradiction) — ships intact with its presence +
+  value-equality + genuinely-maximized-fixture assertions. Full suite GREEN (3634 `Result={Success}`,
+  0 `Result={Fail}`, `TEST COMPLETE. EXIT CODE: 0`); `PinWright.drive.editorint.ListWindowsReportsMaximizedState`
+  `Result={Success}` with "Maximize() took effect".
