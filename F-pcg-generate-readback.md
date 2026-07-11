@@ -1,10 +1,12 @@
 ---
 id: F-pcg-generate-readback
 title: "pcg.generate: trigger UPCGComponent generation on a placed actor + read back point counts"
-status: OPEN
+status: IN-REVIEW
 severity: Medium
 category: feature
 tags: [pcg, generation, readback, async]
+claimedBy: fuzz2
+claimedAt: 2026-07-11T09:35:27.2903582+03:00
 ---
 
 # pcg.generate — trigger generation on a placed actor and read back results
@@ -19,7 +21,7 @@ readback), which the board otherwise treats as an escape hatch to close (cf. the
 `*-no-completion-signal` tickets).
 
 ## Repro / gap
-Grep `Handlers/PCG/` for `generate|regenerate|execute|PCGComponent`: no matches. The 10
+Grep `Handlers/PCG/` for `generate|regenerate|execute|PCGComponent`: no matches. The 13
 registered `pcg.*` handlers are all graph-asset authoring/inspection; none places or drives a
 `UPCGComponent`.
 
@@ -47,3 +49,4 @@ count, driven to completion through the async token seam, without `python.execut
 
 ## History
 - `#1-split-from-authoring-parity` `OPEN` reporter — Split off `F-pcg-authoring-parity` as the highest-value discrete capability. Gap verified: no generation/readback handler exists in `Handlers/PCG/` (grep for `generate|PCGComponent` returns nothing). Needs the async completion-token seam and a world-backed test fixture, hence a standalone ticket rather than being bundled with the synchronous graph-parameter CRUD slice.
+- `#2-go-implement-generate-readback` `IN-REVIEW` developer — GO. Gap re-verified against current source: 13 registered `pcg.*` handlers, all graph-asset authoring/inspection; none drives a `UPCGComponent` (`grep generate|PCGComponent` in `Handlers/PCG/` = no matches). All cited UE 5.7 primitives confirmed present in `PCGComponent.h` (`GenerateLocal(bool)` :251, `GetGeneratedGraphOutput` :298, `OnPCGGraphGeneratedDelegate` :403) and `PCGBasePointData.h` (`GetNumPoints` :108). Implementing `pcg.generate`: resolve-or-add a `UPCGComponent` on a placed actor, optionally assign `graphPath`, `GenerateLocal(force)`, resolve the async token on the `bFired`-guarded `OnPCGGraphGeneratedDelegate`, and read back the produced point count. Corrected the stale "10 handlers" count to 13.
