@@ -4,11 +4,9 @@ title: "editor.open_asset on a World hard-crashes the editor — routes maps thr
 status: IN-REVIEW
 severity: Critical
 category: bug
-tags: [editor, open_asset, world, map-load, editor-crash, cold-load, ticktaskmanager, open-asset-world-crash]
-encounters: 1
-lastSeen: 2026-07-10T21:38:22.4092205+03:00
-claimedBy: fuzz2
-claimedAt: 2026-07-10T21:56:53.0570649+03:00
+tags: [editor, open_asset, world, map-load, editor-crash, cold-load, ticktaskmanager, open-asset-world-crash, level-load, level-load-mapswap-crash]
+encounters: 2
+lastSeen: 2026-07-11T22:36:12.9693389+03:00
 ---
 
 # `editor.open_asset` on a World hard-crashes the editor (TickTaskManager assertion during Map_Load teardown)
@@ -122,5 +120,35 @@ severity rationale: impact=corruption/editor-crash × reach=every-session (openi
 a level asset is a routine action; here it is also the startup map) -> Critical
 
 ## History
+- `#3-additional-level-load-direct-mapswap-crash` `IN-REVIEW` reporter — Additional evidence (NEW ANGLE — broadens the affected-method set AND bears directly on the #2 fix). The SAME fatal assertion `!LevelList.Contains(TickTaskLevel)` (TickTaskManager.cpp:1987) also fires when `level.load` calls `FEditorFileUtils::LoadMap` DIRECTLY — not only via `editor.open_asset` -> `OpenEditorForAsset` -> `Map_Load`. A realism attempt applied KillZ/gravity WorldSettings edits to `/Game/Maps/ExampleProjectWelcome` and persisted them (editor.save_all survived a disk reload); then, while re-testing `level.save` with distinctive values, it issued a routine `level.load` map-swap and the editor hard-crashed. The MCP went unreachable (connection refused on repeated probes); the ~20s+10s backoff canary (`mcp__pinwright__call` no-args) did NOT recover -> editor genuinely died. Fresh evidence THIS iteration: crash dump `Saved/Crashes/UECC-Windows-A6B5BD09422B63D2B71C1DBFDC523483_0000/` (CrashContext.runtime-xml + UEMinidump.dmp + crash .log, mtime 22:32) and the live editor log `Saved/Logs/EAContentExamples57.log` (assertion at 19.32.28, Critical error block at 19.32.32). GUILTY SOURCE LINE (read from plugin source, not inferred): `Plugins/PinWright/Source/PinWright/Private/Handlers/Level/LevelHandler.cpp:241` -> `FEditorFileUtils::LoadMap(FileToLoad);` (the `level.load` handler; the callstack return address resolves to LevelHandler.cpp:243, the line right after the call). Verbatim assertion + callstack from the editor log:
+
+```
+appError called: Assertion failed: !LevelList.Contains(TickTaskLevel) [File:D:\build\++UE5\Sync\Engine\Source\Runtime\Engine\Private\TickTaskManager.cpp] [Line: 1987]
+=== Critical error: ===
+Assertion failed: !LevelList.Contains(TickTaskLevel) [File:D:\build\++UE5\Sync\Engine\Source\Runtime\Engine\Private\TickTaskManager.cpp] [Line: 1987]
+
+FDebug::CheckVerifyFailedImpl2()                                          AssertionMacros.cpp:745
+FTickTaskManager::FreeTickTaskLevel()                                     TickTaskManager.cpp:1987
+ULevel::~ULevel()                                                         Level.cpp:466
+ULevel::`scalar deleting destructor'()
+FObjectPurge::DestroyObjects()                                           GarbageCollection.cpp:914
+IncrementalPurgeGarbage()                                                GarbageCollection.cpp:4721
+CollectGarbage()                                                         GarbageCollection.cpp:6216
+UEditorEngine::Cleanse()                                                 EditorEngine.cpp:2859
+UEditorEngine::EditorDestroyWorld()                                      EditorServer.cpp:2064
+UEditorEngine::Map_Load()                                               EditorServer.cpp:2464
+UEditorEngine::HandleMapCommand() / Exec_Editor()                        EditorServer.cpp:6227 / 5688
+FEditorFileUtils::LoadMap()                                             FileHelpers.cpp:3306
+UnrealEditor-PinWright.dll!AutoHandler_400_()  [level.load]             LevelHandler.cpp:243
+FRpcDispatcher::DrainAutoRegistrations lambda                           RpcDispatcher.cpp:298
+FRpcDispatcher::ProcessRequest()                                        RpcDispatcher.cpp:480
+TGraphTask<FAsyncGraphTask>::ExecuteTask() / FNamedTaskThread::ProcessTasks...   (task graph)
+FTickTaskSequencer::ReleaseTickGroup()                                  TickTaskManager.cpp:1035
+FTickTaskManager::RunTickGroup()                                        TickTaskManager.cpp:2129
+UWorld::Tick()                                                          LevelTick.cpp:1848
+UEditorEngine::Tick() / UUnrealEdEngine::Tick()                        EditorEngine.cpp:1961
+```
+
+  Note the LOWER frames: the `level.load` RPC was processed REENTRANTLY from inside a tick group (`FTickTaskManager::RunTickGroup` -> `FTickTaskSequencer::ReleaseTickGroup` -> task graph -> `FRpcDispatcher::ProcessRequest`), so `Map_Load` tore down the outgoing world while its level was still registered in the tick-task manager's `LevelList` -> assertion. This is the same engine root cause as #1/#2 (Map_Load destroying a still-tick-registered live world's level), reached through a different verb and trigger. IMPACT ON THE #2 FIX: #2 routes `editor.open_asset` Worlds -> `editor.open_level` -> `level.load` on the premise that `level.load` is the "vetted safe" path (no-ops via `DoesRequestedLevelMatchCurrentWorld` when the map is already current). That no-op only covers the already-current case; on a GENUINE map-swap `level.load` performs the same destroy-and-Map_Load and trips the SAME assertion — so redirecting the crash INTO `level.load` does not by itself make Worlds safe. The fixer must guard the Map_Load teardown for BOTH verbs (e.g. never destroy/GC the outgoing world while a tick group is in flight — defer `level.load`'s `FEditorFileUtils::LoadMap` to a clean point outside `RunTickGroup`). Affected methods now: `editor.open_asset` (World), `level.load` (direct), and by cross-dispatch `editor.open_level`. encounters 1 -> 2; severity unchanged. severity rationale: impact=crash x reach=every-session (level.load / map-swap is a routine action) -> Critical.
 - `#2-fix-route-world-to-open-level` `IN-REVIEW` developer — GO (hypothesis 1; severity Critical unchanged, full scope, no splits). `editor.open_asset` now special-cases `UWorld`: after `LoadAsset` it detects an `Asset->IsA(UWorld::StaticClass())` target and cross-dispatches to the dedicated `editor.open_level` verb (`Ctx.GetSubsystem()->DispatchMethod("editor.open_level", ...)` with the World's package path) instead of handing it to `OpenEditorForAsset -> Map_Load`. `editor.open_level` delegates to `level.load`, which no-ops via `DoesRequestedLevelMatchCurrentWorld` when the requested map is already active — so reopening the live startup map is now a no-op, never a destroy-and-reload. Fixes only the crashing self-reload case; the working different-map load is preserved through the vetted level.load path. Hypothesis 2 (World save-time integrity gate) deliberately NOT pursued (ruled out as the trigger — the assertion fires in outgoing-world teardown, not from saved bytes). File: `Source/PinWright/Private/Handlers/Editor/EditorCommandHandler.cpp` (~408 guard). Test: `PinWright.editor.open_asset.WorldDoesNotCrashEditor` (`Tests/EditorOps/TestOpenAssetWorldNoCrash.cpp`, adopted+strengthened to drive the handler through the live subsystem so the real cross-dispatch runs). Verified: plugin compiles clean; differential observed via stash — pre-fix `Result={Fail}` (live world torn down + swapped), post-fix `Result={Success}`.
 - `#1-initial-repro` `OPEN` reporter — Cold-restart CorruptionCheck crashed the freshly cold-booted editor when `editor.open_asset` opened the saved startup World `/Game/Maps/ExampleProjectWelcome`. Fatal assertion `!LevelList.Contains(TickTaskLevel)` (TickTaskManager.cpp:1987) fires in `FTickTaskManager::FreeTickTaskLevel` during `~ULevel` GC inside `UEditorEngine::Map_Load` teardown, dispatched from `editor.open_asset` (EditorCommandHandler.cpp:408, `AutoHandler_318_`). Confirmed via source read: `editor.open_asset` routes ALL asset types through `OpenEditorForAsset`, which for a World does a full `Map_Load` that tears down the live world; the target here is also the `EditorStartupMap`, so the cold editor already had that world loaded and open_asset forced a destroy-and-reload. Leading hypothesis is that `editor.open_asset` must special-case Worlds (route to the map-load path like `editor.open_level`, no-op on the active map, or reject) rather than Map_Load over the live world; secondary hypothesis is a missing World save-time integrity gate. Distinct from `B-open-level-engine-mount-mangled` (that is `editor.open_level` path-string mangling, no crash) and from the Widget-Blueprint cold-load corruption in `B-bp-saved-state-corruption-mcp-edits` (different asset type + crash signature).
