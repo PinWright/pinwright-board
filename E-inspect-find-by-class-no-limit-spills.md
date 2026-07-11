@@ -5,8 +5,8 @@ status: OPEN
 severity: Low
 category: ergonomic
 tags: [inspection, system-inspect, find_by_class, response-size, oversized, no-limit-spills, projection, pagination, docs]
-encounters: 1
-lastSeen: 2026-07-10T23:59:08.3929521+03:00
+encounters: 2
+lastSeen: 2026-07-11T10:26:15.4735722+03:00
 ---
 
 # `system.inspect.find_by_class` can't cap or project its rows — a populous class spills
@@ -139,3 +139,4 @@ populous -> Low
   `list_objects`/`list_actor_classes` contract, plus a `docs/wiki-src/system.inspect.md`
   note so the "prefer find_by_class for large worlds" steer doesn't just relocate
   the spill.
+- `#2-liveness` `OPEN` reporter — still reproduces at HEAD (`find_by_class{className:"DynamicMeshActor"}` = 53340 chars, spills to `Saved/PinWright/HttpResponses/*.json`; `find_by_class{className:"PlayerStart"}` = 1 row inline).
