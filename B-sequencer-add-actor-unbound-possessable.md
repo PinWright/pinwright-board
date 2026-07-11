@@ -1,12 +1,14 @@
 ---
 id: B-sequencer-add-actor-unbound-possessable
 title: "sequencer possessable-binding verbs (add_actor / add_actors / add_camera) create an OBJECT-UNBOUND possessable — AddPossessable is called but BindPossessableObject never is, so the verb returns success:true + bindingGuid yet the binding resolves to no object (FK Control Rig fails BINDING_NOT_SKELETAL; playback/editor rebinding broken)"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: bug
 tags: [sequencer, add_actor, add_actors, add_camera, possessable, object-binding, bind-possessable-object, sequencer-possessable-unbound, silent-failure, false-success, controlrig, binding-not-skeletal]
 encounters: 1
 lastSeen: 2026-07-11T08:02:05.5151743+03:00
+claimedBy: fuzz2
+claimedAt: 2026-07-11T08:47:41.9003215+03:00
 ---
 
 # `sequencer.add_actor` (and `add_actors`/`add_camera`) create a possessable that is never bound to any object — success:true with a bindingGuid, but the binding resolves to nothing
@@ -95,3 +97,4 @@ severity rationale: impact=silent-false-success (add_actor returns success:true 
 
 ## History
 - `#1-initial-repro` `OPEN` reporter — Replay-confirmed live at HEAD (SEED-mode `sequencer.key_controls` cinematic-pose task; the seed was never reached — the goal was blocked upstream here). `sequencer.add_actor ReplayManny` returned `success:true` + bindingGuid `856AC9EC…`, `get_bindings` listed the binding, but `add_controlrig_track` (FK) failed `[BINDING_NOT_SKELETAL]` despite the SkeletalMeshActor being confirmed present in the editor world. Root cause verified in source: `SequenceHandler.cpp:782-783` (add_actor), `:893-894` (add_actors), `:661` (add_camera) all call `MovieScene->AddPossessable(GetActorLabel(), GetClass())` and never `ULevelSequence::BindPossessableObject`, so no binding reference exists and the FK resolver's `FindBindingFromObject` reverse lookup (`ControlRigSequencerHandler.cpp:116`) can never match — the resolver itself is correct (F-sequencer-controlrig-track's test proves it works with a properly bound actor). Fix: call `BindPossessableObject(BindingGuid, *Found, World)` after `AddPossessable` on all three verbs. Dedup: ripgrep OPEN+closed (qmd unavailable) — no ticket covers the missing object binding; distinct from `E-sequencer-add-remove-actors-name-label-mismatch` (same line, name/label domain split — different defect) and from `F-sequencer-controlrig-track` (the CR feature, which works once bound). New symptom-family: `sequencer-possessable-unbound`.
+- `#2-disposition` `IN-REVIEW` developer — GO. Independently verified the defect is present at HEAD: the three add-verbs (`SequenceHandler.cpp` add_camera `:671`, add_actor `:792`, add_actors `:903`) all call `MovieScene->AddPossessable` and never `ULevelSequence::BindPossessableObject` — a whole-plugin grep finds `BindPossessableObject` in ZERO production handlers (only in tests). The FK resolver's reverse lookup (`ControlRigSequencerHandler.cpp:116` `FindBindingFromObject`) therefore cannot match, and an executed in-tree red test reproduces the false-success. Severity High confirmed. Decisions: (1) intended fix scope = the three named verbs; (2) bind with `GEditor->GetEditorWorldContext().World()` (the world the resolver scans, matching the proven pattern at `TestSequencerControlRigTrack.cpp:155`) rather than the ticket's `Found->GetWorld()`; for `add_camera` the bound object is the spawned camera, not `Found`; (3) SPLIT the same-root-cause defect at `SequencerHandler.cpp:390` (`AddCameraRigTrackInternal` actorPath branch, shared by `add_camera_rig_rail`/`add_camera_rig_crane`) into new OPEN ticket `F-sequencer-camera-rig-possessable-unbound` — distinct verb family + actor-resolution path, not covered here; (4) adopt the in-tree red test as the regression gate. Two immaterial ticket inaccuracies noted (the `add_camera` parenthetical claiming a camera-cut track is added is wrong — add_camera only spawns+AddPossessable; line numbers drifted +10) — cosmetic, no reword.
