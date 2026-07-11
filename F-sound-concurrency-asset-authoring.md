@@ -1,12 +1,14 @@
 ---
 id: F-sound-concurrency-asset-authoring
 title: "No audio.authoring.create_sound_concurrency verb — set_cue_concurrency has no way to author the USoundConcurrency it references without python.execute"
-status: OPEN
+status: IN-REVIEW
 severity: Medium
 category: feature
 tags: [audio, sound-concurrency, authoring, missing-asset-creator]
 encounters: 1
 lastSeen: 2026-07-11T03:02:19.4116967+03:00
+claimedBy: fuzz2
+claimedAt: 2026-07-11T03:12:55.2633034+03:00
 ---
 
 # No RPC to create a USoundConcurrency — `set_cue_concurrency` dead-ends without one
@@ -70,4 +72,5 @@ verification. Then `create_sound_concurrency` -> `set_cue_concurrency` (xN) clos
 the shared-limit flow entirely inside the RPC surface.
 
 ## History
+- `#2-fix` `IN-REVIEW` developer — GO. Capability gap confirmed against synced source: no `create_sound_concurrency` / `NewObject<USoundConcurrency>` / `SoundConcurrencyFactory` anywhere in the handler tree — only the `set_cue_concurrency` reference-setter (`AudioAuthoringHandler.cpp:757`, `StaticLoadObject`s a pre-existing asset). Distinct from the OPEN silent-no-op setter bug `B-cue-setter-missing-asset-silent-success`. Intended scope: add `audio.authoring.create_sound_concurrency(name, path?, maxCount?, resolutionRule?, limitToOwner?, save?)` mirroring the DONE `create_sound_submix` / in-review `create_source_effect_preset` creators (direct `NewObject<USoundConcurrency>`, map the publicly-settable `FSoundConcurrencySettings` knobs, save + asset verification). `limitToOwner` added because it is a public field the ticket prose names and has no other RPC authoring path; `VolumeScale` (also named in the prose) intentionally excluded — private member with only a getter, no public setter. Adopting the reporter's red test `PinWright.Audio.SoundConcurrencyAuthoring` as the differential regression gate. Severity Medium / category feature unchanged.
 - `#1-initial-audit` `OPEN` reporter — Struggle-audit of the shared-manipulation-SFX concurrency task (focus `audio.authoring.set_cue_concurrency`). Capability gap distinct from the judge's silent-no-op ticket `B-cue-setter-missing-asset-silent-success`: no verb in ANY namespace creates a `USoundConcurrency`, though `set_cue_concurrency` requires one to pre-exist. Agent grepped the whole wiki (concurrency only appears as `set_cue_concurrency` + `play_sound`/`create_ambient` params), scanned index/misc, listed `asset.*`, and confirmed `search_assets classNames=SoundConcurrency` -> 0; forced a `python.execute` (`SoundConcurrencyFactory`, MaxCount=3, StopOldest) fallback to author `CG_ManipulationSFX`. Same "one creator verb short" family as the DONE `F-audio-submix-asset-authoring` and in-review `F-source-effect-preset-authoring`. Proposed: add `audio.authoring.create_sound_concurrency(name, path?, maxCount?, resolutionRule?, save?)` mirroring the other create_* audio verbs so the pickup/snap/scale shared-limit flow stays on real RPCs.
