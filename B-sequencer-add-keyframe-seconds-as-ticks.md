@@ -1,12 +1,14 @@
 ---
 id: B-sequencer-add-keyframe-seconds-as-ticks
 title: "sequencer.add_keyframe writes the key at a DisplayRate-frame tick instead of a TickResolution tick — the keyframe lands ~1000x too early in time, success reported"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: bug
 tags: [sequencer, add_keyframe, units, display-frames-as-ticks, bug]
 encounters: 1
 lastSeen: 2026-07-11T08:02:35Z
+claimedBy: fuzz2
+claimedAt: 2026-07-11T11:25:02.9473864+03:00
 ---
 
 # sequencer.add_keyframe writes the key at a DisplayRate-frame tick, not a TickResolution tick — the keyframe lands ~1000x too early
@@ -71,3 +73,11 @@ sibling ticket applies to the three `SetRange` section-authoring verbs.
   `sequence.add_keyframe` (`SequenceHandler.cpp`, which converts correctly via
   `SequenceHelpers::DisplayFrameToTick`) and from the response-shape / value-shape /
   section-expansion keyframe tickets (different root causes).
+- `#2-fix-in-review` `IN-REVIEW` developer — GO: confirmed the defect verbatim in
+  current source (`Handlers/Sequencer/SequencerHandler.cpp:150-154` converts seconds via
+  `DisplayRate.AsFrameTime(...).GetFrame()` and hands the DisplayRate frame straight to
+  `FMovieSceneFloatChannel::AddCubicKey`, ~1000x too early at defaults / ~800x at this
+  host's 30fps DisplayRate). Root-cause fix: convert seconds to tick-resolution frames via
+  the co-located `SequencerSectionHelpers::SecondsToTickFrame` helper (the same one the three
+  sibling `SetRange` verbs already use), keeping the conversion in one place. Adopting the
+  red test as the regression test.
