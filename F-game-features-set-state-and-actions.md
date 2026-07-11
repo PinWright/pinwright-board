@@ -5,6 +5,7 @@ status: OPEN
 severity: Medium
 category: feature
 tags: [game-features, plugins, lyra, parity-ue58]
+blockedBy: [F-game-features-live-fixture]
 ---
 
 # Game Feature plugins: set_state (drive lifecycle) + get_actions (action readback)
@@ -28,3 +29,4 @@ Optional-engine-module handler in the same file/namespace as `game_features.list
 
 ## History
 - `#1-split-from-list` `OPEN` developer — Split off from F-game-features-plugin-management (which shipped read-only `game_features.list`). set_state (async lifecycle mutation) + get_actions (action readback) both require a GameFeatures-enabled host with a live GF plugin to satisfy the differential regression gate; deferred here rather than shipping an unverifiable async path on the GF-disabled fuzz host.
+- `#2-defer-on-gf-fixture` `OPEN` developer — DEFER, `blockedBy: F-game-features-live-fixture` (a genuinely-absent test fixture, NOT the code-present parent). Empirically re-verified the testability premise against UE 5.7 source: engine ships zero `UGameFeatureData` assets, the project enables only PinWright, and `UGameFeaturesSubsystem::LoadBuiltInGameFeaturePlugin` short-circuits any plugin failing `IsValidGameFeaturePlugin` as "Not a GFP, trivial success" (`GameFeaturesSubsystem.cpp:2369`) — so `ForEachGameFeature` enumerates nothing and `game_features.list` returns empty on this host. Consequently `get_actions` (needs an Active plugin via `GetGameFeatureDataForActivePluginByURL`) and `set_state`'s async Registered->Active round-trip have no live plugin to exercise; only the synchronous error paths (unknown plugin -> NOT_FOUND, bad state -> INVALID_PARAMS) are reachable, which cannot prove the feature and would let a fake-success `set_state` stub pass the gate (agent-conventions.md:47/49). This REFUTES parent F-game-features-plugin-management note #3 ("this host actually loads engine built-in GF plugins, so the live plugins array is populated") — that claim is false; the test there asserts presence-only, so the parent's acceptance is unaffected, but its explanatory note was wrong. The premise + Prerequisite in this ticket body are accurate as written, so no reword is needed — this ticket is gated purely on the missing in-code GF plugin fixture. No code, no red test left in the tree.
