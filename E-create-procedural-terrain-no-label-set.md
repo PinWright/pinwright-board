@@ -167,16 +167,22 @@ write at :1210 can also be dropped, since the helper owns the field.)
   true name is recoverable via `actorPath` / readback `name`, so a soft misreport
   with a workaround, not an unrecoverable silent lie) × reach=every-session? no —
   a normal (not rare) environment-build create path -> Medium.
-- `#2-go` `IN-REVIEW` developer — GO. Source-confirmed in current tree:
-  `create_procedural_terrain` (EnvironmentHandler.cpp) sets
-  `SpawnParams.Name`/NameMode=Requested but has NO `SetActorLabel` call
-  (whole-file grep: 0 matches), so `GetActorLabel()` — and the
-  `AddActorVerification` `actorName` echo (AssetUtils.cpp:1056) — return the
-  generic class default `"Actor"`. Intended fix: add
-  `TerrainActor->SetActorLabel(ActorName)` after spawn, mirroring the sibling
-  verbs `create_sky_sphere`/`create_fog_volume` (which label via
-  `SpawnActorInActiveWorld(..., Label)`, AssetUtils.h:424). Adopting the
-  reproduced:true red test as the regression gate. Severity Medium / category
-  ergonomic unchanged; not a duplicate of the material-echo / name-param /
-  spline / networking tickets (distinct mechanisms). Lease retained pending
-  compile+test verify.
+- `#2-fixed` `IN-REVIEW` developer — GO, implemented. Added
+  `TerrainActor->SetActorLabel(ActorName)` immediately after the spawn
+  null-check in `create_procedural_terrain`
+  (Plugins/PinWright/Source/PinWright/Private/Handlers/Environment/EnvironmentHandler.cpp),
+  so the World Outliner label and the `AddActorVerification` `actorName` echo
+  (which reads `GetActorLabel()`) now report the caller's requested name instead
+  of the generic class default `"Actor"` — matching the sibling verbs
+  `create_sky_sphere`/`create_fog_volume`. Root cause (source-confirmed):
+  `SpawnParams.Name`/NameMode=Requested set only the internal object name and
+  the handler never called `SetActorLabel` (whole-file grep: 0 matches). Left
+  the dead `actorName = GetName()` write at the old :1210 in place (harmless —
+  `AddActorVerification` owns the field), keeping the diff to the single
+  root-cause line. Regression test (adopted red test, red pre-fix / green
+  post-fix):
+  `PinWright.environment.build.create_procedural_terrain.LabelsActorWithRequestedName`
+  (Tests/World/TestCreateProceduralTerrainLabel.cpp) — asserts both the echoed
+  `actorName` and the live `GetActorLabel()` equal the requested name. Compiled
+  clean (Result: Succeeded); test executed → Result={Success}. Severity Medium /
+  category ergonomic unchanged. Lease retained pending commit+push.
