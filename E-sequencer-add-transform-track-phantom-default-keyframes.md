@@ -1,7 +1,7 @@
 ---
 id: E-sequencer-add-transform-track-phantom-default-keyframes
 title: "sequencer.add_transform_track hardcodes hasDefaultKeyframes:true in its success payload, but the section it creates is a zero-length [0,0] range with keyCount:0 on every channel — the field is a hardcoded lie"
-status: OPEN
+status: IN-REVIEW
 severity: Medium
 category: ergonomic
 tags: [hardcoded-field, sequencer, add_transform_track, readback, transform-track, silent-wrong-data]
@@ -102,3 +102,20 @@ not every-session (bump DOWN) → Medium.
   / `E-variable-readback-instanceeditable-always-true` (different methods). Ask:
   make the field reflect the real key count (0), seed an actual default key, or drop
   the field.
+- `#2-fix` `IN-REVIEW` developer — Fixed via option (a): the payload now reflects the
+  section's real key state instead of a hardcoded lie. The `sequencer.add_transform_track`
+  handler in `SequencerHandler.cpp` (formerly `hasDefaultKeyframes:true` hardcoded at the
+  drifted line ~755) now computes the freshly created section's actual key count with a new
+  `MovieSceneJsonUtils::CountSectionKeys` helper — the same `GetAllEntries()/GetNumKeys()`
+  channel walk the `list_sections{includeKeys}` readback uses — and sets `keyCount` = that
+  count and `hasDefaultKeyframes` = `(count > 0)`. On a just-`CreateNewSection()`'d empty
+  section this yields `keyCount:0` / `hasDefaultKeyframes:false`, matching the `[0,0]` readback
+  the reporter saw; the field auto-corrects if key-seeding is ever added. Did NOT take option (b)
+  (auto-authoring an unrequested rest-pose key) — that is an out-of-scope behavior change. Files:
+  `Source/PinWright/Private/Handlers/Sequencer/SequencerHandler.cpp`,
+  `Source/PinWright/Private/Utils/MovieSceneJsonUtils.h` (new `CountSectionKeys` helper).
+  Regression test: `PinWright.Sequencer.AddTransformTrack.NoPhantomDefaultKeyframes`
+  (`Source/PinWright/Private/Tests/Sequencer/TestAddTransformTrackKeyframeReadback.cpp`) — drives
+  the real handler on an in-code transient sequence + bound possessable, independently re-reads the
+  created section, and asserts the response's `keyCount`/`hasDefaultKeyframes` echo the section's
+  real (zero) key state; reverting to the hardcoded `true` (or dropping the `keyCount` echo) fails it.
