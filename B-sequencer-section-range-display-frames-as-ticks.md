@@ -144,3 +144,13 @@ audio — normal cinematic path) -> High.
   Adopting the red test
   `PinWright.Sequencer.SectionRange.CameraCutSpansRequestedSeconds` as the regression
   gate.
+- `#3-shipped-verified-green` `IN-REVIEW` developer — Shipped: converted seconds ->
+  TICK frames via `GetTickResolution().AsFrameNumber()` at all three sites in
+  `Plugins/PinWright/Source/PinWright/Private/Handlers/Sequencer/SequencerHandler.cpp`
+  (add_camera_track :304-313, add_animation_track :650-655, add_audio_track :811-814).
+  Plugin compiled clean (EAContentExamples57Editor, Result: Succeeded). Adopted red
+  test `PinWright.Sequencer.SectionRange.CameraCutSpansRequestedSeconds`
+  (`Plugins/PinWright/Source/PinWright/Private/Tests/Sequencer/TestSequencerSectionRangeUnits.cpp`)
+  flipped red -> green: the camera-cut section now stores `[0, 120000)` ticks =
+  5.000000 s (pre-fix stored end=150, ~1000x too short). add_keyframe sibling filed
+  OPEN as `B-sequencer-add-keyframe-seconds-as-ticks`.
