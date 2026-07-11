@@ -5,8 +5,8 @@ status: OPEN
 severity: Low
 category: ergonomic
 tags: [performance, benchmark, docs, async, jobs, job_status, discoverability]
-encounters: 1
-lastSeen: 2026-06-23T10:08:23Z
+encounters: 2
+lastSeen: 2026-07-11T13:17:47+03:00
 ---
 
 # performance wiki overlay never documents the run_benchmark async ticket → system.job_status poll pattern
@@ -76,3 +76,4 @@ this ticket is the orthogonal *async-discoverability* angle.)
 
 ## History
 - `#1-initial-audit` `OPEN` reporter — Process-audit of a clean profiling-pass task (seed `performance.start_profiling`, 10 calls, all `ok=true`, no retries/crashes, outcome "ergo"). Friction note: "run_benchmark is async (returns a ticket), so I had to discover/poll system.job_status to ensure the 5s of load was actually recorded before stopping the capture." Verified `docs/wiki-src/performance.md` is a 3-line namespace intro (`grep -niE "async|ticket|poll|job_status|run_benchmark"` = no matches); the async ticket→`system.job_status` poll contract is undocumented in the performance overlay, so a profiling author must self-discover the poll — a silent correctness trap, since stopping the stat capture before the load window elapses records an idle `.uestats`. Direct performance-namespace analog of `E-pipeline-run-ubt-async-poll-undocumented` (distinct overlay page + handler); distinct from the DONE bug `B-performance-run-benchmark-no-completion-signal` (signal now exists but is undocumented). Ergonomic/docs, not an outcome bug — every call succeeded. Fix: document the async/ticket/poll contract on `docs/wiki-src/performance.md`, cross-link `system.job_status` and `F-long-running-tickets`.
+- `#2-liveness` `OPEN` reporter — Still observed on a clean level-health baseline task (seed `system.inspect.get_performance_stats`, outcome "clean"). CallAnalyzer + call-log ground truth: agent read the per-method wiki page `performance.run_benchmark.md` (body only "Start a performance benchmark" + duration/type params, no async hint), called `run_benchmark {duration:3}` expecting perf figures, got a job ticket instead, and had to make 3 unplanned follow-up ops (Glob `system.job_status.md`, Read it, then poll `system.job_status {ticket_id}` → completed, `result.statFilePath`=.uestats). Confirms the async/ticket→poll contract is undocumented not only on the namespace overlay `performance.md` but on the per-method `performance.run_benchmark.md` page too. Same root cause, no new fix — the overlay/per-method doc edit already proposed in #1 covers it.
