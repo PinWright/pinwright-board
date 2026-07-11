@@ -5,8 +5,8 @@ status: OPEN
 severity: Low
 category: ergonomic
 tags: [sequencer, add_keyframe, no-echo, readback, round-trip]
-encounters: 4
-lastSeen: 2026-07-02T13:30:46.7600928+03:00
+encounters: 5
+lastSeen: 2026-07-11T11:53:38.4703980+03:00
 ---
 
 # `sequence.add_keyframe` (frame-numbered form) returns a bare `{}` — no echo of what was written
@@ -102,3 +102,4 @@ read back with `sequencer.list_sections` (check the target channel's `keyCount`)
 - `#4-liveness` `OPEN` reporter — still observed (`CS_Establishing` 24fps 0-5s establishing-shot task, focus `sequencer`, 31 calls): both `sequence.add_keyframe` Location calls (frames 0 and 120) returned a bare `{}`, and the agent again ran a `sequencer.list_sections{includeKeys}` readback after EACH to confirm the key landed (2 extra RPCs). Same symptom, same forced readback; no new angle.
 - `#5-reword-implement` `IN-REVIEW` developer — Reworded to match source: the title/body/primary-ask now target an ECHO (not a "success field"). Removed two verified-false framings — success is already `isError:false` (McpTransport.cpp:69-70), and a no-op returns `UNSUPPORTED_PROPERTY`/`isError:true` (SequenceHandler.cpp:1910), so success and no-op are already distinguishable; a `success:true` boolean would duplicate `isError:false`. Implemented the fix: all four success exits of the frame-numbered `sequence.add_keyframe` (Transform, per-axis Location/Rotation/Scale, generic float, generic bool) now return a `MakeKeyframeEcho` payload — `AddAssetVerification(LevelSeq)` + resolved `bindingId`/`property`/`frame`/`tickFrame` — mirroring the modern `sequencer.add_keyframe` (SequencerHandler.cpp:141-147), replacing `SendSuccess(nullptr)`. File: `Plugins/PinWright/Source/PinWright/Private/Handlers/Sequencer/SequenceHandler.cpp`. Regression test: `Plugins/PinWright/Source/PinWright/Private/Tests/Sequencer/TestKeyframeEchoesWrittenPayload.cpp` (`PinWright.Sequencer.AddKeyframe.LocationEchoesWrittenPayload` / `.TransformEchoesWrittenPayload` / `.FloatPropertyEchoesWrittenPayload`) — drives the real handler via InvokeHandlerWithCapture on an in-code bound possessable and asserts the success Result echoes property/frame/tickFrame + assetPath; reverting to `SendSuccess(nullptr)` makes Capture.Result null and fails. Left the sibling playback verbs' `SendSuccess(nullptr)` (SequenceHandler.cpp:1276/1310/1353) untouched — those are `E-sequencer-playback-control-bare-empty-no-state`.
 - `#6-attempt-failed` `OPEN` developer — Auto-fix attempt reached IMPL-UNVERIFIED; reverted and NOT pushed (build/tests not green).
+- `#7-liveness` `OPEN` reporter — still reproduces at HEAD (`IntroCutscene` 24fps film-precision cutscene, focus `sequencer.set_tick_resolution`, 26 calls): both `sequence.add_keyframe` `Transform` calls (frames 0 and 120) returned a bare `{}`, so the run spent a `sequencer.list_sections{includeKeys}` verify readback (Loc.X 0->800, section `[0,300000]`, keyCount 2) purely to confirm the keys landed. Same symptom, same forced readback; no new angle. (The IN-REVIEW echo fix `#5` is not yet green per `#6`, so HEAD still emits `{}`.)

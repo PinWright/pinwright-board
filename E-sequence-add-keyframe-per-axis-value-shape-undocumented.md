@@ -5,8 +5,8 @@ status: OPEN
 severity: Low
 category: ergonomic
 tags: [docs, sequencer, add_keyframe, transform-track, value-shape]
-encounters: 4
-lastSeen: 2026-07-11T10:03:10.0692605+03:00
+encounters: 5
+lastSeen: 2026-07-11T11:53:38.4703980+03:00
 ---
 
 # `sequence.add_keyframe` value-object shape per property is undocumented — caller had to read plugin source
@@ -124,3 +124,4 @@ flat `{x,y,z}` (or `{roll,pitch,yaw}` for rotation).
   de-colliding the two registrations.
 - `#3-liveness` `OPEN` reporter — still observed (`CS_Establishing` 24fps 0-5s establishing-shot task, focus `sequencer`, 31 calls). To animate the moving actor's Location on a `MovieScene3DTransformTrack`, the run again had to abandon the modern seconds-based `sequencer.add_keyframe` (documented float-track-only) and fall back to the legacy frame-numbered `sequence.add_keyframe` with `property:"Location"` + a vector value (SAY: "the seconds-based add_keyframe is float-track-only, so I'll use the legacy frame-numbered sequence.add_keyframe writer with property: 'Location' and a vector value"). Same two-keyframe-APIs / two-time-bases juggling for the canonical "make the actor drift" operation; no new angle beyond `#2`'s de-collision proposal. (A candidate feature framing — extend the modern seconds-based `sequencer.add_keyframe` to accept transform/vector channels, or add a dedicated `sequencer.add_transform_keyframe` — is the constructive form of the same split; folded here rather than filed separately since the PROCESS cost is identical to `#2`.)
 - `#4-liveness` `OPEN` reporter — still observed (`IntroFlyby` 24fps 0-5s cinematic-flyby task, focus `sequencer.create`, 12 RPCs, zero errors). To key the camera's 5s transform sweep the run again abandoned the float-only modern `sequencer.add_keyframe` and fell back to the legacy frame-numbered `sequence.add_keyframe` with `property:"Transform"` + the nested `{location:{x,y,z}, rotation:{roll,pitch,yaw}}` value — value shape learned only by reading `SequenceHandler.cpp`. Same value-object-shape + method-name-collision + float-only-fallback friction as `#1`–`#3`; no new angle. (The task's separate section-attachment doubt — "do two keyframes land on one section vs split" — is a DISTINCT method/root-cause and was filed as `E-sequencer-add-transform-track-section-model-undocumented`, not folded here.)
+- `#5-liveness` `OPEN` reporter — still observed (`IntroCutscene` 24fps film-precision cutscene, focus `sequencer.set_tick_resolution`, 26 logged calls, zero errors). To key the camera dolly the run again abandoned the float-only `sequencer.add_keyframe` and fell back to the legacy frame-numbered `sequence.add_keyframe` with `property:"Transform"` + nested `value:{location:{x,y,z}}` (Location.X 0->800 over frames 0->120) — BOTH the method name (`sequence.` vs `sequencer.`) and the nested value shape were recovered only by a self-declared last-resort read of `SequenceHandler.cpp:1619`. Same method-name-collision + nested-value-shape + float-only-fallback friction as `#1`–`#4`; no new angle.
