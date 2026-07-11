@@ -1,7 +1,7 @@
 ---
 id: E-lighting-spawn-light-stationary-setter-noop
 title: "lighting.spawn_light spawns a Stationary light; movable-gated dynamic setters silently no-op with no mobility param or wiki warning"
-status: OPEN
+status: IN-REVIEW
 severity: Medium
 category: ergonomic
 tags: [movable-gated-setter-noop, docs, lighting, spawn_light, mobility]
@@ -82,3 +82,4 @@ common but not per-session path) -> Medium.
   (DONE — the call primitive itself; not the mobility/void-true discoverability).
   No existing `movable-gated-setter-noop` family sibling on the board. Docs target:
   `docs/wiki-src/lighting.md` (+ a `object.md` void:true caveat).
+- `#2-already-fixed` `IN-REVIEW` developer — Defect already absent from current source (pre-probe); flipped to IN-REVIEW for tester verification.
