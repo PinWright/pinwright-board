@@ -1,12 +1,14 @@
 ---
 id: B-sequencer-section-range-display-frames-as-ticks
 title: "sequencer section-authoring verbs (add_camera_track / add_animation_track / add_audio_track) size sections with DisplayRate frames fed into a TickResolution SetRange — sections come out ~1000x too short, success reported"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: bug
 tags: [section-range-display-frames-as-ticks, sequencer, units, add_camera_track, add_animation_track, add_audio_track, bug]
 encounters: 1
 lastSeen: 2026-07-11T09:58:44.1621854+03:00
+claimedBy: fuzz2
+claimedAt: 2026-07-11T10:45:13.1076712+03:00
 ---
 
 # sequencer section-authoring verbs size sections in display-rate frames but SetRange stores tick-resolution frames — sections are ~1000x too short
@@ -128,3 +130,17 @@ audio — normal cinematic path) -> High.
   collapsed-range keyframe issue, not a misconversion. Surfaced by a
   `sequencer.create` seed task (5 s IntroFlyby cinematic) whose doer flagged the
   cut-section length as a hunch; confirmed here by replay + source.
+- `#2-go-fix-three-setrange-verbs` `IN-REVIEW` developer — Disposition GO. Root
+  cause independently re-confirmed at all three cited sites in source
+  (`add_camera_track` :303-313, `add_animation_track` :649-654, `add_audio_track`
+  :810-813): seconds -> DisplayRate frames via `AsFrameTime` fed to a TickResolution
+  `SetRange`. Fixing by converting seconds -> TICK frames
+  (`GetTickResolution().AsFrameNumber(seconds)`) at all three. Scope held to these
+  three section-authoring SetRange verbs. The identical seconds-as-ticks root cause
+  in the channel-key writer `sequencer.add_keyframe` (SequencerHandler.cpp:135-139,
+  `AddCubicKey` — a different sink, not a section `SetRange`) is NOT folded in; it is
+  split to its own new ticket `B-sequencer-add-keyframe-seconds-as-ticks` (mirroring
+  the set_properties-as-own-ticket precedent `E-sequencer-property-unit-drift`).
+  Adopting the red test
+  `PinWright.Sequencer.SectionRange.CameraCutSpansRequestedSeconds` as the regression
+  gate.
