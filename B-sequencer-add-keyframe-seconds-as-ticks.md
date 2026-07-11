@@ -73,11 +73,14 @@ sibling ticket applies to the three `SetRange` section-authoring verbs.
   `sequence.add_keyframe` (`SequenceHandler.cpp`, which converts correctly via
   `SequenceHelpers::DisplayFrameToTick`) and from the response-shape / value-shape /
   section-expansion keyframe tickets (different root causes).
-- `#2-fix-in-review` `IN-REVIEW` developer — GO: confirmed the defect verbatim in
-  current source (`Handlers/Sequencer/SequencerHandler.cpp:150-154` converts seconds via
-  `DisplayRate.AsFrameTime(...).GetFrame()` and hands the DisplayRate frame straight to
-  `FMovieSceneFloatChannel::AddCubicKey`, ~1000x too early at defaults / ~800x at this
-  host's 30fps DisplayRate). Root-cause fix: convert seconds to tick-resolution frames via
-  the co-located `SequencerSectionHelpers::SecondsToTickFrame` helper (the same one the three
-  sibling `SetRange` verbs already use), keeping the conversion in one place. Adopting the
-  red test as the regression test.
+- `#2-fix-in-review` `IN-REVIEW` developer — GO. Fixed the seconds->DisplayRate-frames->tick
+  store in `sequencer.add_keyframe` (`Handlers/Sequencer/SequencerHandler.cpp:150-154`): the
+  three-line `DisplayRate.AsFrameTime(TimeSeconds).GetFrame()` conversion now calls the
+  co-located `SequencerSectionHelpers::SecondsToTickFrame(MovieScene, TimeSeconds)` helper
+  (`GetTickResolution().AsFrameNumber` — the same one the three sibling `SetRange` verbs
+  already use), so the cubic key lands at the requested seconds in tick resolution. Adopted
+  the reproduction test as the regression test:
+  `Tests/Sequencer/TestSequencerAddKeyframeSecondsAsTicks.cpp`
+  (`PinWright.Sequencer.AddKeyframe.SecondsStoredAsTickFrame`). Plugin compiled clean; the
+  adopted test was observed failing pre-fix (stored tick 150 / 0.006 s) and now passes
+  (stored tick 120000 / 5.000 s) — red->green differential confirmed.
