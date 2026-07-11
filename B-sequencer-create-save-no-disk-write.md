@@ -1,12 +1,14 @@
 ---
 id: B-sequencer-create-save-no-disk-write
 title: "sequencer.create save never writes the .uasset — McpSafeAssetSave only marks dirty, but existsAfter:true implies persistence (cold-load-confirmed LevelSequence loss)"
-status: OPEN
+status: IN-REVIEW
 severity: Critical
 category: bug
 tags: [sequencer, create, level-sequence, save, mcp-safe-asset-save, no-disk-write, cold-load, persistence, silent-failure, false-success]
 encounters: 1
 lastSeen: 2026-07-11T08:02:05.5151743+03:00
+claimedBy: fuzz2
+claimedAt: 2026-07-11T08:13:50.3505141+03:00
 ---
 
 # `sequencer.create` reports the LevelSequence created (existsAfter:true) but never writes the .uasset to disk
@@ -63,3 +65,4 @@ severity rationale: impact=corruption/silent-persistence-loss × reach=every-ses
 
 ## History
 - `#1-initial-repro` `OPEN` reporter — Cold-load-confirmed persistence loss on a cinematic-blockout task. `sequencer.create CIN_PoseBeat` reported `existsAfter:true`/`LevelSequence`, warm session read back 2 bindings + playback 0-120000 @ 30fps; a plain quit+relaunch (no baseline reset) then returned `[ASSET_NOT_FOUND]` from `editor.open_asset`/`asset.get`, `asset.exists=false`, no `.uasset` under `Content/`, and `editor.quit` had reported `dirtyCount=2`. Root cause verified in source: `SequenceHandler.cpp:335` `McpSafeAssetSave(NewObj)` + `:338` `AddAssetVerification` (registry existsAfter, not disk); `McpSafeAssetSave` (`AssetUtils.cpp:220-232`) only `MarkPackageDirty()`+`AssetCreated()`, never writes the package. Same root cause/code as the accepted `B-niagara-save-no-disk-write`/`B-metasound-create-save-no-disk-write`/`B-create-level-saved-true-no-umap` fixes, which each reroute their own create handler to the real-save helper but leave the sequencer create path untouched — no sequencer save ticket existed, so this fills the gap. Proposes routing the create save through `SaveAssetToDiskReportingPresence`, probing disk presence, and reporting `saved`/`pendingFlush` while leaving the shared corruption-sensitive `McpSafeAssetSave` alone.
+- `#2-fix` `IN-REVIEW` developer — GO. Verified valid against current source: `sequencer.create` routes its save through the mark-dirty-only `McpSafeAssetSave` while `AddAssetVerification` hardcodes `existsAfter:true` (disk-unverified), and a red test reproduces the no-disk-write. Rerouting the create-path save to the real-save helper `SaveAssetToDiskReportingPresence(bForce=true)` and reporting honest `saved`/`pendingFlush`, mirroring the accepted niagara/metasound/level create-save siblings; the corruption-sensitive shared `McpSafeAssetSave` (Blueprint/SCS callers) stays untouched. Severity Critical retained (cold-load-confirmed silent LevelSequence loss). Scope = the create path only, matching the ticket's proposed scope.
