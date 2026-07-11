@@ -1,12 +1,14 @@
 ---
 id: E-dialogue-context-default-not-reclaimed
 title: "audio.authoring.set_dialogue_context never reclaims the engine-seeded empty ContextMappings[0]: append-only, so contextCount is permanently off-by-one, the orphan empty context can't be removed, and no remove/clear verb exists"
-status: OPEN
+status: IN-REVIEW
 severity: Medium
 category: ergonomic
 tags: [audio, audio-authoring, dialogue, dialogue-wave, set-dialogue-context, orphan-default-context, append-only-orphan-seed, docs]
 encounters: 1
 lastSeen: 2026-07-11T11:04:29.2655287+03:00
+claimedBy: fuzz2
+claimedAt: 2026-07-11T11:54:00.8914787+03:00
 ---
 
 # `set_dialogue_context` never reclaims the engine-seeded empty context — contextCount is off-by-one with an unremovable orphan
@@ -117,4 +119,5 @@ via documented API; workaround = `property.set` rewrite or count-minus-one) x
 reach=first-class dialogue authoring family but not every-session -> Medium.
 
 ## History
+- `#2-triage` `IN-REVIEW` developer — GO. Defect confirmed live in current source (a red test reproduced the off-by-one: fresh wave `Num()==1`, one `set_dialogue_context` yields `contextCount:2`). Root cause re-verified against source: the non-replace path (`AudioAuthoringHandler.cpp` ~:2393) unconditionally `Wave->ContextMappings.Add(NewMapping)` and the replace path matches only by `Speaker`, so the null-speaker engine seed (`UDialogueWave` ctor `ContextMappings.Add(FDialogueContextMapping())`, `DialogueWave.cpp:527`) is never reclaimed. Fixing via the sanctioned reclaim-on-first-set idiom (mirror `E-create-struct-orphan-seed-field`'s `IsUntouchedSeedField` strict guard): reuse the pristine `ContextMappings[0]` on the first authored set instead of appending. Guard keyed on `Speaker==null && SoundWave==null && Targets empty-or-lone-null && LocalizationKeyFormat=="{ContextHash}"` — the seed's `FDialogueContext` ctor `Targets.AddZeroed()` (`DialogueTypes.cpp:23`) means the in-memory pristine target list is `[null]`, not `[]`. Not a duplicate (the co-located `B-dialogue-context-null-target-prepended` is a distinct stray-null-inside-Targets bug, left to its own ticket; E's fix does not depend on it). Scope split: the optional `remove_dialogue_context`/`clear_dialogue_contexts` verb is carved out to new ticket `F-audio-dialogue-remove-clear-context-verb` (net-new API surface, separate justification); the docs-floor alternative (Fix #2) is superseded by the reclaim, not shipped.
 - `#1-initial-audit` `OPEN` reporter — Struggle-audit of an `audio.authoring` two-character dialogue build (focus `audio.authoring.describe_dialogue_wave`, outcome `blocked_by_tool`; the stray-null-INSIDE-Targets defect is filed separately by the judge as `B-dialogue-context-null-target-prepended`, which explicitly scopes THIS off-by-one out). Distinct PROCESS angle: the engine-seeded empty `ContextMappings[0]` (`UDialogueWave` ctor `ContextMappings.Add()`, `DialogueWave.cpp:527`) is never reclaimed by the append-only `set_dialogue_context`, and `audio.authoring` has no `remove_dialogue_context`/`clear`/replace-all verb, so `contextCount` is permanently off-by-one (1 mapping -> 2, 2 -> 3) with an unremovable orphan `{speaker:"",targets:[]}` context and a clean round-trip is unreachable. Call-log: `DW_Reply` `contextCount:2` after one mapping, `DW_Greeting` `contextCount:3` after two; `describe_dialogue_wave` (focus, behaved correctly) surfaced the orphan on every wave; the agent had to read engine `DialogueWave.cpp:527` + plugin `AudioAuthoringHandler.cpp` `set_dialogue_context` and index-search `audio.authoring.md` (no remove verb found) to understand it. Same orphan-default-seed shape as `E-create-struct-orphan-seed-field` and `B-create-montage-duplicate-default-slot`. Fix: reclaim the pristine seeded `ContextMappings[0]` on the first `set_dialogue_context` (mirror the struct/montage reclaim idiom) and/or add a `remove_dialogue_context` verb; at minimum document the seeded empty context + off-by-one in `docs/wiki-src/audio.authoring.md` (`set_dialogue_context` / `create_dialogue_wave` sections).
