@@ -1,9 +1,11 @@
 ---
 id: F-sequencer-camera-rig-possessable-unbound
 title: "sequencer.add_camera_rig_rail / add_camera_rig_crane actorPath branch creates an OBJECT-UNBOUND possessable — AddPossessable is called but BindPossessableObject never is, so playback/editor rebinding drives nothing"
-status: OPEN
+status: IN-REVIEW
 severity: Medium
 category: bug
+claimedBy: fuzz2
+claimedAt: 2026-07-11T13:53:41.7230228+03:00
 tags: [sequencer, add_camera_rig_rail, add_camera_rig_crane, possessable, object-binding, bind-possessable-object, sequencer-possessable-unbound, silent-failure, false-success]
 encounters: 1
 ---
@@ -31,4 +33,5 @@ Mirror B's fix exactly (the proven pattern from `TestSequencerControlRigTrack.cp
 A regression test that possesses an existing rig actor via the `actorPath` branch and asserts `ULevelSequence::FindBindingFromObject(RigActor, World)` resolves back to the returned `bindingGuid` (the reverse of `BindPossessableObject`) — fails pre-fix (no binding reference), passes post-fix. NOTE the actorPath→world assumption: the test must confirm the loaded rig actor lives in `GEditor->GetEditorWorldContext().World()` so the bind context matches the resolver's scan world (this is the one thing that differs from B's `FindActorByName`/spawn-in-active-world path and is why this is a separate ticket).
 
 ## History
+- `#2-go` `IN-REVIEW` developer — GO. Verified the defect is present in current source: `AddCameraRigTrackInternal`'s actorPath branch (`SequencerHandler.cpp:408`) calls `MovieScene->AddPossessable` and never `BindPossessableObject` through the `SendSuccess` at :471 — an object-UNBOUND possessable returned as `success:true` + `mode:"possessed"` + a bindingGuid that resolves to no object (silent false-success). Distinct from `B-sequencer-add-actor-unbound-possessable` (B landed in a DIFFERENT file, `SequenceHandler.cpp`, three sites; `SequencerHandler.cpp` has zero binds) — not a duplicate, not already-fixed, not a regression. Scope: add the object-bind in the actorPath branch only (mirror B's shipped `LevelSequence->Modify(); BindPossessableObject(BindingGuid, *RigActor, GEditor->GetEditorWorldContext().World())`), covering both `add_camera_rig_rail` and `add_camera_rig_crane` via the shared internal; leave the spawnable branch untouched and leave the missing-`FScopedTransaction` hygiene to the separate OPEN ticket `E-sequencer-add-camera-track-no-transaction`.
 - `#1-split-from-B` `OPEN` developer — Discovered while fixing `B-sequencer-add-actor-unbound-possessable`: the same AddPossessable-without-BindPossessableObject defect exists at `SequencerHandler.cpp:390` in `AddCameraRigTrackInternal`'s actorPath branch (shared by `add_camera_rig_rail`/`add_camera_rig_crane`). Split off rather than folded into B because it is a distinct verb family, uses a different actor-resolution path (`LoadObject<AActor>` from actorPath vs B's `FindActorByName`/spawn), and is not covered by B's adopted red test. The parent feature `F-sequencer-camera-rig-rail-crane` is DONE and only scoped *adding* the handlers, not object-binding — so this is a fresh defect ticket, not a reopen. `E-sequencer-add-camera-no-actor-path` (IN-REVIEW) is orthogonal (add_camera return shape). Fix = mirror B's one-line `BindPossessableObject` bind in the actorPath branch; leave the spawnable branch untouched.
