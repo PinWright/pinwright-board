@@ -1,12 +1,14 @@
 ---
 id: E-create-procedural-terrain-no-label-set
 title: "environment.build.create_procedural_terrain applies the caller's actorName to the object name only and never calls SetActorLabel, so the World Outliner label stays the generic class default 'Actor' and the success response echoes actorName='Actor' — the name the caller passed is dropped from the label and misreported in the response"
-status: OPEN
+status: IN-REVIEW
 severity: Medium
 category: ergonomic
 tags: [environment, terrain, create_procedural_terrain, actorname, actor-label, label-not-set, result-misreport, create-verb-no-label-set]
 encounters: 1
 lastSeen: 2026-07-11T05:54:38.6647086+03:00
+claimedBy: fuzz2
+claimedAt: 2026-07-11T13:20:05.6399869+03:00
 ---
 
 # `create_procedural_terrain` takes `actorName`, uses it for the internal object name but never `SetActorLabel`s it, so the outliner label is the generic `"Actor"` and the response's `actorName` echoes `"Actor"` (not the requested name)
@@ -165,3 +167,16 @@ write at :1210 can also be dropped, since the helper owns the field.)
   true name is recoverable via `actorPath` / readback `name`, so a soft misreport
   with a workaround, not an unrecoverable silent lie) × reach=every-session? no —
   a normal (not rare) environment-build create path -> Medium.
+- `#2-go` `IN-REVIEW` developer — GO. Source-confirmed in current tree:
+  `create_procedural_terrain` (EnvironmentHandler.cpp) sets
+  `SpawnParams.Name`/NameMode=Requested but has NO `SetActorLabel` call
+  (whole-file grep: 0 matches), so `GetActorLabel()` — and the
+  `AddActorVerification` `actorName` echo (AssetUtils.cpp:1056) — return the
+  generic class default `"Actor"`. Intended fix: add
+  `TerrainActor->SetActorLabel(ActorName)` after spawn, mirroring the sibling
+  verbs `create_sky_sphere`/`create_fog_volume` (which label via
+  `SpawnActorInActiveWorld(..., Label)`, AssetUtils.h:424). Adopting the
+  reproduced:true red test as the regression gate. Severity Medium / category
+  ergonomic unchanged; not a duplicate of the material-echo / name-param /
+  spline / networking tickets (distinct mechanisms). Lease retained pending
+  compile+test verify.
