@@ -1,12 +1,14 @@
 ---
 id: E-sequencer-add-remove-actors-name-label-mismatch
 title: "sequencer binding verbs split the actor-identity domain: add_actors/add_actor accept the internal object NAME (FindActorByName) but store + report + match bindings by the display LABEL, so get_bindings/remove_actors reject the very name string add_actors just accepted with 'Actor not found in sequence bindings'"
-status: OPEN
+status: IN-REVIEW
 severity: Medium
 category: ergonomic
 tags: [sequencer, add_actors, add_actor, remove_actors, get_bindings, actorname, internal-name, display-label, cross-method-consistency, name-label-mismatch]
 encounters: 1
 lastSeen: 2026-07-11T05:25:51.6633990+03:00
+claimedBy: fuzz2
+claimedAt: 2026-07-11T14:23:44.5921829+03:00
 ---
 
 # The sequencer binding family accepts the internal actor NAME on the add side but only the display LABEL on the read/remove side — the identical argument that binds an actor cannot unbind it
@@ -110,4 +112,5 @@ name-keyed.
 severity rationale: impact=blocker-with-workaround (add -> remove round-trip with the identical argument silently no-ops at bindingsProcessed:0; recovery needs an extra get_bindings read to learn the labels) x reach=common (sequencer cast setup/trim is a normal cinematics workflow) -> Medium
 
 ## History
+- `#2-go-fix-remove-actors-name-label` `IN-REVIEW` developer — GO. Confirmed present at HEAD: `sequencer.add_actors` resolves each `actorNames` entry via `FindActorByName` (matches internal name OR label OR path, `SequenceHandler.cpp:922`) and stores the binding under `GetActorLabel()` (`:936-937`), but `remove_actors` matched each entry only against the stored binding name = that label (`:1134`), so an actor bound by its internal name could never be unbound by the same string. All four lenses vote valid and the red test reproduced it. Decision: route `remove_actors`' per-entry matching through the SAME name-or-label resolver `add_actors` uses — additive (keep the direct label compare as a fallback so spawnable and orphaned/renamed-actor bindings still remove by their stored name), mirroring the accepted `focus_actor`/networking cross-method-consistency precedent. Intended scope: `remove_actors` matching only (plus an actionable error message); `get_bindings`/`add_camera` store/report the label by design and have no broken round-trip, so they are not modified — no scope dropped. Severity Medium / category ergonomic unchanged.
 - `#1-initial-repro` `OPEN` reporter — Replay-confirmed live at HEAD (SEED-mode `sequencer.remove_actors` cinematic blockout task). `add_actors(["BP_Gears_146","StaticMeshActor_1"])` succeeded resolving the internal names, `get_bindings` returned those bindings under the LABELS `BP_Gears`/`UELogo`, `remove_actors` with the same name strings returned per-item `success:false "Actor not found in sequence bindings"` + `bindingsProcessed:0`, and only `remove_actors(["BP_Gears","UELogo"])` (the labels) removed them. Root cause: `add_actors`/`add_actor` resolve by `FindActorByName` but `AddPossessable(GetActorLabel(),...)` (`SequenceHandler.cpp:879,893-894`), while `remove_actors` matches `Possessable->GetName()` = the stored label (`:1074-1082`) and `get_bindings` reports the same label (`:1166-1173`) — the add side is name-keyed, the read/remove side label-keyed, docs identical for both. Dedup: ripgrep OPEN+closed (qmd unavailable) — no existing ticket covers the sequencer binding name/label split; distinct from the focus_actor/networking/find_by_tag name-label tickets (different namespaces + resolution rules) and from the other sequencer tickets (add_camera path, binding convert, evaluate readback). New symptom-family within sequencer: the label-keyed binding namespace vs the name-keyed add verbs.
