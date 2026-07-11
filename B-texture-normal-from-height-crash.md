@@ -1,12 +1,12 @@
 ---
 id: B-texture-normal-from-height-crash
-title: "texture.create_normal_from_height crashes the editor (null deref of unchecked LockReadOnly mip pointer)"
+title: "texture pixel-op verbs crash the editor reading a compressed/GPU-only platform mip via unchecked LockReadOnly (create_normal_from_height fixed; desaturate/invert/resize/channel_pack/combine_textures/adjust_curves/channel_extract still affected)"
 status: IN-REVIEW
 severity: Critical
 category: bug
-tags: [texture, crash, null-deref, normal-map, bulkdata, lockreadonly]
-encounters: 2
-lastSeen: 2026-07-01T09:04:47.4423899+03:00
+tags: [texture, crash, null-deref, normal-map, bulkdata, lockreadonly, desaturate, invert, pixel-ops, platform-mip, memcpy-overread]
+encounters: 3
+lastSeen: 2026-07-11T06:23:27.0805929+03:00
 ---
 
 # texture.create_normal_from_height null-derefs a freshly-built source mip and crashes the editor
@@ -125,7 +125,70 @@ A robust implementation should read from `Source` (the editor `FTextureSource`,
 which is always uncompressed and CPU-resident) rather than the built platform mip,
 and respect the actual source format instead of assuming 8-bit BGRA.
 
+## Additional affected sites — the platform-mip pixel-op family (fix #3 covered only `create_normal_from_height`)
+
+The `#3-source-read-fix` rewrote **only** `create_normal_from_height` to read from
+the editor `FTextureSource`. The identical crash idiom — read the built platform mip
+`SourceTexture->GetPlatformData()->Mips[0].BulkData.LockReadOnly()` and treat it as a
+raw `FColor`/BGRA8 buffer of `Width*Height*4` bytes — is still live in a whole family
+of sibling texture pixel-op verbs in the same file (`TextureHandler.cpp`), all UNFIXED.
+
+**Hard-crash siblings** — the `LockReadOnly()` result is NOT null-checked and is then
+dereferenced by `FMemory::Memcpy(MipData, SrcData, Width*Height*4)`:
+
+```cpp
+// desaturate, inPlace:false — TextureHandler.cpp:1728-1730 (this iteration's crash)
+FTexture2DMipMap& SrcMip = SourceTexture->GetPlatformData()->Mips[0];
+const uint8* SrcData = static_cast<const uint8*>(SrcMip.BulkData.LockReadOnly());
+FMemory::Memcpy(MipData, SrcData, Width * Height * 4);   // no null check -> deref/over-read
+
+// invert, inPlace:false — TextureHandler.cpp:1614-1616 (byte-identical idiom)
+FTexture2DMipMap& SrcMip = SourceTexture->GetPlatformData()->Mips[0];
+const uint8* SrcData = static_cast<const uint8*>(SrcMip.BulkData.LockReadOnly());
+FMemory::Memcpy(MipData, SrcData, Width * Height * 4);   // no null check -> same crash
+```
+
+**Same-idiom siblings** — they read the platform mip and assume a raw `FColor`/BGRA8
+layout of `Width*Height` pixels; for a compressed source the pointer is either null or
+points at a much smaller compressed buffer, so they null-deref or over-read it:
+
+- `texture.resize_texture` — `:1430-1435` (does null-check the pointer, but still reads `Width*Height` `FColor`s out of a possibly-DXT buffer)
+- `texture.channel_pack` — `:2066-2067`
+- `texture.combine_textures` — `:2140-2143`
+- `texture.adjust_curves` — `:2359-2360`
+- `texture.channel_extract` — `:2420-2421`
+
+All need the same fix #3 applied to `create_normal_from_height`: read from
+`SourceTexture->Source.LockMipReadOnly(0)` (the editor source, always CPU-resident and
+uncompressed), guard the source format, and decode per format — never
+`GetPlatformData()->Mips[0].BulkData`.
+
+### Replay repro — `texture.desaturate` (this iteration)
+
+Task: create a saved desaturated sibling copy of
+`/Game/ExampleContent/Blueprints/T_Cupcake` (a real imported 256x256 DXT1 texture).
+One warm `texture.get_pixel_stats` read on `T_Cupcake` succeeded (r=172.5 g=148.5
+b=133.3), then:
+
+`texture.desaturate {assetPath:/Game/ExampleContent/Blueprints/T_Cupcake, amount:1, inPlace:false, name:T_Cupcake_Gray, path:/Game/ExampleContent/Blueprints, save:true}`
+-> connection reset `[WinError 10054]` mid-call, editor process gone; every subsequent
+call refused (connection refused). Re-issued the exact same call against a freshly
+cold-restarted editor (oracle replay) and it reproduced identically: `[WinError 10054]`
+then connection refused. `T_Cupcake` is DXT1-compressed, so its built platform mip
+(`Mips[0].BulkData`) is GPU-only/compressed; `LockReadOnly()` returns null (or a ~32 KB
+DXT buffer) and `FMemory::Memcpy(MipData, SrcData, 256*256*4 = 262144)` at `:1730` reads
+from null / over-reads the compressed buffer -> `EXCEPTION_ACCESS_VIOLATION`. The
+in-place path (`inPlace:true`, the default) does NOT hit this — it mutates
+`TargetTexture->Source.LockMip(0)` — so only the sibling-copy path crashes.
+
+The reported cold-load "load_failed" on `T_Cupcake_Gray` (no `.uasset` on disk) is a
+**downstream effect of this crash, not a separate persistence-loss bug**: the
+create/save call crashed before `McpSafeAssetSave` ran, so the sibling copy was never
+written. Sibling `T_Cupcake.uasset` is intact and cold-opens cleanly (256x256 DXT1,
+IsSourceValid=True), confirming the folder and original are fine.
+
 ## History
 - `#1-initial-repro` `OPEN` reporter — Editor crashed during the attempt's `texture.create_normal_from_height {sourceTexture:/Game/Textures/Panel/T_Panel_Height, name:T_Panel_Normal, algorithm:Sobel}` call (the crash IS the repro; no MCP replay possible — editor was down and a 30s-backoff canary `call()` stayed refused). Crash dump `UECC-Windows-BC8389E54D7D589AFF91F9A00F49EF66_0000` shows `EXCEPTION_ACCESS_VIOLATION reading address 0x0` at `ExecuteTextureAction` TextureHandler.cpp:725, dereferencing `HeightPixels` from an unchecked `HeightMip.BulkData.LockReadOnly()` (line 720) that returned null for the freshly-built `TFO_AutoDXT` source mip. Source confirmed verbatim under Plugins/PinWright/Source. No prior board ticket covers this crash (the only adjacent texture ticket, B-texture-create-placeholder-fake-success, is a different fake-success bug in create_texture_array/cube/volume).
 - `#2-additional-gradient-source` `OPEN` reporter — Additional evidence (broader scope): reproduced again at HEAD with the source built via a DIFFERENT verb — `texture.create_gradient_texture {name: T_Rock_HeightGradient, Linear 90deg black->white, 1024x1024}` (prior repro used `create_pattern_texture`), then `texture.create_normal_from_height {src: T_Rock_HeightGradient, name: T_Rock_Normal, algorithm: Sobel, strength: 1.5}` → connection reset (`[WinError 10054]`) mid-call, editor gone, two confirm probes refused (`[WinError 10061]`); 20s+10s backoff canary `call()` stayed refused (editor did not recover). This confirms the crash is not specific to a compressed pattern mip — ANY freshly-built source (gradient too, `TFO_AutoDXT` per editor log `Building textures: /Game/Textures/StylizedRock/T_Rock_HeightGradient (TFO_AutoDXT, 1024x1024 ...)`) whose `LockReadOnly()` returns null triggers the same unchecked deref. Fresh crash dump `UECC-Windows-25B6507741A44A873776C89670D35E94_0000`: `Unhandled Exception: EXCEPTION_ACCESS_VIOLATION reading address 0x0000000000000000` at `ExecuteTextureAction` TextureHandler.cpp:725 → `RunTextureAction` :2693 → `AutoHandler_310_` :2766 (line numbers drifted slightly from the #1 dump but the crash site TextureHandler.cpp:725 is identical). Four prior creates in the same attempt (noise/gradient/pattern/radial-gradient) all succeeded; only create_normal_from_height crashed. Attempt friction: "texture.create_normal_from_height reproducibly took the editor down (WinError 10054 then 10061 on two confirm probes) right after four clean creates — a real robustness bug, not a discoverability issue."
 - `#3-source-read-fix` `IN-REVIEW` developer — Root-cause fix: read the height pixels from the editor `FTextureSource` (always CPU-resident and uncompressed) instead of the built platform mip. In `Plugins/PinWright/Source/PinWright/Private/Handlers/Material/TextureHandler.cpp` (`create_normal_from_height` branch) replaced the unchecked `GetPlatformData()->Mips[0].BulkData.LockReadOnly()` deref (former crash site) with: a `Source.IsValid()` + source-format guard (accepts `TSF_BGRA8`/`TSF_G8`, else a clean error instead of misreading compressed/float bytes), `Source`-derived Width/Height, `Source.LockMipReadOnly(0)` with a null-check, and per-format (BGRA8/G8) channel decode; unlock via `Source.UnlockMip(0)`. This removes every `GetPlatformData()` dereference from the branch, so the null/GPU-only platform mip that crashed the editor is no longer reachable, and the normal map is now built from the true source pixels. Regression test added: `PinWright.texture.create_normal_from_height.ReadsFromEditorSource` (`Plugins/PinWright/Source/PinWright/Private/Tests/Assets/TestCreateNormalFromHeightSourceRead.cpp`) — builds an in-code source whose editor `Source` carries a horizontal gradient while its platform mip is left resident-but-flat, drives the production handler via `InvokeHandlerWithCapture`, and asserts the output normal map's X (R) channel varies widely; reverting to the platform-mip read collapses the output to flat (spread 0) and fails the assertion without crashing the suite. Not compiled/tested here (later phase).
+- `#4-additional-desaturate-family` `IN-REVIEW` reporter — Additional evidence (SAME crash family, DISTINCT un-fixed sites): the #3 fix rewrote only `create_normal_from_height`; the identical platform-mip idiom still crashes in the sibling pixel-op verbs. REPLAY-CONFIRMED `texture.desaturate` (inPlace:false) on a real DXT1 texture (`/Game/ExampleContent/Blueprints/T_Cupcake`, 256x256 DXT1): a warm `texture.get_pixel_stats` read succeeded (r=172.5 g=148.5 b=133.3), then `texture.desaturate {inPlace:false, name:T_Cupcake_Gray, save:true}` -> `[WinError 10054]` connection reset mid-call, editor gone, subsequent calls refused; re-issued the exact call against a cold-restarted editor and it crashed identically (WinError 10054 then connection refused). Root cause `TextureHandler.cpp:1728-1730` — reads `SourceTexture->GetPlatformData()->Mips[0].BulkData.LockReadOnly()` with no null check and `FMemory::Memcpy(MipData, SrcData, Width*Height*4)` derefs it; for a DXT1 source the platform mip is GPU-only/compressed so LockReadOnly returns null / a smaller buffer -> access violation. `texture.invert` (inPlace:false, `:1614-1616`) has the byte-identical unchecked idiom; `resize_texture` (`:1430`, null-checked but assumes raw FColor over a DXT buffer), `channel_pack` (`:2066`), `combine_textures` (`:2140-2143`), `adjust_curves` (`:2359`), `channel_extract` (`:2420`) share the same platform-mip read and need the same Source-based fix. The cold-load "load_failed" on `T_Cupcake_Gray` (no `.uasset` on disk) is this crash's downstream effect (the create/save crashed before `McpSafeAssetSave`), NOT a separate persistence-loss bug — sibling `T_Cupcake.uasset` is intact and cold-opens fine. So fix #3's scope is incomplete: apply the Source-read fix to the whole desaturate/invert/resize/channel_pack/combine_textures/adjust_curves/channel_extract family.
