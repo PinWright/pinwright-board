@@ -1,12 +1,14 @@
 ---
 id: B-configure-sprint-speed-var-unset
 title: "character.configure_sprint creates a SprintSpeed blueprint variable but never writes the passed sprintSpeed to it — the variable's default stays 0"
-status: OPEN
+status: IN-REVIEW
 severity: Medium
 category: bug
 tags: [character, configure-sprint, sprint-speed, state-var-default-unset, silent-wrong-data, blueprint]
 encounters: 1
 lastSeen: 2026-07-11T08:55:56.1616498+03:00
+claimedBy: fuzz2
+claimedAt: 2026-07-11T21:12:19.0203566+03:00
 ---
 
 # `character.configure_sprint` creates a `SprintSpeed` variable but leaves its default at 0
@@ -81,4 +83,5 @@ severity rationale: impact=silent wrong data on a created variable (SprintSpeed=
 5. Control (proves the value DID land elsewhere): `character.get_character_info {blueprintPath:"/Game/OracleReplay/BP_OracleSprintReplay"}` → `{..."customMovementSpeed":900,...}` — `MaxCustomMovementSpeed` is 900, so `sprintSpeed` was applied to the CDO's custom-movement speed but not to the `SprintSpeed` variable it created.
 
 ## History
+- `#2-triage` `IN-REVIEW` developer — GO (severity Medium unchanged). Verified against synced source: `configure_sprint` (`CharacterHandler.cpp:1244`) creates the `SprintSpeed` float var but writes the speed only to the CDO's `MaxCustomMovementSpeed` (`:1252`) — no `SetBPVarDefaultValue`, and the shared `AddBlueprintVariableChar` helper (`:247`) seeds no default — so the var keeps its float-zero default. Siblings `add_custom_movement_mode` (`:707-708`) and `configure_footstep_fx` (`:879-880`) already persist their value-var defaults; `configure_sprint` alone omits it. Fixing by adding the missing `SetBPVarDefaultValue(Blueprint, TEXT("SprintSpeed"), FString::SanitizeFloat(...))`; adopting the reporter's red test `PinWright.character.configure_sprint.SprintSpeedDefaultPersisted` as the regression gate. Implementation + compile/test verification to follow.
 - `#1-initial-repro` `OPEN` reporter — Replay-confirmed live against `mcp__pinwright__call` on a fresh `/Game/OracleReplay/BP_OracleSprintReplay` (parent Character). `configure_sprint {sprintSpeed:900}` returned success echoing `sprintSpeed:900`; after `blueprint.compile` (UpToDate, 0 errors) `blueprint.get` read `defaults.SprintSpeed:0` while `get_character_info` read `customMovementSpeed:900` — the passed speed lands on `MaxCustomMovementSpeed` but the created `SprintSpeed` variable keeps its zero default. Source (`CharacterHandler.cpp` L1219-1263) confirms the handler creates `SprintSpeed` at L1244 but never calls `SetBPVarDefaultValue` on it, unlike its sibling `add_custom_movement_mode` (L705-708) which populates its `<Mode>Speed` variable. Not a dup of `B-add-variable-default-value-ignored` (generic `blueprint.add_variable` `defaultValue` param, different method) nor `B-configure-chest-properties-no-cdo-writeback` (those verbs write NOTHING to the CDO; here the CDO write to `MaxCustomMovementSpeed` succeeds and only the created variable's default is dropped). Filed as a silent-wrong-data bug confined to `configure_sprint`.
