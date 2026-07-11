@@ -1,128 +1,127 @@
 ---
 id: B-agir-cached-pose-forward-ref-corruption
-title: "anim.compile_agir saves an uncompilable AnimBlueprint: use_cached_pose forward reference leaves SaveCachedPoseNode null, the 'EarlyValidation will fix up' claim is false, and no save-time gate blocks it"
-status: OPEN
-severity: Critical
+title: "anim.compile_agir leaves use_cached_pose SaveCachedPoseNode unresolved on a forward reference (use-before-save): a lossy AGIR round-trip + violated compile-time linkage invariant — NOT cold-load asset corruption (engine EarlyValidation self-heals the persisted asset)"
+status: IN-REVIEW
+severity: Medium
 category: bug
-tags: [agir, animgraph, cached-pose, forward-ref, compile-agir, integrity-gate, cold-load, corrupt-asset]
+tags: [agir, animgraph, cached-pose, forward-ref, compile-agir, roundtrip]
 encounters: 1
 lastSeen: 2026-07-11T04:52:35.3332310+03:00
+claimedBy: fuzz2
+claimedAt: 2026-07-11T05:22:26.5096351+03:00
 ---
 
-# `anim.compile_agir` persists a structurally-broken AnimBlueprint on a cached-pose forward reference
+# `anim.compile_agir` leaves a `use_cached_pose` unresolved on a cached-pose forward reference
 
-Compiling AGIR text into an AnimBlueprint whose `output` consumes a
-`use_cached_pose` **before** the matching `save_cached_pose` appears in the
-text (a forward reference — the normal emission order for a locomotion
-AnimBP, whose AnimGraph output line precedes the cache-body block) does the
-following:
+Compiling AGIR text in which the AnimGraph `output` consumes a `use_cached_pose`
+**before** the matching `save_cached_pose` appears in the text (a forward
+reference — the normal emission order for a locomotion AnimBP, whose AnimGraph
+output line precedes the cache-body block) leaves the `use_cached_pose` node's
+`SaveCachedPoseNode` weak pointer **null at AGIR compile time**, emitting only a
+non-fatal `AGIR_CACHED_POSE_FORWARD_REF` warning.
 
-1. `anim.compile_agir` emits a non-fatal warning
-   `AGIR_CACHED_POSE_FORWARD_REF: use_cached_pose source='Locomotion' did not
-   resolve at compile time; engine EarlyValidation will fix up on AnimBP
-   compile` (x2) and returns success.
-2. The `use_cached_pose` node is created with its `SaveCachedPoseNode` weak
-   pointer left **null** — the linkage is never established.
-3. `asset.save` persists the AnimBlueprint. **No save-time integrity gate**
-   walks the AnimGraph to reject a dangling `use_cached_pose` before write.
-4. On a **cold editor restart**, opening the asset succeeds but
-   `blueprint.compile` FAILS with structural corruption:
-   `Use cached pose 'Locomotion' does not have an associated Save Cached Pose
-   node` (x2), `compiled:false`, `status:"Error"`.
+Two observable consequences, both proven by a red test on current source:
 
-So the "benign / EarlyValidation will fix up" reassurance is **false**: the
-engine's EarlyValidation does NOT re-resolve the linkage on cold load, and the
-tool has already reported success and saved. This is save-time asset
-corruption the integrity gate let through — the exact class the widget/BP
-corruption work (`B-bp-saved-state-corruption-mcp-edits`) hardens against, but
-for a completely different asset type (AnimBlueprint), code path (AGIR
-cached-pose compile), and root cause (unresolved `SaveCachedPoseNode` weak
-ptr), so it is not covered by that ticket's Blueprint-graph / widget-tree
-gates.
+1. **Violated compile-time linkage invariant.** The plugin's own contract — the
+   one the sibling `PinWright.AGIR.CachedPose.RoundTrip` test asserts for the
+   backward-reference (save-before-use) ordering — is that `SaveCachedPoseNode`
+   resolves *at AGIR compile time*, before any AnimBP compile. On the
+   forward-reference ordering that resolution silently does not happen, so the
+   compiler's behavior is **order-dependent**.
+2. **Lossy warm AGIR round-trip.** `AGIRTextEmitter` derives the decompiled
+   `use_cached_pose source=` label from `SaveCachedPoseNode->CacheName`
+   (`AGIRTextEmitter.cpp:677-681`), so a re-decompile immediately after a
+   forward-ref compile drops the cache name (`Locomotion`) to an **empty**
+   label. The AGIR round-trip (`decompile_agir` -> `compile_agir` ->
+   `decompile_agir`) — a core PinWright capability — is not faithful for the
+   canonical cached-pose-fronted (locomotion) shape.
+
+## What this is NOT (corrected from the original report)
+
+The original report (`#1-initial-repro`) framed this as **Critical save-time
+asset corruption**: that `anim.compile_agir` reports success + `asset.save`
+persists an AnimBlueprint that then FAILS `blueprint.compile` on a cold editor
+restart, and that the code comment "engine EarlyValidation will fix up" is a
+**false premise**. Engine source refutes that framing:
+
+- `Engine/Source/Editor/AnimGraph/Private/AnimGraphNode_UseCachedPose.cpp::EarlyValidation`
+  (lines 28-76) re-resolves `SaveCachedPoseNode` from the node's serialized
+  `NameOfCache` on **every** compile: when the weak ptr is null/unlinked and
+  `!NameOfCache.IsEmpty()`, it walks `GraphBlueprint->GetAllGraphs()` and sets
+  `SaveCachedPoseNode` to the `UAnimGraphNode_SaveCachedPose` whose
+  `CacheName == NameOfCache`. `OnProcessDuringCompilation` then links via that
+  re-resolved node.
+- Both inputs to that recovery are serialized and PinWright writes both:
+  `NameOfCache` is a serialized `UPROPERTY()` (`AnimGraphNode_UseCachedPose.h:47-48`)
+  written reflectively at `AGIRCompiler_CachedPose.cpp:170` on every use node;
+  the save side's `CacheName` is a serialized `UPROPERTY(EditAnywhere)` set at
+  `AGIRCompiler_CachedPose.cpp:86`.
+- So the persisted asset **self-heals** on the next AnimBP compile (including the
+  cold-load compile). The comment at `AGIRCompiler_CachedPose.cpp:164-169` is
+  substantially **correct**, not a false premise.
+- The reporter's own cold-load error string — `Use cached pose 'Locomotion'
+  does not have an associated Save Cached Pose node` — actually **proves**
+  `NameOfCache` persisted non-empty (the `@@`/title renders from `NameOfCache`
+  via `GetNodeTitle`), which means EarlyValidation's refresh loop **did** run. A
+  genuine cold-load compile failure could then only occur if **no**
+  `save_cached_pose` with a matching `CacheName` was persisted at all — a
+  save-side / decompile-transfer defect (a missing or mis-named save node, cf.
+  `B-agir-state-machine-output-pose-unbound`), which is a **different** defect
+  from the use-node null weak ptr this ticket is about, is **not** reproduced by
+  the red test, and would have to be re-filed with that real root cause if ever
+  reproduced on a truly fresh editor.
+
+Net: no persistent asset corruption is substantiated. The real, reproducible
+defect is the compile-time-invariant + warm-round-trip-fidelity gap above.
+Severity downgraded Critical -> Medium accordingly (real, broad-reach
+round-trip fidelity defect in a core capability, but self-healing and non-
+corrupting).
 
 ## Root cause (source-confirmed)
 
-- Compile side (the defect) —
-  `Plugins/PinWright/Source/PinWright/Private/AGIR/AGIRCompiler_CachedPose.cpp`,
-  `CompileUseCachedPoseInstruction`. When the cache name is not yet in
-  `CacheNameMap` (forward ref), it takes the else branch and only warns,
-  leaving `SaveCachedPoseNode` null:
+`Plugins/PinWright/Source/PinWright/Private/AGIR/AGIRCompiler_CachedPose.cpp`,
+`CompileUseCachedPoseInstruction`. The block-scoped cache-name table is consumed
+in the **same single pass** that fills it (`AGIRCompiler.cpp:981-1004`
+`CompileBlockIntoGraph`: "Pass-1 save handlers populate it, Pass-1 use handlers
+consume it"), so a `use_cached_pose` emitted before its `save_cached_pose`
+resolves against an incomplete map and takes the else branch that only warns
+and leaves `SaveCachedPoseNode` null (the link is set only in the found branch,
+line 179). Pose-pin wires already defer to a post-loop Pass-2
+(`PendingWires`/`ResolvePendingPoseWires`, `AGIRCompiler.cpp:1006`), but the
+cache-name->SaveCachedPoseNode linkage is not deferred.
 
-  Lines 177-186 (verbatim):
-  ```
-      if (UAnimGraphNode_SaveCachedPose* const* SavePtr = CacheNameMap.Find(CacheName))
-      {
-          UseNode->SaveCachedPoseNode = *SavePtr;
-      }
-      else
-      {
-          OutWarnings.Add(FString::Printf(
-              TEXT("AGIR_CACHED_POSE_FORWARD_REF: use_cached_pose source='%s' did not resolve at compile time; engine EarlyValidation will fix up on AnimBP compile (line %d)"),
-              *CacheName, Inst.SourceLine));
-      }
-  ```
+## What it should do — Fix (adopted)
 
-  The false premise is stated in the comment at lines 164-169: "The engine's
-  EarlyValidation re-resolves SaveCachedPoseNode from this name on next AnimBP
-  compile, so leaving the weak ptr null when the save node hasn't been seen yet
-  is recoverable." The cold-load `compile_failed` refutes this for the standard
-  Mannequin locomotion topology.
+**Deferred (two-pass) cache-linkage resolution**, mirroring the in-file
+`PendingWires`/`ResolvePendingPoseWires` pattern and the fix sketch recorded on
+`F-agir-cliff-completion` #6 (Pass 1 creates Save nodes; Pass 2 resolves Use
+nodes): queue each `use_cached_pose`'s cache-name resolution during the
+instruction loop and resolve it against the **completed** `CacheNameMap` after
+every instruction in the block has compiled. This makes `SaveCachedPoseNode`
+resolution order-independent and restores a faithful warm round-trip. A genuinely
+dangling use (no `save_cached_pose` with that name anywhere in the block) stays a
+non-fatal warning (the compile still succeeds; the engine self-heals cross-graph
+or the AnimBP compile legitimately reports the missing save).
 
-- Confirming symptom — the decompiler derives the `source=` label from the
-  weak pointer, not from a stored name:
-  `Plugins/PinWright/Source/PinWright/Private/AGIR/AGIRTextEmitter.cpp` lines
-  677-681:
-  ```
-      FString SourceName;
-      if (UseNode && UseNode->SaveCachedPoseNode.IsValid())
-      {
-          SourceName = UseNode->SaveCachedPoseNode->CacheName;
-      }
-  ```
-  Because the forward-ref path leaves `SaveCachedPoseNode` null, the variant's
-  post-transfer decompile emits `use_cached_pose source=` with an **empty**
-  label (the round-trip drops `Locomotion` to empty) — the observable signal
-  that the linkage was never resolved and was saved broken.
+Invariant to restore: `use_cached_pose` resolves `SaveCachedPoseNode` at AGIR
+compile time regardless of whether its `save_cached_pose` was emitted before or
+after it — the same invariant the backward-ref `RoundTrip` test already asserts.
 
-## What it should do
+### Rejected fix — the save-time integrity gate (original option #2)
 
-The compile must not leave a `use_cached_pose` unlinked at persist time. Any of:
-1. **Two-pass / deferred resolution** in `anim.compile_agir` — after all
-   instructions are compiled, resolve every deferred `use_cached_pose` against
-   the completed `CacheNameMap` and set `SaveCachedPoseNode` (the fix sketch
-   already recorded on `F-agir-cliff-completion` #6: Pass 1 creates Save nodes,
-   Pass 2 resolves Use nodes). Downgrade `AGIR_CACHED_POSE_FORWARD_REF` from a
-   "benign" note to a resolved link.
-2. **Save-time integrity gate for AnimBlueprints** — before `asset.save`
-   persists, walk the AnimGraph and reject (or auto-repair) any
-   `UAnimGraphNode_UseCachedPose` whose `SaveCachedPoseNode` is null / whose
-   `NameOfCache` has no matching `UAnimGraphNode_SaveCachedPose`, mirroring what
-   `ValidateBlueprintGraphIntegrity` does for Blueprint/Widget assets. A save
-   should never write an AnimBlueprint that fails its own `blueprint.compile` on
-   cold load.
-
-Invariant to restore: an AnimBlueprint that `anim.compile_agir` reports as
-compiled-and-saved must still `blueprint.compile` cleanly after an editor
-restart.
-
-## Verbatim repro (cold-load-confirmed this iteration)
-
-1. `anim.decompile_agir { assetPath: "/Game/Characters/Mannequins/Animations/ABP_Manny" }` — capture the source AGIR (locomotion state machine fronted by a cached pose named `Locomotion`).
-2. `animation.authoring.create_anim_blueprint` — create `/Game/Characters/Mannequins/Animations/ABP_Manny_Variant` on `SK_Mannequin`.
-3. `anim.compile_agir { context: "/Game/Characters/Mannequins/Animations/ABP_Manny_Variant", mode: "Replace", text: "<the captured AGIR verbatim>", save: true }` — returns success with warnings `AGIR_CACHED_POSE_FORWARD_REF: use_cached_pose source='Locomotion' did not resolve at compile time; engine EarlyValidation will fix up on AnimBP compile` (x2).
-4. `asset.save { assetPath: "/Game/Characters/Mannequins/Animations/ABP_Manny_Variant", force: true }` — ok.
-5. Cold-restart the editor (editor.quit discard=true, confirmed process exit, headless relaunch).
-6. `editor.open_asset { assetPath: "/Game/Characters/Mannequins/Animations/ABP_Manny_Variant" }` — `open_ok:true`.
-7. `blueprint.compile { assetPath: "/Game/Characters/Mannequins/Animations/ABP_Manny_Variant" }` — `compiled:false`, `status:"Error"`, errors: `Use cached pose 'Locomotion'  does not have an associated Save Cached Pose node` (x2). Outcome: `compile_failed`.
-
-Editor stayed up throughout (no crash). The corruption surfaces only on the
-cold load — the warm post-compile decompile looked "non-empty with the same
-state machine," masking it.
-
-severity rationale: impact=corruption × reach=every-session -> Critical (AGIR
-round-trip transfer of any cached-pose-fronted AnimBlueprint — the canonical
-locomotion shape — emits the use before the save, so the forward-ref path is
-the normal case, not a corner case).
+The original "AnimBlueprint save-time integrity gate that rejects any
+`use_cached_pose` with a null `SaveCachedPoseNode` before persist" is **not**
+adopted and should not ship: it would **false-positive on every AnimBP the
+engine's EarlyValidation self-heals** (the null weak ptr is engine-recoverable
+whenever `NameOfCache` + a matching save node persist, which is the normal
+case), repeating the over-broad pre-save heuristic removed in
+`B-integrity-gate-false-positive-asyncaction-proxies` (#2-removed-orphan-heuristic)
+and violating agent-conventions.md:149 ("Prefer source-level fixes + narrow
+invariant checks over post-hoc heuristic validation"). The source-level Pass-2
+resolution above is the correct fix.
 
 ## History
 - `#1-initial-repro` `OPEN` reporter — Cold-load-confirmed corruption from a REALISM AGIR-transfer task (capture `ABP_Manny` AGIR, rebuild into a throwaway `ABP_Manny_Variant`). `anim.compile_agir` (mode=Replace, save=true) reported success with `AGIR_CACHED_POSE_FORWARD_REF` warnings (x2) claiming benign EarlyValidation fixup; `asset.save force=true` persisted it. On a real editor cold restart, `editor.open_asset` succeeded (`open_ok:true`) but `blueprint.compile` returned `compiled:false`, `status:"Error"` with `Use cached pose 'Locomotion'  does not have an associated Save Cached Pose node` (x2). Root-caused in source: `AGIRCompiler_CachedPose.cpp:177-186` (`CompileUseCachedPoseInstruction`) leaves `UseNode->SaveCachedPoseNode` null on a forward reference and only warns; the comment at 164-169 asserts EarlyValidation recovers it — the cold load refutes that for the Mannequin locomotion topology. Confirming symptom: `AGIRTextEmitter.cpp:677-681` derives the decompiled `use_cached_pose source=` label from `SaveCachedPoseNode->CacheName`, so the null link makes the variant's decompile emit an empty source (the `Locomotion` label dropped to empty). No AnimBlueprint save-time integrity gate blocks the dangling node. Distinct from `B-bp-saved-state-corruption-mcp-edits` (widget-tree / Blueprint-graph CreateDelegate corruption — different asset type, code path, and root cause) and from `B-agir-state-machine-output-pose-unbound` (a compile-time `AGIR_SYMBOL_NOT_FOUND` reject, not a save-time-passing / cold-load-failing corruption). Fix options: deferred two-pass `SaveCachedPoseNode` resolution in `anim.compile_agir` (per `F-agir-cliff-completion` #6), and/or an AnimBlueprint save-time integrity gate that rejects an unlinked `use_cached_pose` before persist.
+- `#2-reword` `IN-REVIEW` developer — REWORD (severity Critical -> Medium, root cause corrected, fix scope narrowed to option #1). Independently verified against plugin + engine source: the forward-ref null weak ptr and the empty warm re-decompile label are real (red test `PinWright.AGIR.CachedPose.ForwardRefResolvesLinkage` reproduces both on current source), but the original Critical "save-time asset corruption / uncompilable AnimBlueprint / EarlyValidation false premise" framing is **contradicted by engine source**: `AnimGraphNode_UseCachedPose::EarlyValidation` (UE 5.7 `AnimGraphNode_UseCachedPose.cpp:28-76`) re-resolves `SaveCachedPoseNode` from the serialized `NameOfCache` (PinWright writes it at `AGIRCompiler_CachedPose.cpp:170`) against a matching serialized save `CacheName` (`:86`) on every AnimBP compile, so the persisted asset self-heals on cold load. Real defect reframed to: forward-ref leaves the cache linkage unresolved at AGIR compile time -> violates the plugin's own compile-time invariant (asserted for backward refs by `PinWright.AGIR.CachedPose.RoundTrip`) + a lossy warm AGIR round-trip. Adopted fix: deferred/two-pass `SaveCachedPoseNode` resolution mirroring the in-file `PendingWires`/`ResolvePendingPoseWires` pattern (per `F-agir-cliff-completion` #6). Dropped the original save-time integrity-gate option as WONTFIX — it would false-positive on every engine-self-healed AnimBP, repeating the removed anti-pattern from `B-integrity-gate-false-positive-asyncaction-proxies` (agent-conventions.md:149). Implementing per adopted fix; will flip green the reproduced red test.
+</content>
+</invoke>
