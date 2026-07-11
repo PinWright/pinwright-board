@@ -4,7 +4,9 @@ title: "world_partition.create_datalayer makes the UDataLayerAsset in /Engine/Tr
 status: IN-REVIEW
 severity: High
 category: bug
-tags: [world-partition, datalayer, create_datalayer, set_datalayer, transient, persistence, silent-no-op, save]
+tags: [world-partition, datalayer, create_datalayer, set_datalayer, transient, persistence, silent-no-op, save, no-disk-write, mcp-safe-asset-save, false-success]
+encounters: 2
+lastSeen: 2026-07-11T11:20:06.1572443+03:00
 ---
 
 # `world_partition.create_datalayer` creates a transient (non-persistable) data-layer asset
@@ -129,4 +131,5 @@ path instead.
   the transient package); `EchoesNonTransientPath` invokes the handler with capture
   and asserts any echoed `dataLayerAssetPath` is a real `/Game` asset path, never a
   transient one. Did not compile / run tests (later phase).
+- `#3-additional-fix-incomplete-no-disk-write` `IN-REVIEW` reporter — Additional evidence (live replay against mcp__pinwright__call): the #2 transient-outer fix IS deployed and DID resolve the original `/Engine/Transient` defect — `world_partition.create_datalayer {dataLayerName:"OracleProbeVeg"}` (on an active WP world from `level.structure.create_level {save:false}`) now returns `{message:"DataLayer 'OracleProbeVeg' created.", dataLayerName:"OracleProbeVeg", dataLayerAssetPath:"/Game/DataLayers/OracleProbeVeg", assetPath:"/Game/DataLayers/OracleProbeVeg", existsAfter:true, assetClass:"DataLayerAsset"}` — a real `/Game/DataLayers/...` path, no longer `/Engine/Transient`. BUT the fix is INCOMPLETE: the asset still never reaches disk. On-disk check immediately after the call: NO `Content/DataLayers` folder exists at all (no `.uasset` written), so the success JSON's `existsAfter:true` is a false success. Root cause of the incomplete fix, code-confirmed: the #2-fix relies on `McpSafeAssetSave(NewAsset)` (`WorldPartitionHandler.cpp:173`) to persist the layer, but `McpSafeAssetSave` (`Utils/AssetUtils.cpp:220-232`) deliberately does NOT write to disk — it only `Asset->MarkPackageDirty()` + `FAssetRegistryModule::AssetCreated(Asset)` then `return true` (comment: "UE 5.7+ Fix: Do not immediately save newly created assets to disk. Saving immediately causes bulkdata corruption and crashes. Instead, mark the package dirty and notify the asset registry."). `AddAssetVerification` (`AssetUtils.cpp:1133-1142`) then hardcodes `existsAfter:true` from the in-memory object with no disk probe. Net: the data layer is now a real-package but still in-memory-only, non-persistable asset — a cold restart finds no `Content/DataLayers` folder (confirmed by the cold-load corruption check filed as `B-create-level-saved-true-no-umap` #6, whose Vegetation/Lighting layers all vanished). To actually fix, `create_datalayer` must either write the package to disk (SavePackage) and re-gate `existsAfter` on a real disk probe, or persist it via the host-world save — the bare `McpSafeAssetSave` no-write stub cannot. Part of the systemic no-disk-write / false-success family (siblings: `B-create-level-saved-true-no-umap`, `B-lighting-create-level-false-success-no-umap`, `B-niagara-save-no-disk-write`, `B-audio-create-save-no-disk-write`). Still reproduces at HEAD.
 
