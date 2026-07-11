@@ -1,12 +1,14 @@
 ---
 id: B-array-linear-first-copy-at-origin
 title: "geometry.array_linear places the FIRST appended copy at the origin (identity transform), so it doubles the original in place and the row ends up one full spacing short of the requested length"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: bug
 tags: [geometry, array_linear, dynamic-mesh, off-by-one, array-first-copy-at-origin, array-placement]
 encounters: 1
 lastSeen: 2026-07-11T03:56:34.4388061+03:00
+claimedBy: fuzz2
+claimedAt: 2026-07-11T06:06:20.9381634+03:00
 ---
 
 # `geometry.array_linear` doubles the original at the origin and drops one spacing — the first appended copy is placed with an identity transform, not offset
@@ -101,3 +103,4 @@ severity rationale: impact=silent-wrong-geometry (doubled coincident copy at ori
 
 ## History
 - `#1-initial-repro` `OPEN` reporter — Seed task `geometry.array_linear` (Victorian cemetery railing: single baluster arrayed into an 8-upright row ~1 m apart, ~7 m total, merged mesh). Replay-confirmed live via `mcp__pinwright__call`. Minimal `count=2`/`offset.x=100` case: `array_linear` on a radius-5 cylinder returned `count:2`/`triangleCount:144`, and `geometry.measure` reported `bbox.size.x=10` with `volume:30000` — two full copies stacked at x=0 (offset never applied); correct would be `size.x=110`. Task case `count=8`/`offset.x=100`: `measure` -> `max.x=605`, `size.x=610`, `volume:120000` (8 copies), i.e. copies at `{0 doubled,100,200,300,400,500,600}`, run ~6.1 m not the requested ~7 m. Root cause: `AppendMeshRepeated(..., Count-1, false /*bApplyTransformToFirstInstance*/, ...)` at GeometryTransformHandler.cpp:211-212 places the first appended instance at identity; must be `true` so copies land at `0 .. (count-1)*offset`. Confined to `array_linear` (sibling `array_radial` uses explicit `i=1..Count-1` transforms via `AppendMeshTransformed`, spacing correct). Classified TOOL BUG (silent wrong geometry on a normal path).
+- `#2-triage` `IN-REVIEW` developer — GO. Validity confirmed against engine source: `GeometryTransformHandler.cpp:212` passes `AppendMeshRepeated`'s 5th positional arg `bApplyTransformToFirstInstance=false` (engine default is `true`, `MeshBasicEditFunctions.h:396`; impl `MeshBasicEditFunctions.cpp:748-765`), so the first appended copy takes the identity transform and doubles the original at the origin while the row ends one full spacing short. Decision: flip that arg to `true` — the minimal root-cause fix. Not a duplicate (the two IN-REVIEW `E-` siblings are docs/count-echo, already in HEAD at :152/:222, orthogonal lines), not a regression (`git log -S` shows the arg was original, never a DONE re-break). `array_radial` unaffected; `Count=1`→`RepeatCount=0` no-op preserved. Adopting the red test `PinWright.geometry.array_linear.FirstCopyOffsetBySpacing`. Compile + red-green verification pending.
