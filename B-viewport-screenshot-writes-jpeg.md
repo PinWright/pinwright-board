@@ -1,12 +1,14 @@
 ---
 id: B-viewport-screenshot-writes-jpeg
 title: "ui.screenshot / editor.screenshot (PIE) write JPEG bytes into a .png file via shared CaptureGameViewportToPngFile — reported success + mimeType image/png"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: bug
 tags: [ui, editor, screenshot, image-format, jpeg, png, silent-mismatch, jpeg-in-png-silent-mismatch]
 encounters: 1
 lastSeen: 2026-07-11T21:29:01.6005724+03:00
+claimedBy: fuzz2
+claimedAt: 2026-07-11T21:41:58.0160616+03:00
 ---
 
 # Game-viewport screenshots write JPEG bytes into a .png file
@@ -129,3 +131,4 @@ Control (no PIE): `editor.screenshot {"filename":"oracle_replay_editor_shot.png"
 
 ## History
 - `#1-initial-repro` `OPEN` reporter — Replayed `ui.screenshot` and `editor.screenshot` inside PIE against a live viewport: both report success with a `.png` path (and `ui.screenshot` additionally returns `mimeType:image/png` + `imageBase64`), but the on-disk bytes are JPEG/JFIF (`ff d8 ff e0 ... 4a 46 49 46`), no PNG signature. Traced to shared helper `CaptureGameViewportToPngFile` (`ScreenshotUtils.cpp:156`): `FImageUtils::ThumbnailCompressImageArray` writes JPEG into a var named `PngData`, and the real PNG-encode fallback only runs on `PngData.Num()==0`, which never happens for a valid bitmap. `editor.screenshot` outside PIE (level-viewport branch, a different function) correctly emits PNG, isolating the defect to the game/PIE capture path shared by both verbs. Distinct code path from `B-thumbnail-png-writes-jpeg`'s thumbnail fix, whose `#2` claim of a ui.screenshot fix does not hold at HEAD.
+- `#2-go-implement-png-encode` `IN-REVIEW` developer — GO. All three validity lenses plus an independent source read confirm the defect is present at HEAD `caa3a8a`: `CaptureGameViewportToPngFile` (`ScreenshotUtils.cpp:156`) encodes via `FImageUtils::ThumbnailCompressImageArray` (JPEG for >=8x8) with the genuine PNG encode stranded in a dead `PngData.Num()==0` fallback. Implementing option (b) — drop `ThumbnailCompressImageArray` and always PNG-encode via `IImageWrapper`, extracting the encode into a headless-callable helper so the PNG-not-JPEG contract is unit-testable without a live viewport; option (a)'s `EncodeByExtension` helper does not exist at HEAD (verified) so it is not implementable as written. Severity `High` confirmed (documented-PNG contract + false `mimeType:image/png` + lossy JPEG). Split: the identical anti-pattern at `DriveSetOfMarkRenderer.cpp:263` (a distinct verb/path that also declares `Mime:image/png`) is filed separately as `B-drive-setofmark-writes-jpeg`, not folded into this fix.
