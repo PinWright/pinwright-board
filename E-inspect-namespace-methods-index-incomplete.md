@@ -1,122 +1,105 @@
 ---
 id: E-inspect-namespace-methods-index-incomplete
-title: "system.inspect namespace page's ## Methods index omits every scene-inspection reader (get_scene_stats, find_by_class, list_actor_classes, list_actor_tags, ...) — they register Namespace 'system', not 'system.inspect', so a census/orientation agent can't discover them and emits a false capability-gap"
-status: OPEN
+title: "system.inspect.* readers register Category 'system', so their `## Methods` rows index on the `system` page, not the `system.inspect` page their names imply (16 methods split off); fix = align their Category to system.inspect"
+status: IN-REVIEW
 severity: Medium
 category: ergonomic
-tags: [namespace-index-incomplete, docs, wiki, discoverability, system-inspect, list-actor-tags]
+tags: [namespace-index-incomplete, wiki, discoverability, system-inspect, category-split]
 encounters: 1
 lastSeen: 2026-07-11T22:18:30.9536453+03:00
+claimedBy: fuzz2
+claimedAt: 2026-07-12T21:11:19.4377943+03:00
 ---
 
-# The `system.inspect` namespace page's `## Methods` index lists only the 8 game-state/subsystem readers and omits every actor/scene-inspection reader — so the core orientation verbs are undiscoverable from their own namespace page
+# The `system.inspect.*` scene/inspection readers register Category `system`, so they land on the `system` page's `## Methods` index — not on the `system.inspect` page their names imply
 
-The served `system.inspect` namespace page (`Saved/PinWright/wiki/system.inspect.md`,
-regenerated from `Docs/wiki-src/system.inspect.md`) opens with rich prose about
-`list_objects` / `find_by_class` / `find_by_tag` / `inspect_object` / `get_scene_stats`,
-but its auto-emitted `## Methods` index (the skimmable list an agent greps to find the
-right verb) contains **only 8 rows, all game-state / subsystem**:
+## Mechanism (verified in source)
 
-```
-get_game_instance, get_game_mode, get_game_state, get_local_players,
-get_player_controllers, get_player_states, list_subsystems, search_classes
-```
+The auto-generated `## Methods` index on a namespace page is built by **Category**, not by
+method-name prefix: `RenderMethodList` looks up `Cache.MethodsByCategory.Find(PathLower)`
+(`Catalog/WikiHandler.cpp:357`), and that map is keyed by `Reg.Category.ToLower()`
+(`WikiHandler.cpp:140-146`). Each method page's `Namespace:` line is likewise
+`Reg.Category.ToLower()` (`WikiHandler.cpp:371`).
 
-It **omits every actor/scene-inspection reader** — including the six the audited agent
-actually used (`get_scene_stats`, `list_actor_classes`, `find_by_class`,
-`get_world_settings`, `get_selected_actors`, `get_viewport_info`) plus `list_objects`,
-`inspect_object`, `inspect_class`, `find_by_tag`, and the newly-landed
-`list_actor_tags`. Every one of those has its own generated method page
-(`system.inspect.find_by_class.md`, `system.inspect.get_scene_stats.md`,
-`system.inspect.list_actor_tags.md`, ...), so they are registered and dispatch fine —
-they are simply **absent from the index on the very page a caller lands on to find them**.
+Sixteen methods whose NAMES are `system.inspect.*` register **Category `"system"`** in
+`Handlers/Environment/EnvironmentHandler.cpp` (the legacy handler file), while the eight
+game-state/subsystem readers correctly register **Category `"system.inspect"`**
+(`SystemInspectSingletonsHandler.cpp`, `SubsystemInspectHandler.cpp:31`,
+`ClassSearchHandler.cpp:110`). So the served `system.inspect` page's `## Methods` index
+(`Saved/PinWright/wiki/system.inspect.md:20-27`) lists only those 8, and the 16
+`system.inspect.*` methods render on the **`system`** page's index instead
+(`Saved/PinWright/wiki/system.md:26-41`).
 
-## Likely root cause — Namespace/Category ≠ method-name prefix
+The 16 (all `EnvironmentHandler.cpp`, currently Category `"system"`):
 
-The `## Methods` index is auto-emitted from the handler registry by **Category**, not by
-method-name prefix (same Category-driven tree mechanism documented in
-`E-environment-control-subnamespace-no-index-page`). The scene-inspection readers have
-method NAMES `system.inspect.*` but register a **different Namespace/Category**:
-`system.inspect.list_actor_tags.md` line 5 literally reads `Namespace: system` (not
-`system.inspect`). So the auto-index on the `system.inspect` page lists only methods whose
-Category is exactly `system.inspect` (the 8 game-state readers), and the scene readers —
-Category `system` — scatter off the page. This is a registration/Category split surfacing
-as a docs discoverability hole; it is not a router failure (the methods all dispatch by
-full name).
+- **12 genuine readers**: `get_world_settings` (:1271), `get_viewport_info` (:1291),
+  `get_selected_actors` (:1322), `get_scene_stats` (:1351), `list_objects` (:1391),
+  `find_by_class` (:1533), `find_objects_by_class` (:1582), `find_by_tag` (:1704),
+  `list_actor_tags` (:1809), `list_actor_classes` (:1866), `inspect_class` (:1907),
+  `inspect_object` (:1998).
+- **4 NOT_IMPLEMENTED stubs** (they fail honestly with `NOT_IMPLEMENTED` per
+  `B-inspect-settings-stats-stub-silent-success`): `get_project_settings` (:1249),
+  `get_editor_settings` (:1260), `get_performance_stats` (:1371), `get_memory_stats` (:1381).
 
-## Second discoverability miss — `list_actor_tags` wording evades the task vocabulary
+## Impact (corrected)
 
-Even reaching the `list_actor_tags` method page directly is hard from the task's words.
-The goal asked for "which **gameplay tags** are in use across those actors." The page
-(`system.inspect.list_actor_tags.md`) describes "distinct **AActor::Tags** in use" and
-"the census find_by_tag can't give you" — accurate, but it contains **no `gameplay tag`
-string**, and its capitalized "Tags in use" evades a case-sensitive grep for
-"tags in use". So a vocabulary/case search on the task's phrasing never matches it.
+This is a name-vs-Category split, **not** an undiscoverability hole. The 16 ARE indexed and
+reachable — on the `system` page (`call("system")`), each with its full dotted name and
+summary; e.g. `list_actor_tags` is at `system.md:40` with an accurate "distinct AActor::Tags
+in use" summary. The defect is the internal inconsistency: `system.inspect` advertises itself
+as the read-only inspection namespace, yet its `## Methods` index omits the actual inspection
+verbs, and each of the 16 method pages shows the wrong `Namespace: system`. A caller reasoning
+from the method name (`system.inspect.list_actor_tags` -> look on the `system.inspect` page)
+gets a violated expectation — the friction the reporter's level-census audit hit (it missed
+`list_actor_tags` while skimming `system.inspect.md`, not having consulted the parent
+`system.md` index where the verb is listed). Reach is every orientation/census session that
+skims `system.inspect`, so this stays Medium despite the corrected (smaller) impact.
 
-## Impact (this task)
+## Fix (source — align Category with the method-name prefix)
 
-Struggle-audit of a clean, read-only level-census task (namespace `system`, 10 calls,
-all ok, outcome `done`, judge filed only the separate `find_by_class` spill). The agent
-ran ~8 tag-oriented wiki reads/greps — a case-sensitive index-wide grep for
-`gameplay tag|GameplayTag|tags in use|tag census` (19 files, `list_actor_tags` not among
-the hits), a grep of `system.inspect.md` for `tag`, and reads of `gameplay_tags.md`,
-`gameplay_tags.list.md`, `actor.find_by_tag.md`, `actor.list.md`, `system.inspect.md` —
-and **still missed** `system.inspect.list_actor_tags`, the exact-fit census verb. It then
-reported a FALSE capability-gap in its friction note:
+Change arg2 of the 16 `REGISTER_RPC_HANDLER("system.inspect.<verb>", "system", ...)` calls in
+`Handlers/Environment/EnvironmentHandler.cpp` from `"system"` to `"system.inspect"`. This is a
+SOURCE change, **not** a `Docs/wiki-src/` overlay edit — no overlay can add rows to the
+registry/Category-sourced auto `## Methods` index (`WikiHandler.cpp:357`). Consequences, all
+improvements: the 16 move onto the `system.inspect` index (their name's page), each method
+page's `Namespace:` line corrects to `system.inspect`, and the `system` index sheds its 16
+stray `system.inspect.*` rows (keeping its 9 genuine verbs — `call_subsystem`,
+`console_command`, `job_*`, `live_coding_*`, `run_tests`, `run_ubt` — so `system` stays a
+valid Hybrid node). Dispatch is by full method name and is untouched; the `system.inspect`
+tree node already exists, so no tree change.
 
-> there is no single scene-wide "gameplay tags in use across actors" helper — find_by_tag
-> is query-by-tag and gameplay_tags.list is the project registry, so per-actor tags only
-> come from actor.describe
+Flip **all 16** (including the 4 NOT_IMPLEMENTED stubs): their names are `system.inspect.*`, so
+leaving any behind would recreate the same split for those verbs (still Category `system`,
+still `Namespace: system` on their page). The stubs' honest NOT_IMPLEMENTED summaries render
+fine on the index, and `B-inspect-settings-stats-stub-silent-success` keeps the registrations,
+so this does not conflict with that ticket.
 
-and answered the tag census only by reading one representative actor's (empty) `tags`
-field — an approach that would **under-report on any level that actually has actor tags**.
-The task passed only because this level has zero actor tags and the success check allows
-an empty tag census. On a tagged level the same discoverability hole would have produced a
-wrong (incomplete) census that the caller trusts.
+## Dropped from the original report
 
-## Fix (docs / overlay — downstream)
-
-Surfaces to improve (both under `Docs/wiki-src/`):
-
-- **`docs/wiki-src/system.inspect.md`** — make the namespace page surface its scene-inspection
-  readers in the skimmable index. Either (a) register the scene readers under Category
-  `system.inspect` so the auto `## Methods` index picks them up (aligns Namespace with the
-  method-name prefix), or (b) if the Category split is deliberate, add an explicit prose
-  list / cross-link section on the `system.inspect` overlay naming `get_scene_stats`,
-  `list_actor_classes`, `find_by_class`, `find_by_tag`, `list_actor_tags`, `list_objects`,
-  `get_world_settings`, `get_selected_actors`, `get_viewport_info`, `inspect_object`,
-  `inspect_class` — and name `list_actor_tags` as the scene-wide actor-tag census
-  counterpart to `find_by_tag` in the "Cross-cluster overlap" block.
-- **`docs/wiki-src/system.inspect.list_actor_tags.md`** (or a `### system.inspect.list_actor_tags`
-  H3 in the namespace overlay) — add the search vocabulary a caller actually types:
-  "gameplay tags in use across actors", "per-actor tag census", lowercase "which tags are
-  in use", so a vocabulary/case grep on the task phrasing lands on it. Its current
-  "AActor::Tags in use" wording matches none of those.
+- The secondary "add gameplay-tags vocabulary to the `list_actor_tags` page" ask is factually
+  wrong and is NOT implemented: `list_actor_tags` reads `AActor::Tags` (`TArray<FName>`), a
+  DIFFERENT UE system from `FGameplayTag` / `FGameplayTagContainer` (served by
+  `gameplay_tags.list`). Adding "gameplay tags" wording would conflate the two and steer a
+  gameplay-tag question to an AActor::Tags census. The existing summary ("distinct AActor::Tags
+  in use ... discover which tags exist") is accurate; the Category fix that puts
+  `list_actor_tags` on the `system.inspect` index is the real discoverability improvement.
 
 ## Distinct from
 
-- `F-inspect-list-actor-tags` (IN-REVIEW) — the FEATURE that *added* `system.inspect.list_actor_tags`.
-  The method now exists and works; this ticket is the orthogonal **discoverability** gap
-  that the same census verb is unfindable from the namespace index and the tag vocabulary.
-  Not blocked by it (the method + its page already exist on disk; the namespace-index
-  omission is independent of the feature).
+- `F-inspect-list-actor-tags` (IN-REVIEW) — the FEATURE that *added*
+  `system.inspect.list_actor_tags`. The method now exists and works; this ticket is the
+  orthogonal categorization gap. Not blocked by it.
 - `E-environment-control-subnamespace-no-index-page` (IN-REVIEW) — same Category-vs-method-name
-  mechanism, different page: that one advertises a `call()` handle (`environment.control`)
-  that resolves to a did-you-mean list; this one is a namespace page whose `## Methods`
-  index silently omits registered, working sibling methods.
-- `F-scene-composition-histogram` (landed) — added `list_actor_classes`, which the agent
-  used successfully. This ticket is that `list_actor_classes` (and its scene-reader
-  siblings) are missing from the `system.inspect` `## Methods` index.
+  mechanism, different symptom: that one advertises a `call()` handle (`environment.control`)
+  that resolves to a did-you-mean list; this one is a namespace page whose `## Methods` index
+  omits registered, dispatching sibling methods. Unlike that case, `system.inspect` is already
+  a real, populated Category node, so the fix here is a mechanical arg2 edit with no
+  WikiHandler/generator/tree churn.
+- `F-scene-composition-histogram` (landed) — added `list_actor_classes`, itself one of the 16
+  omitted from the `system.inspect` index and fixed here.
 - `E-inspect-find-by-class-no-limit-spills` (OPEN) — the same task's `find_by_class` response
-  spill (judge already dedup-bumped). Orthogonal size ergonomics, not discoverability.
-
-severity rationale: impact=docs/discoverability (Low) × reach=every-session — the
-`system.inspect` namespace page is a primary orientation/census entry point and its
-`## Methods` index omits ~11 of the core read-only scene verbs, so most census/orientation
-tasks that skim it are affected -> bump up one -> Medium. Blocked task: the level-census /
-"which gameplay tags are in use" orientation task; workaround cost: ~8 wasted wiki
-reads/greps, a false capability-gap conclusion, and answering the tag census from one
-representative actor's tags (which silently under-reports on any tagged level).
+  spill. Orthogonal size ergonomics, not categorization.
 
 ## History
 - `#1-initial-audit` `OPEN` reporter — Filed from a clean read-only level-census struggle audit (namespace `system`, 10 calls, all ok, outcome `done`). Ground truth: the served `system.inspect` namespace page's `## Methods` index (`Saved/PinWright/wiki/system.inspect.md` lines 18-27) lists only 8 game-state/subsystem readers (get_game_instance/mode/state, get_local_players, get_player_controllers, get_player_states, list_subsystems, search_classes) and omits every actor/scene-inspection reader — get_scene_stats, list_actor_classes, find_by_class, find_by_tag, list_actor_tags, list_objects, inspect_object, inspect_class, get_world_settings, get_selected_actors, get_viewport_info — although each has its own generated method page and dispatches fine. Likely cause: those readers register Namespace/Category `system` (confirmed: `system.inspect.list_actor_tags.md` line 5 = `Namespace: system`) while the auto `## Methods` index emits by Category `system.inspect`, so the scene readers scatter off the page (same Category-vs-method-name mechanism as `E-environment-control-subnamespace-no-index-page`). Consequence: the agent ran ~8 tag-oriented wiki reads/greps (case-sensitive index grep for `gameplay tag|GameplayTag|tags in use|tag census`, a `tag` grep of system.inspect.md, reads of gameplay_tags/actor.find_by_tag/actor.list/system.inspect pages) and STILL missed `system.inspect.list_actor_tags`, then reported a false "no scene-wide gameplay-tags-in-use helper exists" capability-gap and answered the tag census from one representative actor's empty `tags` field — an approach that under-reports on any tagged level; the task passed only because this level has zero actor tags and the success check allows an empty census. Secondary miss: the list_actor_tags page says "AActor::Tags in use" (no `gameplay tag` string, capitalized "Tags") so the task-vocabulary/case grep never matched it. Distinct from `F-inspect-list-actor-tags` (the feature that added the verb; not blocked by it — method + page already on disk), `E-environment-control-subnamespace-no-index-page` (advertised-handle did-you-mean, same mechanism/different page), `F-scene-composition-histogram` (added list_actor_classes, itself omitted from the index), and `E-inspect-find-by-class-no-limit-spills` (the same task's spill). Proposed docs fix: surface the scene readers in `Docs/wiki-src/system.inspect.md`'s index (register them under Category `system.inspect` so the auto-index picks them up, or add an explicit cross-link list + name list_actor_tags as the find_by_tag census counterpart), and add the caller's tag vocabulary ("gameplay tags in use across actors", "per-actor tag census") to `Docs/wiki-src/system.inspect.list_actor_tags.md`.
+- `#2-reword` `IN-REVIEW` developer — REWORD + GO. Verified in source that the defect is real (the `## Methods` index is Category-keyed: `WikiHandler.cpp:357` -> `MethodsByCategory[Reg.Category.ToLower()]` at :140-146), and that 16 methods NAMED `system.inspect.*` register Category `"system"` in `EnvironmentHandler.cpp` (12 genuine readers + 4 NOT_IMPLEMENTED stubs) while the 8 game-state/subsystem readers register `"system.inspect"` — so the 16 index on `system.md:26-41`, not `system.inspect.md:20-27`. Reworded the ticket to reality: it had mislabeled a source-level Category change as a `Docs/wiki-src/` overlay edit (no overlay can touch the registry-sourced index), under-scoped it (16, not ~11, incl. the 4 stubs), and overstated impact as "undiscoverable / false capability-gap" (the 16 ARE indexed, on `system.md`). Intended scope: flip arg2 `"system"` -> `"system.inspect"` for all 16 registrations in `EnvironmentHandler.cpp`; keep severity Medium / category ergonomic; `system` stays a Hybrid node with its 9 genuine verbs. Dropped the secondary "add gameplay-tags vocabulary to the list_actor_tags page" ask as factually wrong and will-not-ship (list_actor_tags reads `AActor::Tags` / `TArray<FName>`, not `FGameplayTag`). Adopting the red test `PinWright.infra.wiki_handler.Namespace.SystemInspectSceneReadersIndex`.
