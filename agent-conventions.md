@@ -139,6 +139,7 @@ user-approved proposed-edits.
 - Never flip OPEN → DONE — only the tester workflow closes tickets; fixers stop at IN-REVIEW.
 - Board commits go ONLY through `board-commit.ps1` (machine-global mutex + pathspec-scoped add/commit) — plain `git add`/`commit` on the board races the other three hosts.
 - Bare lease writes (`claimedBy`/`claimedAt`, stale-lease clears) are never committed — only meaningful create/status/history changes.
+- Harness (workflow-skill) defects go to `harness/H-*.md` per `harness/README.md` — not to the main board, and not fixed mid-run.
 
 ## Process norms
 

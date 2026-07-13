@@ -248,6 +248,15 @@ repro steps, impact.}
    correct format at the end of the section.
 4. Never delete or rewrite prior history entries.
 
+## Harness sub-board (`harness/`)
+
+Defect tickets about the **workflow harness itself** (the mcp-test-workflow /
+mcp-fix-workflow / workflow-log-audit skills) live in `harness/H-*.md` with
+their own frontmatter schema and status rules — see `harness/README.md`. They
+are outside the main ticket lifecycle: the fix workflow's ticket picker never
+selects them, and `board-query.ps1` only globs root `*.md`, so the subdirectory
+is naturally excluded.
+
 ## See also
 - bpir-language-reference: `Plugins/PinWright/wiki-generated/bpir.md` (or via MCP wiki `call("bpir")`)
 - Blueprint wiki insertion sections: `Plugins/PinWright/wiki-generated/blueprint.md` (or via MCP wiki `call("blueprint")`)
