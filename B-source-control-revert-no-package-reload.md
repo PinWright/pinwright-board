@@ -1,14 +1,12 @@
 ---
 id: B-source-control-revert-no-package-reload
 title: "source_control.revert reverts the .uasset on disk but never reloads the loaded package — in-memory object stays stale (readbacks lie) and a subsequent asset.save silently un-reverts it"
-status: IN-REVIEW
+status: OPEN
 severity: High
 category: bug
 tags: [source-control, revert, in-memory-vs-disk, stale-package]
 encounters: 1
 lastSeen: 2026-07-13T11:43:14.0268208+03:00
-claimedBy: fuzz2
-claimedAt: 2026-07-13T11:50:14.4235341+03:00
 ---
 
 # `source_control.revert` leaves the in-memory package unsynchronized with the reverted disk state
@@ -114,3 +112,4 @@ the revert verb silently fails its own contract.
 ## History
 - `#1-initial-repro` `OPEN` reporter — Realism task ("experiment on DemoRoom materials, then discard local edits on all but one via in-editor Git source control"). Replay-confirmed at HEAD on `/Game/Global/DemoRoom/Materials/M_Glow`: after `set_two_sided:true` + `asset.save` + `source_control.revert`, `source_control.status` reports the file clean (`isModified:false`) yet `material.authoring.get_material_info` still reads `twoSided:true` (stale in-memory package), and a follow-up `asset.save force:true` re-persists the stale value, flipping `status` back to `isModified:true` — silently undoing the revert. Root cause: `SourceControlHandler.cpp:356` runs `FRevert` with no package unload/reload (the editor's own revert flow reloads via `UPackageTools::ReloadPackages`; `asset.reload` already wraps that path in `AssetManageHandler.cpp`). The attempt's self_report framed this as "not a revert bug, just the editor not hot-reloading" and downplayed it; the replay shows it is a revert-verb defect with a data-integrity consequence (silent un-revert on next save). Related: `F-asset-reload-from-disk` (the reload capability the fix should reuse).
 - `#2-in-review` `IN-REVIEW` developer — GO, severity High confirmed. Independently verified at HEAD: `source_control.revert` (`SourceControlHandler.cpp:356-364`) runs `FRevert` then returns `{success,resultCode,count}` with no package reload, so a loaded `UPackage` stays stale (readbacks lie) and the next save re-persists the pre-revert bytes. Fix approach: extract shared `PinWright::SourceControl::ReloadRevertedPackages` (new `Handlers/SourceControl/SourceControlPackageReload.{h,cpp}`) that resynchronizes each reverted, currently-resident package from the reverted disk bytes via `UPackageTools::ReloadPackages(AssumePositive)` — guarding the active editor level package and revert-of-add (deleted `.uasset`) — and call it from `revert` after a successful `FRevert`; add `reloadedCount` to the response. Regression test drives the shared symbol directly (the handler path is provider-gated / unreachable headless). Shipped: `SourceControlHandler.cpp` now calls `ReloadRevertedPackages(Filenames)` after a successful `FRevert` and returns `reloadedCount`; new `SourceControlPackageReload.{h,cpp}`; new test `Tests/SourceControl/TestSourceControlRevertReload.cpp` = `PinWright.source_control.RevertReloadsInMemoryPackage` (saves a SoundClass at Volume=0.5, mutates the resident copy to 0.123 without saving, calls the helper, asserts the reload restores 0.5 and reloadedCount==1). Verified: plugin compiles clean; the new test passes (Result={Success}); differential-confirmed — pre-fix the test TU does not compile without the introduced helper symbol.
+- `#3-attempt-abandoned` `OPEN` supervisor — attempt-failed: the fix workflow was deliberately stopped by the user mid-pipeline (after implement + local verification, before the Commit phase pushed to origin). The verified diff was left uncommitted in fuzz2's plugin clone and will be swept by the next run's Baseline; nothing reached origin. Reopened and lease released for a fresh attempt — the `#2` analysis and fix approach remain valid as a starting point.
