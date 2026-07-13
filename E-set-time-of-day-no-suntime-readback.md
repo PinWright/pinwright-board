@@ -5,8 +5,8 @@ status: OPEN
 severity: Low
 category: ergonomic
 tags: [environment, set-time-of-day, sun-height, readback, property-get, time-of-day, sky-sphere, discoverability, docs]
-encounters: 2
-lastSeen: 2026-06-23T10:08:23Z
+encounters: 3
+lastSeen: 2026-07-13T08:23:09Z
 ---
 
 # `set_time_of_day` gives no readback and no hint that the modern sky sphere's time slot is `Sun height`
@@ -130,3 +130,4 @@ the friction):
   noted in this task but NOT a separate file: `actor.find_by_class {className:"BP_Sky_Sphere"}`
   returns a clean, correct, guidance-bearing `[CLASS_NOT_FOUND]` — expected behavior
   for a short name that is an asset BP, not a `/Script` class.)
+- `#3-liveness` `OPEN` reporter — still reproduces at HEAD (dusk-landscape blockout, `time=18.5`, same shape as `#1`): `set_time_of_day {time:18.5}` → `{"success":true,"action":"set_time_of_day"}` (no value echoed); `property.get {propertyName:"Sun height"}` → `-0.13052632584380217 = -cos((18.5/24)*2pi)`; `property.list {nameMatch:"time"}` returns only `CustomTimeDilation` + `RuntimeGrid` — confirming no 0..24 time-of-day UPROPERTY exists on `BP_Sky_Sphere_C`.
