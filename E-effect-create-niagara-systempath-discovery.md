@@ -4,7 +4,9 @@ title: "effect.create_* Niagara wrappers force a 4-call systemPath discovery dan
 status: IN-REVIEW
 severity: Low
 category: ergonomic
-tags: [docs]
+tags: [docs, response-size, discovery]
+encounters: 2
+lastSeen: 2026-07-13T08:05:17.3040929+03:00
 ---
 
 # effect.create_* Niagara wrappers force a 4-call systemPath discovery dance with no default or documented example
@@ -86,3 +88,30 @@ the namespace's purpose.
   shipped docs/error fix lands, the friction degrades from a 4-call dance to a
   single search — the remaining cost is exactly the optional auto-default feature
   `#2` left as a future option.
+- `#4-additional-recommended-discovery-call-spills` `OPEN` reporter — PREP-phase
+  friction with a NEW docs-refinement angle: the discovery recipe THIS ticket added
+  to `docs/wiki-src/effect.md` (`#2`/`#3`: "for project-specific discovery run
+  `asset.search_assets {classNames:[NiagaraSystem]}`") itself SPILLS on a project
+  with many NiagaraSystems. From a clean ribbon-VFX preview task (focus
+  `effect.create_niagara_ribbon`, namespace `effect`, outcome clean; judge filed
+  nothing), the Prep agent ran exactly the overlay-recommended
+  `asset.search_assets {classNames:[NiagaraSystem]}`, which returned a **43834-char**
+  response (~200 asset paths), overflowed the 10000-char display threshold, and
+  spilled to `Saved/PinWright/HttpResponses/*.json` — forcing a Grep of the spilled
+  JSON to pick one system. Prep friction note (verbatim): "asset.search_assets
+  {classNames:[NiagaraSystem]} — the exact discovery call the effect namespace
+  overlay recommends — returned a 43834-char response (~200 asset paths) that
+  overflowed the 10000-char display threshold and spilled to a
+  Saved/PinWright/HttpResponses file; the documented usage exposes no
+  limit/pagination/name-filter param to right-size a common single-class query,
+  forcing a grep of the spilled JSON." Refinement of the `#2` recipe: the overlay
+  should show the discovery call in a NARROWED form so it stays inline — scope with
+  `packagePaths` to the project's VFX folder, pass an explicit small `limit`
+  (`asset.search_assets` does accept `limit`), or use `asset.search` with a name
+  pattern when the caller has one — rather than the bare `classNames`-only form that
+  returns the whole project's NiagaraSystems and spills. Method-at-fault nuance: the
+  spill is on `asset.search_assets`, but the recipe that recommends the un-narrowed
+  call is this ticket's `effect.md` fix, so the refinement lands here on
+  `docs/wiki-src/effect.md`. Severity unchanged (Low — recovers via a Grep of the
+  spilled file; the narrowing levers already exist, the recipe just doesn't reach for
+  them). encounters→2, lastSeen bumped.
