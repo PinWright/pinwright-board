@@ -4,6 +4,8 @@ title: "asset.dump on a UEnvQuery elides the nested test fields — Options is a
 status: IN-REVIEW
 severity: Low
 category: ergonomic
+encounters: 2
+lastSeen: 2026-07-13T08:48:13.0500682+03:00
 tags: [ai, eqs, env-query, authoring, readback, verification, asset-dump, sidecar, coverage, property-get, wiki, docs]
 ---
 
@@ -294,3 +296,14 @@ established approach.
   attempt agent reported "none" only because it cross-checked `env_query.json`;
   the context assignment was never surfaced by any structured readback and would
   have been silently unconfirmed on a generator-context-centric task.
+- `#6-liveness` `IN-REVIEW` reporter — still reproduces at HEAD (seed
+  `ai.create_eqs_query` = deprecated alias for `eqs.create`, so the attempt drifted
+  to the `eqs.*` namespace): live `asset.dump` on `/Game/AI/EQS/EQS_FindStandingSpot`
+  (SimpleGrid generator; Distance/Score/InverseLinear test + Trace/Filter/Match(true)
+  test whose `Context` was set to `querier`) wrote an `env_query.json` that inlines
+  `generatorClass` plus both tests' `testClass`/`purpose`/`filter`/`scoring` but with
+  NO context field, so confirming the Trace test `Context`=`EnvQueryContext_Querier`
+  still required the `property.get`-on-subobject pivot — the exact residual `#5` names.
+  Source-confirmed ground truth: `Handlers/Asset/EnvQueryDumpBuilder.cpp` `BuildTestJson`
+  serializes only testClass/testOrder/purpose/comment/filter/scoring and never emits
+  the test `Context` (nor the option/generator context). culprit `asset.dump`.
