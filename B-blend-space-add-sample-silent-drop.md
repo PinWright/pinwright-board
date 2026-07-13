@@ -1,12 +1,14 @@
 ---
 id: B-blend-space-add-sample-silent-drop
 title: "animation.authoring.add_aim_offset_sample / add_blend_sample report success while silently dropping rejected samples — the int32 return of UBlendSpace::AddSample is discarded"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: bug
 tags: [animation, blend-space, aim-offset, add_aim_offset_sample, add_blend_sample, sample-add-silent-drop, silent-false-success, unchecked-addsample-return]
 encounters: 1
 lastSeen: 2026-07-13T10:40:43.4586441+03:00
+claimedBy: fuzz2
+claimedAt: 2026-07-13T10:56:46.4547864+03:00
 ---
 
 # `add_aim_offset_sample` / `add_blend_sample` report success but silently drop rejected samples
@@ -83,3 +85,4 @@ severity rationale: impact=silent-false-success (a normal add-sample call report
 
 ## History
 - `#1-initial-repro` `OPEN` reporter — SEED-mode iteration seeded on `animation.authoring.create_aim_offset` (which works correctly). Attempt task: build an Aim Offset for the UE4 mannequin and block out the aim grid with existing mannequin clips as placeholder poses. REPLAY-CONFIRMED on the live editor: `add_aim_offset_sample` returned `{"message":"Aim offset sample added"}` for `Jog_Fwd` at in-range (0,0), yet `asset.dump` blend_space.json came back `samples: []`. Source-confirmed the discarded `int32` return in both `add_aim_offset_sample` (`AnimationAuthoringHandler_BlendSpace.cpp:730`,`:709`) and sibling `add_blend_sample` (`:500`), and the engine reject path (`BlendSpace.cpp:1647` returns `INDEX_NONE`; `AimOffsetBlendSpace.cpp:16` `IsValidAdditiveType` accepts only `AAT_RotationOffsetMeshSpace`). Distinct from `B-create-blend-space-axis-config-dropped-on-57` (that ticket owns the `set_axis_settings`/create-side axis-config no-op — a different root cause; the same attempt also re-hit that `set_axis_settings` no-op on an AimOffset, already covered there and not re-filed here). Filed as a family ticket: `add_aim_offset_sample` reproduced, `add_blend_sample` enumerated via the shared-pattern probe. Outcome tool_bug; culprit `animation.authoring.add_aim_offset_sample`.
+- `#2-lead-decision` `IN-REVIEW` developer — GO (valid; red test reproduced the defect on the AimOffset branch). Verified the discarded `UBlendSpace::AddSample` int32 return in current source at `add_blend_sample` (`AnimationAuthoringHandler_BlendSpace.cpp:500`) and `add_aim_offset_sample` (`:709` fallback + `:730` AimOffset), and the engine reject paths (`BlendSpace.cpp:1660` returns INDEX_NONE; `AimOffsetBlendSpace.cpp:18` `IsValidAdditiveType` accepts only `AAT_RotationOffsetMeshSpace`; base `BlendSpace.cpp:1114` accepts `AAT_None`). Not a duplicate of `B-create-blend-space-axis-config-dropped-on-57` (that owns `set_axis_settings`/create axis-config — a different method/file). Severity High stands (silent false-success on a common authoring path). Decision: capture the return and, on INDEX_NONE, `SendError` a new `SAMPLE_REJECTED` code (registered in `ErrorCodes.h`) naming the additive/skeleton/duplicate cause, across the full ticket scope (both verbs / all three sites) via one shared helper; adopt the existing red test and add an `add_blend_sample` duplicate-coordinate reject test. (The ticket's `add_blend_sample` "out-of-range coordinate" repro is inaccurate — `ExpandRangeForSample` widens the axis first — so the reject test uses a duplicate coordinate instead; no reword since defect/fix/severity are correct.)
