@@ -1,10 +1,12 @@
 ---
 id: F-game-features-live-fixture
 title: "In-code Game Feature plugin fixture: register + drive a synthetic GF plugin through its lifecycle for tests"
-status: OPEN
+status: IN-REVIEW
 severity: Medium
 category: feature
 tags: [game-features, plugins, test-fixture, testing]
+claimedBy: fuzz2
+claimedAt: 2026-07-13T09:33:37.7160174+03:00
 ---
 
 # In-code Game Feature plugin fixture (register + drive a synthetic GF plugin for tests)
@@ -27,3 +29,4 @@ A test-only helper exists under `Tests/` that, in a headless run (`-RenderOffScr
 
 ## History
 - `#1-need-gf-fixture` `OPEN` developer — Filed as the testability gate blocking F-game-features-set-state-and-actions. Verified against UE 5.7 source that ForEachGameFeature / GetGameFeatureDataForActivePluginByURL enumerate only plugins passing IsValidGameFeaturePlugin (GameFeaturesSubsystem.cpp:2369) that carry a UGameFeatureData; this host has none, so the GF verbs can only ever hit their error paths. Need a shared in-code (or minimal on-disk) GF plugin fixture to drive a real Registered->Active round-trip + populated action readback in an automation test.
+- `#2-go-implement-fixture` `IN-REVIEW` developer — GO. Re-verified against UE 5.7 source: only game_features.list ships (GameFeaturesHandler.cpp), and the state machine only exposes a NON-EMPTY GetActions() for a bCanContainContent:true plugin carrying a real on-disk UGameFeatureData (bCanContainContent:false yields a transient EMPTY GFD; GameFeaturePluginStateMachine.cpp:3296-3302), while a content plugin missing that asset errors Registering (:3456). Implementing a test-only fixture that GENERATES a synthetic on-disk GF plugin + a UGameFeatureData carrying one action at test time, drives it Registered->Active via the real UGameFeaturesSubsystem::ChangeGameFeatureTargetState, asserts it reaches Active + GetActions() is non-empty, then deactivates/terminates and deletes the on-disk plugin — no committed asset, no Lyra, no stubbed handler, no leaked state. Co-locating under Tests/World/ (no Tests/Systems/ bucket exists in the taxonomy).
