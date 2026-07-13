@@ -1,7 +1,7 @@
 ---
 id: H-host-repo-never-synced-at-launch
 title: "Neither workflow ever pulls the HOST repo — Baseline/Prep sync only the plugin clone, so harness changes (skills, helper scripts) pushed to the hub never reach sibling hosts until a manual sync"
-status: OPEN
+status: DONE
 severity: Medium
 workflow: both
 category: harness-process
@@ -55,3 +55,4 @@ will not receive `8924e2c` until manually synced.
 
 ## History
 - `#1-filed-from-design-review` `OPEN` supervisor — Filed during the harness-audit rework review (user question "do fix/test workflows pull the main repo in first agent or only plugin repo?"). Verified in both workflow sources: host repo is reset to local HEAD only, never pulled; only the plugin clone is synced per iteration.
+- `#2-applied` `DONE` supervisor — Applied as proposed (user: "make them [auto-propagate]"): both skills' SKILL.md gained the Preflight host-repo sync (pull --rebase + polyskill regen + skill re-read on HEAD advance) and it is re-run on every supervisor relaunch path (fix: Transient + Idle; test: Transient). Runs stay on their launch-time snapshot; no mid-run host pulls. Host commit 22510d2, pushed to the hub.

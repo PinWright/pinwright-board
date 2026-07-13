@@ -1,7 +1,7 @@
 ---
 id: H-fix-stop-procedure-missing-ticket-reconcile
 title: "mcp-fix-workflow's user-stop procedure never reconciles the mid-flight ticket — a deliberate stop strands it IN-REVIEW (invisible to all pickers) with its fix never pushed"
-status: OPEN
+status: DONE
 severity: Medium
 workflow: fix
 category: harness-process
@@ -58,3 +58,4 @@ reused nearly verbatim.
 
 ## History
 - `#1-filed-from-live-stop` `OPEN` supervisor — Filed after the 2026-07-13 user stop of wf_510c6c2c-eb5 required a manual reopen of B-source-control-revert-no-package-reload; the stop section's 3 steps never mention the board. Gap became fully unguarded once the supervision rewrite scoped the old problem-scan reconcile to the (disarmed-on-user-stop) STOPPED/ENDED path.
+- `#2-applied` `DONE` supervisor — Applied as proposed: `## Stopping the workflow` in mcp-fix-workflow/SKILL.md gained step 4 (board-only mid-flight ticket reconcile: reopen + attempt-abandoned history + lease release when the fix is not on origin; leave IN-REVIEW + clear lease when it is). Host commit 22510d2, pushed to the hub.
