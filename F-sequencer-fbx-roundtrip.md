@@ -5,8 +5,6 @@ status: IN-REVIEW
 severity: Medium
 category: feature
 tags: [sequencer, fbx, import-export]
-claimedBy: fuzz2
-claimedAt: 2026-07-10T17:36:01.3738470+03:00
 ---
 
 # Sequencer FBX import/export of animation

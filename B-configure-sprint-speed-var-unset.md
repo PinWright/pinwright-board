@@ -7,8 +7,6 @@ category: bug
 tags: [character, configure-sprint, sprint-speed, state-var-default-unset, silent-wrong-data, blueprint]
 encounters: 1
 lastSeen: 2026-07-11T08:55:56.1616498+03:00
-claimedBy: fuzz2
-claimedAt: 2026-07-11T21:12:19.0203566+03:00
 ---
 
 # `character.configure_sprint` creates a `SprintSpeed` variable but leaves its default at 0

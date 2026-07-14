@@ -5,8 +5,6 @@ status: IN-REVIEW
 severity: Medium
 category: feature
 tags: [blueprint, graph, discovery, action-database, parity-ue58]
-claimedBy: fuzz2
-claimedAt: 2026-07-10T12:23:00.3261702+03:00
 ---
 
 # blueprint.graph: action-database node discovery with pin-context filtering

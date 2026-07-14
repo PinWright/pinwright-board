@@ -5,8 +5,6 @@ status: IN-REVIEW
 severity: Medium
 category: feature
 tags: [game-features, plugins, lyra, parity-ue58]
-claimedBy: fuzz2
-claimedAt: 2026-07-10T21:00:42.2867412+03:00
 ---
 
 # Game Feature plugins: list registered plugins with lifecycle state (read-only)

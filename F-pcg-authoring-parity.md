@@ -5,8 +5,6 @@ status: IN-REVIEW
 severity: Medium
 category: feature
 tags: [pcg, authoring, graph-parameters]
-claimedBy: fuzz2
-claimedAt: 2026-07-11T07:25:12.7977171+03:00
 ---
 
 # pcg: graph user-parameter CRUD (add/list/remove)

@@ -7,8 +7,6 @@ category: bug
 tags: [sequencer, add_keyframe, units, display-frames-as-ticks, bug]
 encounters: 1
 lastSeen: 2026-07-11T08:02:35Z
-claimedBy: fuzz2
-claimedAt: 2026-07-11T11:25:02.9473864+03:00
 ---
 
 # sequencer.add_keyframe writes the key at a DisplayRate-frame tick, not a TickResolution tick — the keyframe lands ~1000x too early

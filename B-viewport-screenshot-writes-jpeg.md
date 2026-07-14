@@ -7,8 +7,6 @@ category: bug
 tags: [ui, editor, screenshot, image-format, jpeg, png, silent-mismatch, jpeg-in-png-silent-mismatch]
 encounters: 1
 lastSeen: 2026-07-11T21:29:01.6005724+03:00
-claimedBy: fuzz2
-claimedAt: 2026-07-11T21:41:58.0160616+03:00
 ---
 
 # Game-viewport screenshots write JPEG bytes into a .png file

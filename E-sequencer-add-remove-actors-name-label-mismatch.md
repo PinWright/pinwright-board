@@ -7,8 +7,6 @@ category: ergonomic
 tags: [sequencer, add_actors, add_actor, remove_actors, get_bindings, actorname, internal-name, display-label, cross-method-consistency, name-label-mismatch]
 encounters: 1
 lastSeen: 2026-07-11T05:25:51.6633990+03:00
-claimedBy: fuzz2
-claimedAt: 2026-07-11T14:23:44.5921829+03:00
 ---
 
 # The sequencer binding family accepts the internal actor NAME on the add side but only the display LABEL on the read/remove side — the identical argument that binds an actor cannot unbind it

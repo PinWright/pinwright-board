@@ -7,8 +7,6 @@ category: ergonomic
 tags: [audio, audio-authoring, dialogue, dialogue-wave, set-dialogue-context, orphan-default-context, append-only-orphan-seed, docs]
 encounters: 1
 lastSeen: 2026-07-11T11:04:29.2655287+03:00
-claimedBy: fuzz2
-claimedAt: 2026-07-11T11:54:00.8914787+03:00
 ---
 
 # `set_dialogue_context` never reclaims the engine-seeded empty context — contextCount is off-by-one with an unremovable orphan

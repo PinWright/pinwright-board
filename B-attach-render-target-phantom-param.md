@@ -7,8 +7,6 @@ category: bug
 tags: [render, render-target, post-process, unvalidated-texture-param, silent-false-success]
 encounters: 1
 lastSeen: 2026-07-10T22:06:52.1197512+03:00
-claimedBy: fuzz2
-claimedAt: 2026-07-10T23:46:02.1540542+03:00
 ---
 
 ## What's wrong

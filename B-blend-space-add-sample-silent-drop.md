@@ -7,8 +7,6 @@ category: bug
 tags: [animation, blend-space, aim-offset, add_aim_offset_sample, add_blend_sample, sample-add-silent-drop, silent-false-success, unchecked-addsample-return]
 encounters: 1
 lastSeen: 2026-07-13T10:40:43.4586441+03:00
-claimedBy: fuzz2
-claimedAt: 2026-07-13T10:56:46.4547864+03:00
 ---
 
 # `add_aim_offset_sample` / `add_blend_sample` report success but silently drop rejected samples

@@ -7,8 +7,6 @@ category: ergonomic
 tags: [window-maximized-no-restore, resize-window, window-state-control, no-recovery-path]
 encounters: 1
 lastSeen: 2026-07-10T23:02:14.0957993+03:00
-claimedBy: fuzz2
-claimedAt: 2026-07-11T00:36:42.5397482+03:00
 ---
 
 # editor.resize_window dead-ends on a maximized window with no restore verb to recover

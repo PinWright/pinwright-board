@@ -7,8 +7,6 @@ category: ergonomic
 tags: [environment, terrain, create_procedural_terrain, actorname, actor-label, label-not-set, result-misreport, create-verb-no-label-set]
 encounters: 1
 lastSeen: 2026-07-11T05:54:38.6647086+03:00
-claimedBy: fuzz2
-claimedAt: 2026-07-11T13:20:05.6399869+03:00
 ---
 
 # `create_procedural_terrain` takes `actorName`, uses it for the internal object name but never `SetActorLabel`s it, so the outliner label is the generic `"Actor"` and the response's `actorName` echoes `"Actor"` (not the requested name)

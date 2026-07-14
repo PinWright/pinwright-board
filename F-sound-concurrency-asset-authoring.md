@@ -7,8 +7,6 @@ category: feature
 tags: [audio, sound-concurrency, authoring, missing-asset-creator]
 encounters: 1
 lastSeen: 2026-07-11T03:02:19.4116967+03:00
-claimedBy: fuzz2
-claimedAt: 2026-07-11T03:12:55.2633034+03:00
 ---
 
 # No RPC to create a USoundConcurrency — `set_cue_concurrency` dead-ends without one

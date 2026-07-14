@@ -7,8 +7,6 @@ category: bug
 tags: [sequencer, create, level-sequence, save, mcp-safe-asset-save, no-disk-write, cold-load, persistence, silent-failure, false-success]
 encounters: 1
 lastSeen: 2026-07-11T08:02:05.5151743+03:00
-claimedBy: fuzz2
-claimedAt: 2026-07-11T08:13:50.3505141+03:00
 ---
 
 # `sequencer.create` reports the LevelSequence created (existsAfter:true) but never writes the .uasset to disk

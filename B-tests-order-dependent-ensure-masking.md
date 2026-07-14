@@ -5,8 +5,6 @@ status: IN-REVIEW
 severity: Medium
 category: bug
 tags: [animation, authoring, notify, ensure, data-loss]
-claimedBy: fuzz2
-claimedAt: 2026-07-10T19:25:12.3628549+03:00
 ---
 
 # add_notify / add_notify_state / add_montage_notify instantiate an abstract notify class

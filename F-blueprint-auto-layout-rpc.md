@@ -6,8 +6,8 @@ severity: Medium
 category: feature
 tags: [layout, blueprint, bpir, rpc, authoring]
 blockedBy: [F-graph-layout-metrics-core]
-encounters: 1
-lastSeen: 2026-06-24T19:46:41Z
+encounters: 2
+lastSeen: 2026-07-04T12:00:00Z
 ---
 
 # Standalone blueprint.graph.auto_layout RPC (no compile round-trip)
@@ -55,3 +55,4 @@ report RPC.
 
 ## History
 - `#1-initial-spec` `OPEN` reporter — Blueprint auto-layout is only a BPIR-compile side effect; add a standalone blueprint.graph.auto_layout RPC that re-flows via FNodeLayoutEngine without a compile round-trip, mirroring the shipped material.authoring.auto_layout (MaterialAuthoringHandler.cpp:3360), so agents can re-flow + re-measure after imperative node creation.
+- `#2-crossing-wire-repro` `OPEN` reporter — additional-evidence: rebuilt BP_ScoreBus AddPoints via blueprint.compile_bpir (5 nodes: AddPoints → Add_IntInt → Set Score → CallOnScoreChanged + Get Score); the Get-Score node's data wires came out crossing under other nodes and there was no way to re-flow the compiled graph, confirming this gap on a real screenshot/docs use-case. Grep of REGISTER_RPC_HANDLER across ...\Handlers\ found no blueprint.* auto-layout/arrange RPC (material.authoring.auto_layout at MaterialAuthoringHandler.cpp:3379 remains the only graph auto-layout verb). Correction to the incoming report's second half: a per-node reposition RPC ALREADY exists — blueprint.graph.set_node_property with propertyName "X"/"Y" writes NodePosX/NodePosY (BlueprintGraphCrudHandler.cpp:2006-2019) — so an agent CAN hand-tidy node-by-node today; the genuine remaining gap is this ticket's bulk standalone re-flow, not a node-move verb. Note: re-flow via the same FNodeLayoutEngine won't by itself remove crossings — edge-crossing reduction / layout quality is tracked separately by the F-graph-layout-metrics-core cluster (edge-crossings metric + downstream edge-crossing follow-up), not here. Severity unchanged (Medium): soft blocker, workaround exists.

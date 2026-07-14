@@ -7,8 +7,6 @@ category: feature
 tags: [material, material-authoring, material-layers, seed-default-template]
 encounters: 1
 lastSeen: 2026-07-05T13:04:36.5063694+03:00
-claimedBy: fuzz2
-claimedAt: 2026-07-11T01:27:59.3440645+03:00
 ---
 
 # Layer / blend create RPCs skip the default template body, so a new layer stack never compiles as-created

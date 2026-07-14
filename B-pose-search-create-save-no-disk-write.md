@@ -7,8 +7,6 @@ category: bug
 tags: [pose-search, motion-matching, create-schema, create-database, add-database-animation, save, mcp-safe-asset-save, no-disk-write, cold-load, persistence, silent-failure, false-success]
 encounters: 1
 lastSeen: 2026-07-11T03:16:36.4063281+03:00
-claimedBy: fuzz2
-claimedAt: 2026-07-11T03:53:02.9842612+03:00
 ---
 
 # pose_search.create_* claim success but write nothing to disk — the schema + database are lost on restart

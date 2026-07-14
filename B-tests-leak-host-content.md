@@ -5,8 +5,6 @@ status: IN-REVIEW
 severity: Medium
 category: bug
 tags: [tests, hygiene, asset-cleanup]
-claimedBy: fuzz2
-claimedAt: 2026-07-13T08:21:32.9389776+03:00
 ---
 
 # Automation tests leave dirty /Game packages that an editor-wide save-all leaks into host Content

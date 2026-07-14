@@ -7,8 +7,6 @@ category: ergonomic
 tags: [async-poll-undocumented, level, save, docs, async, jobs, job_status, discoverability]
 encounters: 1
 lastSeen: 2026-07-10T21:44:13+03:00
-claimedBy: fuzz2
-claimedAt: 2026-07-11T06:33:19.7398739+03:00
 ---
 
 # level.save wiki (per-method page + level overlay) never documents its async ticket → system.job_status poll contract

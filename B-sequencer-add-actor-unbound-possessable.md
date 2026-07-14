@@ -7,8 +7,6 @@ category: bug
 tags: [sequencer, add_actor, add_actors, add_camera, possessable, object-binding, bind-possessable-object, sequencer-possessable-unbound, silent-failure, false-success, controlrig, binding-not-skeletal]
 encounters: 1
 lastSeen: 2026-07-11T08:02:05.5151743+03:00
-claimedBy: fuzz2
-claimedAt: 2026-07-11T08:47:41.9003215+03:00
 ---
 
 # `sequencer.add_actor` (and `add_actors`/`add_camera`) create a possessable that is never bound to any object — success:true with a bindingGuid, but the binding resolves to nothing

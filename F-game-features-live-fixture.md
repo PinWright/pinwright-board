@@ -5,8 +5,6 @@ status: IN-REVIEW
 severity: Medium
 category: feature
 tags: [game-features, plugins, test-fixture, testing]
-claimedBy: fuzz2
-claimedAt: 2026-07-13T09:33:37.7160174+03:00
 ---
 
 # In-code Game Feature plugin fixture (register + drive a synthetic GF plugin for tests)

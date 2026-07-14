@@ -4,8 +4,6 @@ title: "sequencer.add_camera_rig_rail / add_camera_rig_crane actorPath branch cr
 status: IN-REVIEW
 severity: Medium
 category: bug
-claimedBy: fuzz2
-claimedAt: 2026-07-11T13:53:41.7230228+03:00
 tags: [sequencer, add_camera_rig_rail, add_camera_rig_crane, possessable, object-binding, bind-possessable-object, sequencer-possessable-unbound, silent-failure, false-success]
 encounters: 1
 ---

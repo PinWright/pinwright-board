@@ -7,8 +7,6 @@ category: bug
 tags: [geometry, array_linear, dynamic-mesh, off-by-one, array-first-copy-at-origin, array-placement]
 encounters: 1
 lastSeen: 2026-07-11T03:56:34.4388061+03:00
-claimedBy: fuzz2
-claimedAt: 2026-07-11T06:06:20.9381634+03:00
 ---
 
 # `geometry.array_linear` doubles the original at the origin and drops one spacing — the first appended copy is placed with an identity transform, not offset

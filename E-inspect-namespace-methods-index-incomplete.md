@@ -7,8 +7,6 @@ category: ergonomic
 tags: [namespace-index-incomplete, wiki, discoverability, system-inspect, category-split]
 encounters: 1
 lastSeen: 2026-07-11T22:18:30.9536453+03:00
-claimedBy: fuzz2
-claimedAt: 2026-07-12T21:11:19.4377943+03:00
 ---
 
 # The `system.inspect.*` scene/inspection readers register Category `system`, so they land on the `system` page's `## Methods` index — not on the `system.inspect` page their names imply

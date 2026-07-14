@@ -7,8 +7,6 @@ category: bug
 tags: [texture, texture-sharpen, texture-blur, no-disk-write, mcp-safe-asset-save, false-success, silent-failure, persistence, cold-load]
 encounters: 1
 lastSeen: 2026-07-11T12:12:14.1030419+03:00
-claimedBy: fuzz2
-claimedAt: 2026-07-11T12:37:35.0535361+03:00
 ---
 
 # texture.* save:true writes report success but never reach disk — texture edits are lost on cold restart

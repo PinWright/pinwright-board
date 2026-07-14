@@ -7,8 +7,6 @@ category: bug
 tags: [substring-parse-wrong-value, sequencer, set_tick_resolution, silent-wrong-data, tick-resolution]
 encounters: 1
 lastSeen: 2026-07-11T11:48:18.1474738+03:00
-claimedBy: fuzz2
-claimedAt: 2026-07-11T22:34:04.5806110+03:00
 ---
 
 # `sequencer.set_tick_resolution` clamps any resolution containing the substring "24000"/"60000" to 24000/60000

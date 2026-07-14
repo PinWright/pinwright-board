@@ -5,8 +5,6 @@ status: IN-REVIEW
 severity: Medium
 category: feature
 tags: [pcg, generation, readback, async]
-claimedBy: fuzz2
-claimedAt: 2026-07-11T09:35:27.2903582+03:00
 ---
 
 # pcg.generate — trigger generation on a placed actor and read back results

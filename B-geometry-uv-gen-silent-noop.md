@@ -7,8 +7,6 @@ category: bug
 tags: [uv-gen-silent-noop, geometry, project_uv, unwrap_uv, auto_uv, pack_uv_islands, uv, success-no-effect, append_buffers]
 encounters: 1
 lastSeen: 2026-07-10T21:10:50.8332607+03:00
-claimedBy: fuzz2
-claimedAt: 2026-07-10T22:54:32.3096639+03:00
 ---
 
 # UV-generation verbs silently no-op (success:true, 0 UV elements) on a mesh whose UV layer was never enabled

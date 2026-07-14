@@ -7,8 +7,6 @@ category: bug
 tags: [section-range-display-frames-as-ticks, sequencer, units, add_camera_track, add_animation_track, add_audio_track, bug]
 encounters: 1
 lastSeen: 2026-07-11T09:58:44.1621854+03:00
-claimedBy: fuzz2
-claimedAt: 2026-07-11T10:45:13.1076712+03:00
 ---
 
 # sequencer section-authoring verbs size sections in display-rate frames but SetRange stores tick-resolution frames — sections are ~1000x too short

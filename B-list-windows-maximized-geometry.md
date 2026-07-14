@@ -7,8 +7,6 @@ category: bug
 tags: [window-maximized-state, window-minimized-state, drive, editor_chrome, list_windows, doc-mismatch]
 encounters: 1
 lastSeen: 2026-07-10T22:58:29.9710450+03:00
-claimedBy: fuzz2
-claimedAt: 2026-07-11T02:26:22.1214402+03:00
 ---
 
 # drive.list_windows omits per-window window state
