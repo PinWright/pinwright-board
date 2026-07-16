@@ -1,7 +1,7 @@
 ---
 id: F-static-mesh-bake-transform
 title: "static_mesh.bake_transform — bake rotation/translation/uniform scale into a StaticMesh asset in place (render LODs + simple collision + sockets + bounds)"
-status: OPEN
+status: IN-REVIEW
 severity: Medium
 category: feature-request
 tags: [static-mesh, bake-transform, convex-collision, mesh-description, geometry, asset-mutation]
@@ -38,3 +38,4 @@ Scope: rotation + translation + uniform positive scale only; mirror/shear/non-un
 
 ## History
 - `#1-initial-report` `OPEN` reporter — Filed from the SM_PioneerCircle front/back flip: render geometry flipped via session-enabled GeometryScript python, but FKConvexElem's python-opaque data forced regenerating 19 authored hulls into a 15-hull approximation. An exact in-place bake needs C++; proposed `static_mesh.bake_transform` as above.
+- `#2-implemented` `IN-REVIEW` developer — Implemented as proposed in `Source/PinWright/Private/Handlers/Asset/StaticMeshBakeTransformHandler.cpp` (plugin commit 3583b2c9): validates uniform scale > 0 (mirror/shear rejected INVALID_ARGUMENT), no-ops on identity, `PreEditChange(nullptr)` → per-LOD `FStaticMeshOperations::ApplyTransform` + `CommitMeshDescription` (reduction-only LODs counted as generatedLodsRebuilt), hi-res source transformed when present, AggGeom transformed exactly (convex: `BakeTransformToVerts()` when elem transform non-identity, then VertexData transform + `UpdateElemBox()`; box/sphere/sphyl/tapered-capsule composed via FQuat right-first order; level-set families skipped+counted, MLLevelSet/SkinnedTriangleMesh arrays guarded `UE_VERSION_NEWER_THAN_OR_EQUAL(5,6,0)` — they only exist from 5.6; all load-bearing APIs verified present 5.3–5.8), sockets transformed, bounds extensions scaled with response note, rebuild via single `PostEditChange()` + `FStaticMeshCompilingManager::FinishCompilation`, save via `SaveAssetToDiskReportingPresence` + honest save report. Wiki: `### static_mesh.bake_transform` section in `docs/wiki-src/static_mesh.md`. Regression tests `PinWright.static_mesh.bake_transform.Yaw180TransformsGeometryCollisionAndSockets` (one-triangle fixture + convex/box/socket, asserts (x,y)→(−x,−y) on MD verts, hull verts, ElemBox, box center/yaw, socket, response counts, save:false honored) and `.RejectsNonPositiveScale` (scale 0 and −1 → INVALID_ARGUMENT) — both green on UE 5.7, full `PinWright.static_mesh` bucket green. Live-verified on the motivating asset: original `/App/App/Drone/SM_PioneerCircle` restored from git and baked yaw-180 — response reported all 19 convex hulls transformed, face renders toward +X.
