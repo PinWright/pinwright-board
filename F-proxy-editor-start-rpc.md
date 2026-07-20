@@ -1,7 +1,7 @@
 ---
 id: F-proxy-editor-start-rpc
 title: "mcp_proxy.py: add an editor-start RPC (visible or invisible run) with readiness-gated return"
-status: OPEN
+status: IN-REVIEW
 severity: Medium
 category: feature
 tags: [proxy, mcp-proxy, editor-launch, startup, readiness, headless]
@@ -40,3 +40,4 @@ visible/invisible distinction, but it cannot start the editor itself).
 
 ## History
 - `#1-maintainer-request` `OPEN` maintainer — Requested alongside the readiness-probe ruling: "maybe add editor start rpc to py, with option for visible or invisible runs." Filed with the readiness-gated-return shape; blocking lives in mcp_proxy.py per the same ruling.
+- `#2-editor-start-tool` `IN-REVIEW` developer — Added a dedicated proxy-local `editor_start` MCP tool in `Content/Python/mcp_proxy.py` (always advertised in `tools/list` alongside `call`; routed locally before the forward path). Args `{visible, wait, extra_args}`. Two `wait` modes: `ready` (default) blocks until the editor answers `ping` and leaves it running (returns pid/url/port/elapsed, bounded by `--start-timeout` 180s, reports already-running instead of double-spawning); `exit` blocks until the spawned process terminates (returns exitCode/duration/logPath, bounded by `--run-timeout` 1800s) for `-ExecCmds=...;Quit` test runs / commandlets. `visible=false` uses the repo's windowless set (`-RenderOffScreen -unattended -nopause -nosplash -nocefaccelpaint`, hidden window; never `-NullRHI`). Editor binary auto-detected (default: walk up from the bundled `sys.executable` to the engine tree; overrides `--editor-exe` > `$UE_ROOT` > `.uproject` EngineAssociation). Spawns detached; never kills a slow child (starting != hung). Stdlib-only. Discoverability hints added to the dead-editor error strings. New unit tests `tests/test_mcp_proxy_editor_start.py` (pure command-builder + exe-resolver + `_abslog_path`); full suite 29 tests green under the bundled Python. Also gated the connector across UE 5.3–5.8: the `mcp-version-matrix` workflow now runs these unit tests under each engine's bundled Python (3.9 on 5.3, 3.11 on 5.4+) as a pre-COMPILE `pyTestsPassed` gate, proving stdlib-only + syntax compat per version. Not yet gate-verified live (readiness/exit wait paths exercised end-to-end pending); scope-refined to gate on `ping` (the C++ `system.health` from `F-editor-readiness-probe` is not built yet).
