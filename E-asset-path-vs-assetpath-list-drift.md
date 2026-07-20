@@ -5,6 +5,8 @@ status: IN-REVIEW
 severity: Low
 category: ergonomic
 tags: [asset, param-alias, path, assetpath, asset-list, asset-exists, asset-dump, drift]
+encounters: 15
+lastSeen: 2026-07-20T10:48:17Z
 ---
 
 # Within `asset.*`, `asset.list` names its slot `path` but `asset.exists` / `asset.dump` require `assetPath`
@@ -384,6 +386,24 @@ list->probe chain is the natural friction.
   save verb, confirming the engine-wide caller habit `#3`/`#5`/`#7`/`#13` named. Same fix:
   apply the `#11` `AssetPathParamUtils::AssetPathParamReq` alias treatment to the new
   `AssetSaveHandler.cpp` when `F-asset-save` lands.
+- `#16-asset-save-primed-by-asset-delete-path` `OPEN` reporter — Additional evidence (third
+  independent `asset.save` observation after `#13`/`#14`), with a sharper priming source: this
+  session an agent ran `asset.delete {path:"/App/HELIOS/Drones/Atlas/B_PioneerCircle"}` (which
+  **accepts** `path` — the `asset.delete` slot confirmed in `#15`, AssetManageHandler.cpp:520
+  `RPC_PARAM_OPT("path", ...)` / :521 `RPC_PARAM_OPT("paths", ...)`), then naturally reused the
+  same spelling on the very next save: `asset.save {path:"/App/HELIOS/Drones/Atlas/B_PioneerSumo"}`
+  → failed on the missing `assetPath`, corrected on retry to
+  `{assetPath:"/App/HELIOS/Drones/Atlas/B_PioneerSumo"}` → ok (one round-trip, recovered
+  immediately, zero blocked progress). So the delete→save chain is the concrete `path`-teaching
+  predecessor `#13`/`#14` only inferred: the sibling that primes `path` is itself an `asset.*`
+  verb (`asset.delete`) that legitimately takes it. Re-verified source: `asset.save` still
+  declares a bare `RPC_PARAM_REQ("assetPath", ...)` with no `path` alias
+  (AssetSaveHandler.cpp:45); `asset.dump_folder` uses yet a third spelling `folderPath`
+  (AssetDumpHandler.cpp:2072), underscoring the un-guessable target-slot surface across `asset.*`.
+  Friction note (verbatim): "asset.save requires assetPath (not path); corrected on retry." Same
+  fix: apply the `#11` `AssetPathParamUtils::AssetPathParamReq` alias treatment to
+  `AssetSaveHandler.cpp` (spec alias + `GetStringFirstOf(AssetPathKeys())` body read) when
+  `F-asset-save` lands, so the namespace stays uniformly aliased.
 - `#15-asset-delete-reverse-direction-assetpath-rejected` `OPEN` reporter — First
   evidence of this drift in the **reverse direction**, and the first time the
   `path`-declaring side of the namespace (the `asset.list`-style slot this ticket's
