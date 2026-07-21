@@ -1,7 +1,7 @@
 ---
 id: F-console-command-world-target
 title: "editor.console_command cannot target a specific PIE world (server/client)"
-status: OPEN
+status: IN-REVIEW
 severity: Medium
 category: feature
 tags: [editor, console-command, pie, multiplayer, world-targeting]
@@ -28,8 +28,8 @@ on the game thread, stalls the editor under polling.
 `"editor"` (default) | `"server"` | `"client[:N]"` | `"pie:N"` — resolved via
 `GEngine` world contexts (`EWorldType::PIE`, `PIEInstance`, NetMode
 classification). On no match, return a helpful error listing the available
-contexts. Note: implementation is already in flight by another agent (filed
-alongside; developer flips to IN-REVIEW when done).
+contexts.
 
 ## History
 - `#1-mp-pie-targeting-gap` `OPEN` reporter — Filed from MP sumo netcode test sessions: server/client-scoped console commands (App.Launch servertravel in the PIE server world, `open` in the PIE client world) have no RPC path and fall back to a game-thread-stalling python.execute world-iteration workaround. Implementation of the `world` param is in flight by another agent.
+- `#2-implemented-verified` `IN-REVIEW` developer — Implemented in PinWright commit 73a229d1: `world` selector ("editor" default | "server" | "client[:N]" 1-based | "pie:N") resolved via a pure PieWorldSelector helper; INVALID_ARGUMENT on malformed selectors, WORLD_NOT_FOUND listing available contexts on a miss. 4 new handler tests green; live-verified in a 2-client listen session (selector drove App.Launch servertravel on the server context; both error paths exercised verbatim). Awaiting independent tester verification for DONE.

@@ -1,7 +1,7 @@
 ---
 id: F-pie-status-rpc
 title: "No cheap PIE session status RPC: which PIE worlds exist and what map/state is each on"
-status: OPEN
+status: IN-REVIEW
 severity: Medium
 category: feature
 tags: [editor, pie, status, polling, multiplayer]
@@ -26,8 +26,8 @@ to be settled at implementation) returning one entry per PIE world context:
 `{pieInstance, kind: server|client|standalone, netMode, mapName, worldPath,
 gameStateClass, numPlayerControllers}`, empty when no PIE session is running.
 Enables cheap client-side polling for "is the travel done" instead of blocking
-python sleep loops. Note: implementation is already in flight by another agent
-(filed alongside; developer flips to IN-REVIEW when done).
+python sleep loops.
 
 ## History
 - `#1-pie-status-polling-gap` `OPEN` reporter — Filed from MP sumo netcode test sessions: no RPC enumerates PIE contexts (instance, server/client kind, netMode, map, gameState, player-controller count), so travel-completion checks ran as game-thread-stalling python ObjectIterator scripts and blind sleep loops. Implementation is in flight by another agent; related `F-console-command-world-target`.
+- `#2-implemented-verified` `IN-REVIEW` developer — Implemented in PinWright commit 73a229d1 as `editor.pie_status` (kept under `editor.*` beside its sibling probe `editor.status`; no `pie.*` namespace exists). Returns `{inPie, count, contexts:[{pieInstance, kind, netMode, mapName, worldPath, gameStateClass, numPlayerControllers}]}`, empty+inPie:false without PIE. Handler test green; live-verified as the readiness poll for a full 2-client servertravel launch, including a mid-init transient world classifying cleanly. Awaiting independent tester verification for DONE.
