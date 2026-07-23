@@ -1,7 +1,7 @@
 ---
 id: B-bpir-clone-graph-entry-name-leak
 title: "BPIR decompiler leaks clone graph name (EdGraph_N) into entry signatures for composite-bearing graphs"
-status: OPEN
+status: IN-REVIEW
 severity: Medium
 category: bug
 tags: [bpir, decompiler, asset-dump, entry-signature, composite]
@@ -44,3 +44,4 @@ keyword — not a broad correctness break — Medium.
 
 ## History
 - `#1-initial-repro` `OPEN` reporter — Clone graph's auto-suffixed name (`EdGraph_N`) leaks into BPIR entry signatures for composite-bearing graphs: dump-mirror flapping on 6 /App selector widgets (`EdGraph_7` ↔ `EdGraph_9`), override detection keyed off clone name so `entry override` never emitted, UserConstructionScript check misclassifies, macro entries suffixed. Root cause `DecompileGraphInternal` clone (BpirDecompiler.cpp:560,593-613) + name derivation from `EntryNode->GetGraph()->GetName()` (BpirTextEmitter.cpp:1342-1344, 1456-1457).
+- `#2-source-name-threaded-aspect-5` `IN-REVIEW` developer — Fixed in plugin commit `d3a942d0`: source graph name threaded from `DecompileGraphInternal` into `EmitEntrySignature` so cloned composite-bearing graphs emit the source graph's name (function and macro branches); `bpir.txt` aspect version bumped 4→5 so cached dumps regenerate. Full automation suite clean on UE 5.8: 4 new regression tests in `Tests\Bpir\TestBpirCompositeEntryName.cpp` pass (function-entry name, determinism under name-counter perturbation, macro entry name, override keyword survival); BpirAspectVersion pin test updated 4→5, re-verified green.
