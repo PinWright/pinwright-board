@@ -2,7 +2,7 @@
 id: B-bpir-clone-graph-entry-name-leak
 title: "BPIR decompiler leaks clone graph name (EdGraph_N) into entry signatures for composite-bearing graphs"
 status: OPEN
-severity: High
+severity: Medium
 category: bug
 tags: [bpir, decompiler, asset-dump, entry-signature, composite]
 encounters: 1
@@ -30,6 +30,10 @@ Symptoms:
   emitted; the `UserConstructionScript` check (`:1347`) misclassifies; macro
   entry names come out suffixed. The caller trusts an entry signature that is
   a lie.
+
+Severity rubric: silent wrong data, but reach is limited to composite-bearing
+graphs and the practical impact is dump-mirror noise plus a missing `override`
+keyword — not a broad correctness break — Medium.
 
 **Workaround:** none for the emitted text; for dump-mirror churn, ignore
 `entry function EdGraph_N` diffs on composite-bearing widgets.
