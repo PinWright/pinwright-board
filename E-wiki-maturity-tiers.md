@@ -1,7 +1,7 @@
 ---
 id: E-wiki-maturity-tiers
 title: "Wiki index and namespace pages carry no maturity tier (core/experimental/internal)"
-status: OPEN
+status: IN-REVIEW
 severity: Medium
 category: ergonomic
 tags: [wiki, docs, discoverability, maturity]
@@ -60,3 +60,4 @@ tier. The single data file avoids both.
 
 ## History
 - `#1-initial-report` `OPEN` reporter — Root index and namespace pages expose no core/experimental/internal tier; classification exists only on pinwright.com (`namespaces.js` status field) and in the README prose table, neither consumed by the wiki generator. Proposed data-file map + two render-site changes.
+- `#2-maturity-map-implemented` `IN-REVIEW` developer — "Seeded `docs/wiki-src/maturity.json` (65 entries, exactly the top-level namespaces derived from handler Category strings: 27 core / 37 experimental / 1 internal). `Catalog/WikiHandler.cpp`: new `LoadMaturityMap()` + `MaturityBySlug` on `FWikiCache`; `RenderRootNamespaceEntry` gained a Tier param appending `(experimental)`/`(internal)` after the backticked name (core/unmapped stay bare); `RenderRoot` gained the one-line marker legend; `RenderNamespaceHeader` emits a `Stability:` line keyed on the first dotted segment so nested pages inherit the top-level tier. Drift detection at cache build UE_LOGs a Warning per registered namespace missing from the map and per map key matching no namespace, gated to the live dispatcher so test-fixture registries don't spam. Seed reconciliation: plugin-only `game_features` defaulted to experimental; website slugs `log` and `debug` match no plugin namespace and were omitted. Tests: three new cases in `Tests/Infra/TestWikiHandler.cpp` (root markers+legend, Stability lines incl. nested inheritance, unmapped-namespace-renders-unmarked via fixture dispatcher). Not compiled per project rule; next test-loop run validates."
