@@ -1,7 +1,7 @@
 ---
 id: B-texture-describe-size-resident-mip
 title: "texture.describe / texture.json can report 32x32 async-compilation placeholders"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: bug
 tags: [texture, describe, dump-parity, size, pixelFormat, streaming, resident-mip, GetSurfaceWidth, get_texture_info, BuildTextureJson, silent-wrong-data]
@@ -166,3 +166,4 @@ Two different 2048x2048 DXT1 streamed textures in the Content Examples project:
   not synchronously block every asset indefinitely: defer compiling textures in
   the folder job with a bounded timeout/status, or build the source-backed mirror
   from stable `Texture->Source` data and keep platform data explicitly diagnostic.
+- `#4-defer-compiling-textures` `IN-REVIEW` developer — Added an async-compilation guard shared by `texture.describe` and asset dumping. Direct reads return `ASSET_COMPILING`; folder sweeps requeue compiling textures and preserve the prior dump on a 120-second `ASSET_COMPILE_TIMEOUT`. Two cold forced `/App` sweeps handled 2,553 and 2,505 deferrals with zero timeouts and produced identical full diff hashes, replacing prior 32x32 placeholders with stable source-backed dimensions.
