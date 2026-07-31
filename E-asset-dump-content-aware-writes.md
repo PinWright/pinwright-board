@@ -1,7 +1,7 @@
 ---
 id: E-asset-dump-content-aware-writes
 title: "asset.dump rewrites every sidecar instead of updating content-aware"
-status: OPEN
+status: IN-REVIEW
 severity: Medium
 category: ergonomic
 tags: [asset-dump, writer, determinism, io, mirror]
@@ -39,3 +39,4 @@ the old complete baseline intact.
 
 ## History
 - `#1-app-refresh-rewrite-all` `OPEN` reporter — Source-validated during the 8,192-asset `/App` dump review: `WriteAssetDump` always calls recursive `DeleteDirectory` + `MakeDirectory` and rewrites every `FDumpFile`; `DumpSingleAsset` then rewrites binary files separately. A single changed/noisy aspect therefore churns every sibling sidecar for that asset, while a failed replacement can leave only a partial baseline.
+- `#2-transactional-content-writes` `IN-REVIEW` developer — Unified text and binary outputs under one manifest, compare exact bytes before writing, preserve unchanged mtimes, stage changed files before commit, retain `.dumpcache.json`, prune stale sidecars only after success, and preserve the backup directory when rollback cannot fully restore. A second cold forced `/App` sweep and a cache-hit sweep left the complete 8,689-file diff hash unchanged.
