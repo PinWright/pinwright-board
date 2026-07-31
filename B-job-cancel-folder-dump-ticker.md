@@ -5,8 +5,8 @@ status: OPEN
 severity: Medium
 category: bug
 tags: [jobs, asset-dump, cancel, silent-false-success]
-encounters: 1
-lastSeen: 2026-07-10T06:36:00Z
+encounters: 2
+lastSeen: 2026-07-31T11:57:27Z
 ---
 
 # system.job_cancel reports cancelled:true but the folder-dump ticker keeps sweeping
@@ -42,3 +42,4 @@ that were still pending).
 - `#1-cancel-keeps-sweeping` `OPEN` reporter — Cancelled a live 8166-asset asset.dump_folder via system.job_cancel; registry flipped to cancelled but the ticker kept dumping ~280 files/s until natural completion, and new dump_folder calls stayed blocked with DUMP_IN_PROGRESS.
 - `#2-registry-aware-cancel` `IN-REVIEW` developer — Made the async dump sweep registry-aware. TickFolderDump now consults the job ticket each tick and, the moment it is no longer running (i.e. cancelled), finalizes early via FinalizeAsyncDump(bReconcile=false) — so the sweep stops immediately, state resets (clearing the lingering DUMP_IN_PROGRESS), and the mirror reconcile is skipped so a cancel does NOT prune existing dumps for the still-pending assets. Wired at the sweep level, not via SetCancelCallback, so it covers both asset.dump_folder and async single-level asset.dump. File: Source/PinWright/Private/Handlers/Asset/AssetDumpHandler.cpp. Regression tests (Source/PinWright/Private/Tests/Utility/TestAssetDumpFolderCancel.cpp): PinWright.asset.dump.AsyncFolder.CancelStopsSweep (adopted red test — pending assets are not dumped after cancel) and PinWright.asset.dump.AsyncFolder.CancelSkipsMirrorReconcile (cancel does not prune prior dumps for still-pending assets).
 - `#3-attempt-failed` `OPEN` developer — Attempt not published: the fix run was stopped by the operator mid-Diff-Review (harness upgrade), so the #2 implementation never reached the plugin origin and was swept by the baseline invariant. The #2 notes remain a valid design reference for the retry.
+- `#4-live-cancel-regression` `OPEN` reporter — Re-encountered during a large asset.dump_folder sweep: system.job_cancel marked the ticket cancelled but the folder-dump work remained active and the editor became unresponsive. Current source still binds no cancel callback for asset.dump_folder, TickFolderDump never checks the ticket status, and FinalizeAsyncDump only runs after PendingAssets drains.
