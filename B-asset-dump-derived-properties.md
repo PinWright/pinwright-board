@@ -1,7 +1,7 @@
 ---
 id: B-asset-dump-derived-properties
 title: "properties.json leaks derived engine state and produces false asset diffs"
-status: OPEN
+status: IN-REVIEW
 severity: Medium
 category: bug
 tags: [asset-dump, properties, determinism, derived-data]
@@ -20,3 +20,4 @@ Engine declarations confirm these are not authored state: `StaticMeshSourceData.
 
 ## History
 - `#1-app-redump-derived-noise` `OPEN` reporter — `asset.dump_folder {folderPath:"/App",recursive:true}` completed, but the Git diff contained 16 derived-only `properties.json` changes: 12 StaticMesh cached-count flips, two regenerated MovieScene signatures, one reordered material streaming cache, and one Niagara compiled-data change. Source and UE 5.8 declarations confirm these fields are runtime/derived rather than authored asset state.
+- `#2-filter-nonsemantic-properties` `IN-REVIEW` developer — Property export now omits transient, duplicate-transient, deprecated, and skip-serialization fields at nested and top-level boundaries, plus exact owner-qualified derived caches for StaticMesh source counts, MovieScene signatures, material texture-streaming data, and Niagara compiled data. Set values are sorted by canonical JSON. Two cold forced 8,192-asset `/App` sweeps produced the same diff hash; the one-time cleanup removed repeated collision, physics, and editor caches rather than carrying session state forward.
