@@ -20,3 +20,4 @@ Residual low-impact nondeterminism sources left open by the July 2026 dump-deter
 
 ## History
 - `#1-filed-from-determinism-audit` `OPEN` reporter - Filed as the consolidated Tier-3 backlog from the dump-determinism audit; all four items carry file:line references from the audit pass. None churn routine same-build re-dumps, hence one Low ticket instead of four.
+- `#2-set-ordering-fixed` `OPEN` developer - Partial implementation: generic `FSetProperty` values now sort by canonical serialized JSON before emission, and SoundCue concurrency paths are sorted. The ticket remains OPEN because its other Tier-3 items are unchanged.
