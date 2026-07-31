@@ -1,15 +1,22 @@
 ---
 id: B-texture-describe-size-resident-mip
-title: "texture.describe / texture.json top-level `size` (and `pixelFormat`) report the resident streaming mip, not the texture — a streamed 2048x2048 DXT1 texture reads back as 32x32 PF_B8G8R8A8 on the canonical read"
-status: WONTFIX
+title: "texture.describe / texture.json can report 32x32 async-compilation placeholders"
+status: OPEN
 severity: High
 category: bug
 tags: [texture, describe, dump-parity, size, pixelFormat, streaming, resident-mip, GetSurfaceWidth, get_texture_info, BuildTextureJson, silent-wrong-data]
-encounters: 1
-lastSeen: 2026-06-25T07:14:35Z
+encounters: 2
+lastSeen: 2026-07-31T12:27:38Z
 ---
 
-# `texture.describe` reports the resident-mip size/format as the texture's `size` and `pixelFormat`
+# `texture.describe` can report async-compilation placeholders as `size` and `pixelFormat`
+
+> **Corrected diagnosis:** the original resident-mip analysis below is retained as
+> historical report context, but UE 5.8 source and the revived reproduction show
+> the 32x32 / `PF_B8G8R8A8` values come from the default texture while platform
+> data is compiling, not from the currently resident streaming mip. See history
+> entries `#2-wontfix-placeholder-not-resident-mip` and
+> `#3-revived-async-placeholder-noise`.
 
 `texture.describe` is documented (in `texture.md`) as **the canonical dump-parity
 live read** for texture assets — "the result matches the `asset.dump`
@@ -144,3 +151,18 @@ Two different 2048x2048 DXT1 streamed textures in the Content Examples project:
   ever re-reproduced after `FTextureCompilingManager::Get().FinishCompilation`, file a
   fresh ticket targeting an async-compile/FinishCompilation wait in the builder, not the
   accessor swap.)
+- `#3-revived-async-placeholder-noise` `OPEN` reporter — Revived with the corrected
+  async-compilation root cause after a full `asset.dump_folder` of `/App` produced
+  424 spurious tracked sidecar changes across 212 textures (`texture.json` plus
+  `texture.txt`): 210 textures changed from the 32x32 / `PF_B8G8R8A8` placeholder
+  to their real dimensions/format, while 2 changed in the reverse direction. The
+  current builder still reads `GetSurfaceWidth`/`GetSurfaceHeight` and
+  `GetPixelFormat(0)` at `TextureDumpBuilder.cpp:192-198`; UE 5.8 explicitly says
+  those accessors return placeholders while platform data compiles and fully
+  up-to-date consumers must finish compilation (`Texture2D.cpp:344-348`), with the
+  default-texture fallbacks at lines 354-357, 370-373, and 405-407. Concrete
+  friction: texture noise accounts for 424 of the 442 non-source `/App` dump
+  changes and makes a clean dump non-convergent. Fix the cold-load timing, but do
+  not synchronously block every asset indefinitely: defer compiling textures in
+  the folder job with a bounded timeout/status, or build the source-backed mirror
+  from stable `Texture->Source` data and keep platform data explicitly diagnostic.
