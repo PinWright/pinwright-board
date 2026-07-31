@@ -1,7 +1,7 @@
 ---
 id: B-job-cancel-folder-dump-ticker
 title: "system.job_cancel reports cancelled:true but the folder-dump ticker keeps sweeping"
-status: OPEN
+status: IN-REVIEW
 severity: Medium
 category: bug
 tags: [jobs, asset-dump, cancel, silent-false-success]
@@ -43,3 +43,4 @@ that were still pending).
 - `#2-registry-aware-cancel` `IN-REVIEW` developer — Made the async dump sweep registry-aware. TickFolderDump now consults the job ticket each tick and, the moment it is no longer running (i.e. cancelled), finalizes early via FinalizeAsyncDump(bReconcile=false) — so the sweep stops immediately, state resets (clearing the lingering DUMP_IN_PROGRESS), and the mirror reconcile is skipped so a cancel does NOT prune existing dumps for the still-pending assets. Wired at the sweep level, not via SetCancelCallback, so it covers both asset.dump_folder and async single-level asset.dump. File: Source/PinWright/Private/Handlers/Asset/AssetDumpHandler.cpp. Regression tests (Source/PinWright/Private/Tests/Utility/TestAssetDumpFolderCancel.cpp): PinWright.asset.dump.AsyncFolder.CancelStopsSweep (adopted red test — pending assets are not dumped after cancel) and PinWright.asset.dump.AsyncFolder.CancelSkipsMirrorReconcile (cancel does not prune prior dumps for still-pending assets).
 - `#3-attempt-failed` `OPEN` developer — Attempt not published: the fix run was stopped by the operator mid-Diff-Review (harness upgrade), so the #2 implementation never reached the plugin origin and was swept by the baseline invariant. The #2 notes remain a valid design reference for the retry.
 - `#4-live-cancel-regression` `OPEN` reporter — Re-encountered during a large asset.dump_folder sweep: system.job_cancel marked the ticket cancelled but the folder-dump work remained active and the editor became unresponsive. Current source still binds no cancel callback for asset.dump_folder, TickFolderDump never checks the ticket status, and FinalizeAsyncDump only runs after PendingAssets drains.
+- `#5-cooperative-cancel-callback` `IN-REVIEW` developer — `AttachJobTicketToAsyncDump` now installs a real registry cancel callback for folder and async single-asset jobs. Cancellation removes the ticker, clears pending work, restores the dirty-package baseline, and skips mirror reconciliation so untouched dump directories are preserved. The editor progress notification exposes the same Cancel action. Cancellation is intentionally cooperative after an already-entered synchronous asset call returns.
