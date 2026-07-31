@@ -5,8 +5,8 @@ status: OPEN
 severity: Low
 category: ergonomic
 tags: [docs, wiki, async, jobs, asset, dump-folder, sse, streaming, wait]
-encounters: 1
-lastSeen: 2026-07-17T06:54:42Z
+encounters: 2
+lastSeen: 2026-07-31T12:00:02Z
 ---
 
 # asset.dump_folder docs still promise unconditional ticket return; SSE block-and-stream default and wait:false are undocumented
@@ -62,3 +62,4 @@ the path).
 ## History
 - `#1-streaming-kickoff-blocks` `OPEN` reporter — Live session: `asset.dump_folder /App` (8168 assets) did not return a ticket within 120 s; the streaming MCP client held the call open ~12 min and got the final `{rootDir,assetCount,queued,dumped,unchanged,skipCount}` payload instead of `{status:"running",ticket_id}`. Traced to `StartJob` suppressing the immediate ticket `SendSuccess` on the streaming path (`Handlers/HandlerContext.cpp:597-601`) — the block-and-stream default (triple gate, `Transport/McpRequestCore.cpp:442-446`) overriding the method's documented ticket-return contract (`AssetDumpHandler.cpp:2067-2070`). Not a regression of the job registry (`B-asset-dump-folder-no-completion-signal`), which recorded started/progress/completed correctly in jobs.jsonl.
 - `#2-reframed-docs-stale` `OPEN` maintainer — Ruling: "sse block is correct there, docs are stale." Reframed from bug `B-asset-dump-folder-kickoff-blocks-until-completion` (deleted before ever being committed) to this doc-drift entry: keep block-and-stream as the streaming default; fix the summary/wiki to document the conditional contract and the `wait:false` escape.
+- `#3-additional-app-sweep` `OPEN` reporter — Additional evidence: this session's streaming `asset.dump_folder` calls again blocked by default unless `args.wait:false` was supplied. Current source still implements that contract (`McpRequestCore.cpp:592-597`, `HandlerContext.cpp:588-607`, `mcp_proxy.py:29-36`), while the handler summary says "Returns a ticket" (`AssetDumpHandler.cpp:2280-2283`), `asset.dump-quickstart.md:36` says it "always returns a job ticket", `asset-audit.md:21` directs unconditional polling, and `asset.md:130-132` promises an immediate ticket.
