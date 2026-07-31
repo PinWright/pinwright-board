@@ -1,7 +1,7 @@
 ---
 id: B-niagara-dump-live-state-noise
 title: "Niagara authored dump sidecars include live compile-session state"
-status: OPEN
+status: IN-REVIEW
 severity: Medium
 category: bug
 tags: [asset-dump, niagara, determinism, compile-state, nir]
@@ -22,3 +22,4 @@ Acceptance tests must dump the same fixture before and after Niagara compilation
 
 ## History
 - `#1-app-redump-live-state` `OPEN` reporter — `asset.dump_folder {folderPath:"/App",recursive:true}` changed only live Niagara session state for `/App/App/FXE_Trail`: compile readiness/status fields flipped, `needsRecompile` changed true→false, and two `InitializeParticle.Lifetime` rapid rows disappeared after compilation. Source inspection confirms the default dump reads those live surfaces directly.
+- `#2-separate-authored-diagnostics` `IN-REVIEW` developer — Persisted `niagara_compile.json` and NIR now contain authored identities, graphs, parameters, issues, and true rapid-iteration overrides only. Live validity, status, readiness, and recompile fields moved to diagnostic builders used by `niagara.inspect` and `niagara.validate`; rapid values byte-identical to persisted module defaults are omitted. Two cold forced `/App` sweeps produced identical Niagara sidecars and full-tree diff hashes.
