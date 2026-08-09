@@ -1,0 +1,43 @@
+---
+id: B-level-save-verify-existence-not-freshness
+title: "The level-save disk gate probes only that the .umap exists, not that this save wrote it, so a stale file from any prior save satisfies the check and every level-save verb reports saved:true for a save that wrote nothing to that path"
+status: OPEN
+severity: High
+category: bug
+tags: [level-save, verification, honesty-gate, silent-false-success, customer-report]
+encounters: 1
+lastSeen: 2026-08-09T04:36:57Z
+---
+
+# The level-save disk gate probes existence, not freshness, so a stale .umap satisfies it and level.save reports saved:true for a save that wrote nothing
+
+External QA report, UE 5.7.4, Windows, PinWright running in-editor. The reporter's `level.save` on an already-saved map returned `saved: true` while `git hash-object` showed the project's `.umap` byte-for-byte identical to HEAD — the file the gate probed was the previous save's, not this one's.
+
+## What's wrong
+
+`VerifyLevelSavedToDisk` (`Source/PinWright/Private/Utils/AssetUtils.cpp:434-458`) and `McpSafeLevelSave`'s own post-save check (`:551-570`) both verify a save the same way: resolve the expected `.umap` path via `TryConvertLongPackageNameToFilename` (through `ResolveLevelPackageToMapFilename`, `AssetUtils.cpp:376-395`) and call `IFileManager::Get().FileExists` (`:446-448`). That is an **existence** check, not a **freshness** check. Nothing in either path reads a timestamp, a size, or the engine's report of where the bytes actually went.
+
+For a map that was ever saved before, the stale file from the previous save satisfies the probe, so `ShouldTreatCreateLevelSaveAsSuccess(bSaveReportedSuccess, bFileOnDisk)` (`:427-432`) returns true and `LevelHandler.cpp:331` reports `saved: true` — even when the current save wrote nothing to that path, or wrote it somewhere else entirely (see `B-level-save-package-path-as-filename`). The gate only catches the never-persisted case: a world whose `.umap` has never existed at all.
+
+## Why it mattered
+
+This is why the wrong-path write in `B-level-save-package-path-as-filename` was invisible on `level.save` (`LevelHandler.cpp:317-331`) and `level.save_as` (`:421-434`) for already-saved maps, for over five months. Meanwhile `level.structure.create_level` (`LevelStructureHandler.cpp:286-301`) and the lighting level probe (`LightingHandler.cpp:908-921`) — which save to genuinely *new* paths, where no stale file can exist — have been failing **honestly** the whole time with `SAVE_VERIFICATION_FAILED`. The split in observed behavior between those two groups of verbs was never a difference in the underlying save; it was entirely an artifact of whether a stale file happened to sit at the probed path.
+
+`FLightingCreateLevelReportsHonestPersistenceTest` (`Source/PinWright/Private/Tests/World/TestLevelHandlers.cpp:530-...`) drives a real handler end-to-end — the one test in this area that does — but its assertion is only that the report and on-disk reality *agree*. Its own comment states the invariant is "robust to the environment": a handler that honestly reports failure passes it. That is exactly what was happening while the underlying write kept going to the wrong place, so the test was green for five months across a live data-loss defect.
+
+## Fix
+
+Take a pre-save `IFileManager::GetTimeStamp` (and `FileSize`) of the expected `.umap` and require it to change, so an existing stale file can no longer satisfy `saved: true`. Handle the "file did not exist before" case as it is handled today — that path already works. Where the engine API exposes it, additionally assert the reported destination matches the expected path: `FEditorFileUtils::SaveLevel`'s third parameter is `FString* OutSavedFilename` (`FileHelpers.h:304`), populated from `SaveWorld`'s `FinalFilename` on success (`FileHelpers.cpp:4296-4299`). That is the stronger check — it catches a misdirected write directly rather than inferring it from an unchanged mtime — and it is the one `B-level-save-package-path-as-filename`'s fix introduces at `AssetUtils.cpp:543`. Prefer it where available; use the timestamp/size delta everywhere the destination is not reported back.
+
+## Distinct from
+
+`B-level-save-package-path-as-filename` is the wrong-path write; this is the detector that failed to notice. Fixing only the path leaves any future save regression equally undetectable — the gate would still pass on a stale file. Fixing only the gate makes `level.save` start reporting honest failures without fixing the save, turning a silent data-loss bug into a loud hard-blocker on every already-saved map. Both are required.
+
+Also distinct from `B-level-save-saved-true-in-memory-no-umap` (IN-REVIEW), whose `#2` fix *introduced* `VerifyLevelSavedToDisk` and wired it into both save verbs. That fix is correct as far as it goes and closed the in-memory-only false-success it targeted; this ticket is the residual gap in the predicate it added — the existence probe it chose cannot distinguish this save's file from the last one's, which is precisely the case an already-saved map always presents.
+
+## Severity
+
+High. Impact class is "silent false-success — the caller trusts a result that is a lie and builds on it", and reach is every level-save verb, which runs in almost every authoring session. Not Critical: on its own this writes no bad data and destroys nothing, it only fails to detect that a write went wrong. But it is what turned `B-level-save-package-path-as-filename` from a loud, immediately-diagnosed failure into five months of silent data loss, and it is what would do the same to the next save regression. The masking is the whole harm.
+
+## History
+- `#1-filed-from-customer-report` `OPEN` reporter — External QA report (UE 5.7.4, Windows, PinWright in-editor) of `level.save` returning `saved:true` on an already-saved map whose `.umap` `git hash-object` proved unchanged from HEAD. Traced the false success to the verification gate rather than the save: `VerifyLevelSavedToDisk` (`Utils/AssetUtils.cpp:434-458`) and `McpSafeLevelSave`'s own post-save check (`:551-570`) both resolve the expected `.umap` and call `IFileManager::FileExists` (`:446-448`, `:553-557`) with no timestamp, size, or destination comparison, so for any map saved even once before, the previous save's file satisfies the probe, `ShouldTreatCreateLevelSaveAsSuccess` (`:427-432`) returns true, and `LevelHandler.cpp:331` reports `saved:true` for a save that wrote nothing to that path. The gate only catches never-persisted worlds. This is why the wrong-path write filed as `B-level-save-package-path-as-filename` stayed invisible on `level.save` (`LevelHandler.cpp:317-331`) and `level.save_as` (`:421-434`) while `create_level` (`LevelStructureHandler.cpp:286-301`) and the lighting probe (`LightingHandler.cpp:908-921`), which target genuinely new paths where no stale file can exist, reported `SAVE_VERIFICATION_FAILED` honestly the whole time — the split was an artifact of stale-file presence, not of the save. `FLightingCreateLevelReportsHonestPersistenceTest` (`Tests/World/TestLevelHandlers.cpp:530-...`) is the only test here that drives a real handler end-to-end, but it asserts only that report and reality agree, which an honest failure satisfies, so it stayed green across the entire data-loss window. Fix: require a pre/post `IFileManager::GetTimeStamp` + `FileSize` delta on the expected `.umap` so a stale file can no longer satisfy `saved:true`, keeping today's handling for the file-did-not-exist-before case, and where the engine reports the destination back (`FEditorFileUtils::SaveLevel`'s `OutSavedFilename`, `FileHelpers.h:304`, populated from `SaveWorld`'s `FinalFilename` at `FileHelpers.cpp:4296-4299`) assert it matches the expected path — the stronger check, and the one `B-level-save-package-path-as-filename`'s fix adds. Dedup: `B-level-save-verify-existence-not-freshness` did not exist; scanned the board on `level-save`/`savelevel`/`save-map`/`package-path`/`filename`/`umap` and found `B-level-save-saved-true-in-memory-no-umap` (IN-REVIEW), whose `#2` introduced `VerifyLevelSavedToDisk` and correctly closed the in-memory-only false success — this ticket is the residual existence-vs-freshness gap in that predicate, not a re-file of it.
