@@ -168,3 +168,46 @@ and forced the dive; fixing it removes one of the three misleading green lights.
   asserting a reported-success save with no `.umap` resolves to `saved:false` /
   `SAVE_VERIFICATION_FAILED`, and a non-reported save to `SAVE_FAILED`. Both fail if
   either handler is reverted to a bare `saved = McpSafeLevelSave(...)`.
+- `#3-correction-wrong-drive-not-in-memory` `IN-REVIEW` reporter — **Correction to the
+  root cause in `#1`/`#2`.** The premise that the `.umap` "landed nowhere" is wrong:
+  the searches behind it were scoped to `Content/`, and the packages were in fact being
+  written — to a drive-relative path outside the project.
+  `FEditorFileUtils::SaveLevel` / `SaveMap` take a **filesystem filename**, which the
+  engine forwards as `ForceFilename`; the plugin passed a long package name
+  (`/Game/Maps/X`), whose leading `/` makes `FPaths::IsRelative` read it as already
+  rooted, so Windows resolved it against the current drive and the `.umap` landed at
+  `C:\Game\Maps\X`, extensionless. The save therefore **genuinely succeeded** and the
+  engine cleared the dirty flag — which is exactly why `bPackageClean` was true and why
+  the "in-memory-only world, no file written" diagnosis looked right. Evidence:
+  `C:\Game` held **824 orphan package files, 25 MB**, every one carrying
+  `PACKAGE_FILE_TAG` (`c1 83 2a 9e`), the oldest predating this ticket by months; 786
+  were `__EARG_LightingLevelHonestyProbe_*` and the other 38 were named after probe maps
+  from these investigations. Of the map names recorded in *this* ticket, the orphan list
+  contains `Prototype/OW_Prototype` — this ticket's own `#1` repro map `OW_Prototype`,
+  whose missing `.umap` is the entire basis of the report — and
+  `System/FrontEnd/Maps/L_Core`, which this ticket cites only as the map
+  `B-level-save-no-completion-signal` `#3` verified against, not as its own repro. The
+  `C:\Game` tree has since been deleted, so that list is the only remaining record.
+  **Fixed** in the nested plugin repo (`Plugins/PinWright`) at commit `40f26b6a` ("Save
+  levels to the resolved filename, not the package path"), claims verified at source:
+  `McpSafeLevelSave` (`Utils/AssetUtils.cpp`) now resolves the package through
+  `ResolveLevelPackageToMapFilename` before calling `SaveLevel` and proves the
+  destination by comparing the engine's `OutSavedFilename` against the expected filename
+  (`bLandedWhereExpected`); `level.create` (`LevelHandler.cpp:534+`) carried a second,
+  independent instance of the same defect and now passes the filename it had already
+  computed; and the existence-only disk gate gained a pre-save timestamp/size freshness
+  check (`bFreshWrite`, required only when the package was dirty going in) — it
+  previously accepted a **stale** `.umap` from an earlier save, which is why a
+  wrong-path write stayed invisible on already-saved maps. A `/Temp` destination is now
+  refused instead of being silently persisted into `Saved/Temp`. Full UE 5.8 automation
+  run afterwards: **3496/3496 green**, with `C:\Game` at 824 files before and 824 after.
+  Note on this ticket's own `#2` fix: `VerifyLevelSavedToDisk` is still live and still
+  load-bearing (`LevelHandler.cpp:331` `level.save`, `:434` `level.save_as`, `:561`
+  `level.create`, `LightingHandler.cpp:921`), but it is now one input among several
+  rather than the whole gate — and its existence-only probe was itself the mechanism
+  that masked the real defect. **Status deliberately left `IN-REVIEW`:** nobody has
+  re-verified this ticket's own symptom (`level.save` → `saved:true` on a
+  never-persisted world) against the `40f26b6a` fix, and its previously-applied `#2` fix
+  may have been aimed at the wrong layer — it made the *report* honest about a file that
+  was going to another drive, rather than fixing *where the bytes went*. Worth
+  re-reading `#2` now with the wrong-path root cause in hand.
