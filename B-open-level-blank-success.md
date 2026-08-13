@@ -1,7 +1,7 @@
 ---
 id: B-open-level-blank-success
 title: "render.capture_open_level silently succeeds with a uniform black PNG"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: bug
 tags: [render, capture_open_level, viewport, screenshot, blank, diagnostics, silent-success]
@@ -21,3 +21,4 @@ This is a silent false-success on a primary visual-review path. An agent trusts 
 
 ## History
 - `#1-uniform-black-repro` `OPEN` reporter — Six perspective `render.capture_open_level` calls against a populated lit arena returned success and byte-identical uniform-black 17,709-byte PNGs. Removing a temporary exposure volume did not alter the output. Filed a high-severity silent false-success defect requiring world binding, state diagnostics, luminance/variance validation, one bounded retry, and `allowBlank` opt-out.
+- `#2-validate-open-level-capture` `IN-REVIEW` developer — Added production luminance statistics and near-uniform-black classification in `PreviewViewportCaptureUtils`, one bounded redraw retry, typed `BLANK_CAPTURE`, explicit `allowBlank`, active-editor-world versus viewport-world validation, and viewport/world/camera/image diagnostics in `RenderHandler`. Added `FRenderCaptureImageStatsClassificationTest` and `FRenderCaptureOpenLevelPopulatedLitVarianceTest`, plus the render/error-code documentation.
