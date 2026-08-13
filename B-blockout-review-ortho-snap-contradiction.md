@@ -1,7 +1,7 @@
 ---
 id: B-blockout-review-ortho-snap-contradiction
 title: "Blockout review misstates orthographic capture behavior"
-status: OPEN
+status: IN-REVIEW
 severity: Medium
 category: bug
 tags: [docs, render, camera, orthographic]
@@ -26,3 +26,4 @@ contract test so the review and hub pages cannot drift apart again.
 
 ## History
 - `#1-ortho-contract-contradiction` `OPEN` reporter — Confirmed current `blockout-review.md` says every surface snaps and a tilted request returns the nearest axis, while `render.md`, `level-blockout.md`, and the render-handler tests specify raw-capture rejection with `UNSUPPORTED_ORTHOGRAPHIC_ROTATION`.
+- `#2-separate-reject-and-snap` `IN-REVIEW` developer — Rewrote the blockout-review contract to distinguish raw `render.capture_open_level` rejection from `camera.frame_actor` / `camera.orbit_shots` snapping, added a rendered workflow-doc contract test, and passed diff and targeted content checks. Published as PinWright commit `0f342cbb`.
