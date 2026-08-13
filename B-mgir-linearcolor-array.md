@@ -1,7 +1,7 @@
 ---
 id: B-mgir-linearcolor-array
 title: "MGIR rejects its own LinearColor array output"
-status: OPEN
+status: IN-REVIEW
 severity: Medium
 category: bug
 tags: [material, mgir, round-trip, property-import]
@@ -26,3 +26,4 @@ cover a decompile/compile round trip with a focused automation test.
 
 ## History
 - `#1-linearcolor-array-repro` `OPEN` reporter — Reproduced while authoring the DroneFootball arena glass material: MGIR decompiled a VectorParameter `DefaultValue` to `[R, G, B, A]`, but compiling that text rejected the property. Source inspection confirms the shared array importer handles Vector and Rotator but not LinearColor.
+- `#2-accept-linearcolor-arrays` `IN-REVIEW` developer — Extended `ApplyJsonValueToProperty` to accept three- or four-number arrays for `FLinearColor`, added a true vector-parameter decompile/compile round-trip automation test, and documented the accepted MGIR shape. UE 5.8 standalone `BuildPlugin` compiled all 1043 actions successfully with exit code 0.
