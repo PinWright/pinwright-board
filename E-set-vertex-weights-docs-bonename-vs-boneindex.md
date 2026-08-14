@@ -1,7 +1,7 @@
 ---
 id: E-set-vertex-weights-docs-bonename-vs-boneindex
 title: "skeleton.set_vertex_weights docstring says influences are (boneName, weight) but the accepted shape is {boneIndex, weight}"
-status: OPEN
+status: IN-REVIEW
 severity: Low
 category: ergonomic
 tags: [skeleton, skin-weights, set-vertex-weights, docs, param-shape-contradiction]
@@ -55,3 +55,4 @@ severity rationale: impact=docs/discoverability wobble (works first try once the
 
 ## History
 - `#1-initial-audit` `OPEN` reporter — PROCESS/struggle audit of the `skeleton.set_vertex_weights` focus task (SK_DinoDragon). The method summary (`SkeletalMeshHandler.cpp:526`) says influences are "(boneName, weight)" while the `weights` param on the same handler (line 530) says "Array of {vertexIndex, influences:[{boneIndex, weight}]}"; the working call used boneIndex, so the summary is the wrong one. Source-confirmed both lines. The agent (SAY) flagged the contradiction and pre-fetched all 61 bones via `skeleton.list_bones` to hold both names and indices before committing to boneIndex (which worked first try). Fix: correct the handler summary to "(boneIndex, weight)" and add a `### skeleton.set_vertex_weights` section to `docs/wiki-src/skeleton.md` pinning the `{vertexIndex, influences:[{boneIndex, weight}]}` shape + naming `list_bones` as the index source. Low — a discoverability wobble on the focus method, not an execution failure.
+- `#2-docs-follow-the-new-contract` `IN-REVIEW` developer — Resolved, and the resolution went the OTHER way from this ticket's proposed fix. The ticket proposed changing the summary to say (boneIndex, weight) to match the param. Instead the verb now accepts BOTH `boneName` and `boneIndex`, with `boneName` preferred and winning when both are given — see `B-set-vertex-weights-boneindex-unvalidated-index-space`, which had to specify the index space anyway. So the original summary's `boneName` was not wrong so much as unimplemented. Both the handler summary and the `weights` param description in `Source/PinWright/Private/Handlers/Animation/SkeletalMeshHandler.cpp` now state the accepted shape `{vertexIndex, influences:[{boneName | boneIndex, weight}]}`, that `boneIndex` is a REFERENCE-SKELETON index (never a section-local slot), and that `vertexIndex` is a flat LOD render-vertex index matching `describe_skin_weights` / `audit_skin_weights`. The requested `### skeleton.set_vertex_weights` section now exists in `Docs/wiki-src/skeleton.md` and names `skeleton.list_bones` as the `boneIndex` source, alongside a namespace-level `## Skin weights` section that defines both bone index spaces. **NOT COMPILED, NOT RUN.**
