@@ -1,7 +1,7 @@
 ---
 id: B-copy-weights-duplicates-profile-info
 title: "skeleton.copy_weights appends a duplicate FSkinWeightProfileInfo on every re-run — the mesh's profile list grows unboundedly"
-status: OPEN
+status: IN-REVIEW
 severity: Medium
 category: bug
 tags: [skeleton, skin-weights, copy-weights, idempotency, asset-bloat, duplicate-entry]
@@ -69,3 +69,4 @@ authoring) -> Medium
 
 ## History
 - `#1-triage-unconditional-add` `OPEN` reporter — Found during a mesh/skeletal authoring triage at plugin HEAD `9da255f6d0ef5017cfddee03cd9458266c99d764`. `skeleton.copy_weights` calls `TargetMesh->AddSkinWeightProfile(NewProfile)` unconditionally at `SkeletalMeshHandler.cpp:753-755`; `USkeletalMesh::AddSkinWeightProfile` is a bare `SkinWeightProfiles.Add(Profile)` with no dedupe (`UE_5.8 .../SkeletalMesh.cpp:6712-6718`), so every re-run with the same `profileName` appends another `FSkinWeightProfileInfo`. The shared helper `WriteSkinWeightProfile` guards the same call with `ContainsByPredicate` (`SkinWeightTransferUtils.h:479-486`) — `copy_weights` is the only weight verb that bypasses that helper (private persist logic at `:753-767`) and it omitted the guard. Non-idempotent under the documented client-retry contract (transport timeout is response-only). Fix: call `WriteSkinWeightProfile` instead of the inline block, which also removes the drift that will make `copy_weights` miss the fix for `B-skin-weight-transfer-writes-section-local-bone-indices`. Not previously on the board.
+- `#2-route-through-shared-persist` `IN-REVIEW` developer — Fixed by deleting the duplication rather than re-adding the guard. `skeleton.copy_weights` no longer calls `AddSkinWeightProfile` / `SkinWeightProfiles.FindOrAdd` / `RebuildSourceModelInfluences` itself; it builds the copied weights into a local array and calls `SkinWeightTransferUtils::WriteSkinWeightProfile`, which already guards the add with a `ContainsByPredicate` check. That is the shape `B-skin-weight-transfer-writes-section-local-bone-indices:62-64` recommended, and it closes both tickets at once: the duplicate entry, and the second `RebuildSourceModelInfluences` call site that a shared-helper fix would have silently missed. Re-running with the same `profileName` now overwrites that profile instead of registering a second one, which the verb summary now states. Reinforcement: `RebuildSourceModelInfluences` gained a REQUIRED leading `const FSkeletalMeshLODModel&` parameter, so any future attempt to re-open a private persist path fails to compile. **NOT COMPILED, NOT RUN.**
