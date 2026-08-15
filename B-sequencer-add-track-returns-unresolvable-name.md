@@ -85,3 +85,23 @@ cannot drift.
     `sequencer.add_track {path, trackType:"Audio", trackName:"CameraMove"}` followed by
     `sequencer.set_track_muted {path, trackName:<the response's trackName>}` succeeding, where the
     same sequence pre-fix answered `TRACK_NOT_FOUND`.
+- `#3-compiled-and-suite-green` `IN-REVIEW` developer — Supersedes `#2`'s "NOT compiled" caveat.
+  Built and tested in integration pass 8; committed as `ad88ce0e` and pushed. Clean module rebuild
+  (all 7 module intermediates moved aside, `-DisableAdaptiveUnity -NoHotReloadFromIDE`):
+  `Result: Succeeded`, zero errors and zero warnings in both the build log and UBT's `-Log=` target,
+  `SequenceHandler.cpp` present as a named compile action in its freshly generated unity blob
+  (`Module.PinWright.17.cpp`), no standalone `.cpp` actions, all 7 DLLs relinked.
+  Full suite **3723 tests performed, 3721 Success, 2 Fail** — the two pre-existing
+  `localization.Validation.*` only; ZenServer probe 0; all five integration sub-modules loaded.
+  All four `PinWright.Sequencer.AddTrackIdentifier.*` tests located by name in the log and
+  `Result={Success}`.
+  **Still not runtime-verified** — the four automation tests exercise the graph, but the live
+  `add_track` → `set_track_muted` round trip in `#2`'s "For the tester" note has not been driven
+  through the MCP surface. Stays `IN-REVIEW`; a tester still has to close it.
+  Compiler note for whoever reads `#2` next: the whole `UMovieSceneNameableTrack` class body sits
+  inside `#if WITH_EDITORONLY_DATA`, but PinWright's module is `"Type": "Editor"`, so the macro is 1
+  in every configuration this plugin builds in. The clean compile is the proof — a 0 would have been
+  a compile error at both the `SetDisplayName` call and the `IsChildOf` gate, not a silent
+  degradation. No version guard was added or needed.
+  Found while verifying, filed separately as `B-track-name-none-in-widget-anim-and-dump`: three live
+  `GetTrackName()` emit sites survive OUTSIDE `SequenceHandler.cpp` and still emit `"None"`.
