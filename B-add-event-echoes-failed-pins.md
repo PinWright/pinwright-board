@@ -78,3 +78,21 @@ default-mode `blueprint.compile_bpir`, whose Phase 0 sweep deletes the entry
     wildcard pin are now rejected. Any caller relying on that (e.g. passing `class:/Script/X.Y`) now
     gets `TYPE_NOT_FOUND` instead of a malformed pin — the same trade the `add_function` /
     `create_rpc_function` fix already made.
+- `#3-compiled-and-suite-green` `IN-REVIEW` developer — Supersedes `#2`'s "NOT compiled" caveat.
+  Built and tested in integration pass 8; committed as `eec42c96` and pushed. Clean module rebuild
+  (all 7 module intermediates moved aside, `-DisableAdaptiveUnity -NoHotReloadFromIDE`):
+  `Result: Succeeded`, zero errors and zero warnings in both the build log and UBT's `-Log=` target,
+  no standalone `.cpp` actions, all 7 DLLs relinked. Both changed files present as named compile
+  actions in their freshly generated unity blobs — `BlueprintEventHandler.cpp` in
+  `Module.PinWright.9.cpp`, `BlueprintInfoHandler.cpp` in `Module.PinWright.10.cpp`.
+  The link risk `#2` implied was checked and is not one: `CollectEventPins` is declared in the
+  shared header `Handlers/Blueprint/BlueprintHandlerUtils.h:336` and defined non-static at
+  `BlueprintHandlerUtils.cpp:1035` — it was never static or anonymous in `BlueprintInfoHandler.cpp`.
+  Full suite **3723 tests performed, 3721 Success, 2 Fail** — the two pre-existing
+  `localization.Validation.*` only; ZenServer probe 0; all five integration sub-modules loaded.
+  All five new tests located by name in the log and `Result={Success}`: the four
+  `PinWright.blueprint.add_event.*` plus `PinWright.blueprint.get.RegistryOnlyEventIsNotReported`.
+  **Still not runtime-verified** through the MCP surface — no live `add_event` → `compile_bpir` →
+  `blueprint.get` round trip was driven. Stays `IN-REVIEW`; a tester still has to close it, and the
+  behaviour change flagged at the end of `#2` (previously-silent wildcard pins now `TYPE_NOT_FOUND`)
+  is the thing to look for in the field.
