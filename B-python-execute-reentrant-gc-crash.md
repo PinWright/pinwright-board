@@ -1,7 +1,7 @@
 ---
 id: B-python-execute-reentrant-gc-crash
 title: "Editor crash: python.execute handler runs a UFUNCTION that triggers CollectGarbage(), engine re-enters Python from the pre-GC delegate"
-status: IN-REVIEW
+status: OPEN
 severity: Critical
 category: bug
 tags: [python, crash, garbage-collection, engine-fault, reentrancy, material]
@@ -125,8 +125,39 @@ So the fix cannot be about our object lifetimes; it has to be about **not lettin
 Python frame is live**, which is what (1)/(2)/(3) address.
 
 ## History
-- `#2-mitigations-1-and-4-landed` `IN-REVIEW` — **(1) and (4) done; (2) rejected with a reason; (3) not
-  needed for this trigger.**
+- `#3-blocklist-removed-back-to-open` `OPEN` — **The blocklist described in `#2` was built and then
+  removed at the user's request before it ever shipped. Back to `OPEN`: this crash has no code-level
+  mitigation. `#2` is kept below as the record of what was tried, but its mitigation-(4) claim no
+  longer holds.**
+
+  Removed: `Handlers/System/PythonWeakSandbox.{h,cpp}`, `Tests/Utility/TestPythonWeakSandbox.cpp`,
+  `ERR_PYTHON_CALL_BLOCKED`, and the pre-flight call site in `PythonExecuteHandler.cpp` (that file is
+  now byte-identical to `b92ba268`). Nothing refuses `recompile_material` today.
+
+  **Why it was rejected — do not re-propose this without reading it.** The objection was not that the
+  implementation was wrong; it was that a new enforcement mechanism was being added to the
+  most-called verb in the plugin to restate a rule that already existed in prose, and nobody had
+  asked for it. The Blender-MCP `weak_sandbox.py` precedent that motivated it is a real precedent,
+  but "another MCP server does this" is not a reason this plugin needs it. Cost was permanent
+  (a scan on every `python.execute`, a mechanism to maintain and a false-positive surface);
+  benefit was one call that documentation already covers.
+
+  **What replaced it: documentation, treated as the deliverable rather than as a consolation.**
+  `docs/wiki-src/python.md` now carries the crash chain, the freeze hazard, and the working
+  alternatives, cross-referenced from `system.md` and `editor.md`. It is written as "this will break
+  your editor and here is what to do instead", never as "the plugin protects you", because it does
+  not.
+
+  Kept from `#2`, because it was a separate task (#123) and stands on its own: the safe-point gating
+  of `python.execute` / `system.console_command` / `editor.console_command` in
+  `Dispatch/SafePoint.cpp`, and its tests. That gating does **not** fix this ticket, and the code
+  comment now says so explicitly rather than pointing at the deleted sandbox header.
+
+- `#2-mitigations-1-and-4-landed` `IN-REVIEW` — **SUPERSEDED BY `#3`: the mitigation-(4) blocklist
+  described here was removed before shipping. Retained as the record of an approach that was tried
+  and rejected.** Original entry follows.
+
+  **(1) and (4) done; (2) rejected with a reason; (3) not needed for this trigger.**
   - **(1)** `python.execute` (plus `system.console_command` / `editor.console_command`) added to the
     tick-unsafe table in `Dispatch/SafePoint.cpp`. The dispatcher now re-queues them onto
     `FRpcDispatcher::PendingQueue`, which `UPinWrightSubsystem::Tick` drains from the 0.1 s core
