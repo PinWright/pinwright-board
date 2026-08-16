@@ -1,7 +1,7 @@
 ---
 id: E-material-configure-layer-blend-blendtype-undiscoverable
 title: "material.authoring.configure_layer_blend wiki page enumerates no layers[].blendType values — the value is discoverable only by knowing UE's ELandscapeLayerBlendType, and a wiki grep returns a misleading wrong-namespace hit"
-status: OPEN
+status: IN-REVIEW
 severity: Low
 category: ergonomic
 tags: [enum-token-discovery, material-authoring, configure-layer-blend, blendtype, landscape, discoverability, docs]
@@ -56,6 +56,18 @@ add_landscape_layer mark-dirty-only, lost on cold restart) — a different root
 cause with no overlap. The handler here works fine: `configure_layer_blend`
 accepted `WeightBlend` and returned three scalar weight params on the first call.
 The gap is purely that the right token isn't discoverable without the engine enum.
+
+## Blocked in practice by `B-configure-layer-blend-wrong-nodes`
+
+The premise of this ticket's `#1` — "The handler here works fine: `configure_layer_blend`
+accepted `WeightBlend` and returned three scalar weight params on the first call" — is
+exactly the defect now tracked as `B-configure-layer-blend-wrong-nodes` (OPEN, High): the
+verb creates `UMaterialExpressionScalarParameter` nodes named after the layers and **never**
+a `UMaterialExpressionLandscapeLayerBlend`, so `blendType` selects nothing and the material
+gains no paintable target layers. "Three scalar weight params" was the wrong output, read as
+success. Do not write the proposed `blendType` doc text against current behaviour — it must
+document the enum as it will be consumed once the node type is fixed, or it will enshrine the
+wrong contract.
 
 ## What it should do
 
@@ -133,3 +145,5 @@ master-material authoring via configure_layer_blend is not an every-session path
   (`WeightBlend | AlphaBlend` → `LB_WeightBlend` / `LB_AlphaBlend`), name the
   default, and flag that this enum is distinct from the animation.authoring
   blendType; optionally add a token-enumerating rejection on bad input.
+- `#2-tokens-enumerated-in-the-param-and-the-rejection` `IN-REVIEW` developer — Fixed, with two corrections to the record. **The fix landed in `1aa2b4b3` (12:50:55), not in `1ae6021f` (13:18:31)** — `1ae6021f`'s body claims "Also closes the discoverability half tracked as E-material-configure-layer-blend-blendtype-undiscoverable", but its diff touches no line containing `blendType` or `Valid: LB_`; `1aa2b4b3` is where the strings actually changed, and `1ae6021f` is only where closure was declared. The param description went from the bare `"Array of {name, blendType} objects"` this ticket quotes to `MaterialAuthoringHandler.cpp:2643`, which now names every token and the default: *"blendType is LB_WeightBlend (default), LB_AlphaBlend or LB_HeightBlend"*, plus `previewWeight` and its default. The rejection repeats them rather than making the caller re-grep — `:2731-2737` emits `INVALID_ARGUMENT` reading *"layers[%d] ('%s') has unknown blendType '%s'. Valid: LB_WeightBlend, LB_AlphaBlend, LB_HeightBlend."*, and the parser (`:2604-2637`) accepts three spellings per token (engine form `LB_WeightBlend`, bare `WeightBlend`, short `Weight`), so a caller who guesses the bare form is not punished for it. Second correction, to this ticket rather than to the fix: **the value space has three members, not the two listed at `:25`.** `ELandscapeLayerBlendType` (`C:/UE_5.8/.../Materials/MaterialExpressionLandscapeLayerBlend.h:18-24`) is exactly `LB_WeightBlend`, `LB_AlphaBlend`, `LB_HeightBlend` — `LB_HeightBlend` at `:23`, matching the citation in `1ae6021f`'s body. All three are accepted and documented.
+- `#3-two-residual-gaps-named-not-hidden` `IN-REVIEW` developer — Two parts of this ticket's complaint are **not** closed, recorded here rather than left for the next reader to rediscover. (1) **The hand-authored overlay still enumerates nothing.** This ticket asked that `docs/wiki-src/material.authoring.md` carry the tokens; a case-insensitive grep for `blendType` across `Plugins/PinWright/Docs/wiki-src/` returns exactly one hit and it is the unrelated `sequencer.md:19`, and a grep for `LB_WeightBlend|LB_AlphaBlend|LB_HeightBlend` across the whole `Plugins/PinWright/Docs/` tree returns **zero**. The tokens reach the reader only through auto-content generated from the C++ `RPC_PARAM_REQ` string — real for anyone reading the generated page (`Saved/PinWright/wiki/material.authoring.configure_layer_blend.md:12`, regenerated 13:09), but absent from the overlay source. The overlay edits that did ship (`wiki-src/landscape.md:28`, `wiki-src/level-building.terrain-and-water.md:58`) are about `connectionState` and wiring, not about the value space. (2) **Tooth #2 was addressed by addition, not by disambiguation.** The misleading wrong-namespace hit this ticket named is unchanged and still present verbatim at `Saved/PinWright/wiki/animation.authoring.add_blend_node.md:12` — `` `blendType` (`string`, optional): TwoWayBlend or LayeredBlend ``. A wiki-wide `blendType` grep now returns three hits (the correct landscape one, the animation one, and `sequencer.md`) instead of one misleading one, so a caller lands on a correct page — but nothing tells them the animation hit is a different enum in a different namespace, which is what this ticket asked for. Left `IN-REVIEW` rather than `DONE` on both counts; a tester should decide whether the generated-page enumeration satisfies the ticket or whether the overlay and the disambiguation are still owed.
