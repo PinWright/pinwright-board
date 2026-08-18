@@ -180,3 +180,29 @@ frame edges and inflate edge-adjacent measurements.
   restored to `0.6000000238418579` verified through Python independently of the plugin's own
   read-back. The map package is left dirty-but-unsaved by the spawn/destroy cycle — discard by
   reverting the level; do not save it.
+
+- `#5-tiling-is-the-prescribed-fix` **OPEN** — Reporter. **Cross-reference only; status unchanged.**
+  Filed `F-ortho-tile-reference-compare` (OPEN), whose `render.capture_ortho_tiles` verb is the fix
+  this file's own source comment already prescribes:
+  `PreviewViewportCaptureUtils.cpp:723-724` — *"the int32 bound in the foliage path clipped it"
+  tells a caller to narrow orthoWidth and tile instead* — with a second hint at `:980`
+  (*"orthoWidth and capture in tiles, or pass viewDistanceScale explicitly."*).
+
+  Why tiling is the *cause-level* fix and `viewDistanceScale` is not. Per `#4`, the culling origin
+  of a lit orthographic editor view sits ~2.1e6 cm behind the camera (`UE_OLD_WORLD_MAX`), so the
+  distance every primitive is measured at is dominated by a constant that camera height cannot
+  reduce, and the derived scale under-scales by exactly that pushback. Narrowing `orthoWidth` and
+  tiling attacks the frame's world coverage — the one term the caller actually controls. Measured
+  on the host map over the same world region at matched pixel scale: a whole-map ortho
+  (`orthoWidth 64000`) retained **0.4%** of the Dire instanced foliage and **53.1%** of the Radiant
+  canopy that a tile-scale ortho (`orthoWidth 16000`) kept, and the host project records "capture
+  per tile rather than whole-map" as the workaround already in use
+  (`Docs/map/reference_tile_compare.md` section 4). That project's 4x4 comparison tables exist only
+  because the tiled frames retain foliage.
+
+  **This ticket is not fixed and does not close on the feature landing.** The
+  `ComputeAutoViewDistanceScale` under-scaling from `#4` is a live silent-false-success on any map
+  with sane bounds (it reports `source:"auto"`, `overridden:true`, `restored:true` while recovering
+  nothing — the 4096 cap is load-bearing by luck), and the HISM/foliage recovery path named in the
+  title is still unexercised. Tiling gives callers a way around the defect; it does not correct the
+  derivation. Keep both open and independent.
