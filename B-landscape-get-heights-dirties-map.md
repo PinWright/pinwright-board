@@ -1,7 +1,7 @@
 ---
 id: B-landscape-get-heights-dirties-map
 title: "landscape.get_heights dirties the map package — a pure read leaves the level with unsaved changes"
-status: OPEN
+status: IN-REVIEW
 severity: Medium
 category: bug
 tags: [landscape, get_heights, read-only, dirty-package, false-dirty, measurement, LandscapeEditDataInterface]
@@ -44,10 +44,29 @@ LandscapeEditRead.GetHeightData(MinX, MinY, MaxX, MaxY, Heights.GetData(), 0);
 ```
 
 The comment is right that no new access mechanism is introduced and wrong about the
-consequence. `FLandscapeEditDataInterface` is an **edit** interface: constructing one takes
-the landscape's edit lock and its destructor flushes, and that path marks components /
-their packages dirty whether or not any height was written. `bUploadTextureChangesToGPU =
-false` suppresses the GPU upload; it does not make the object read-only.
+consequence. `FLandscapeEditDataInterface` is an **edit** interface, and
+`bUploadTextureChangesToGPU = false` suppresses the GPU upload; it does not make the
+object read-only.
+
+**Corrected mechanism (measured against UE 5.8 source while fixing, see `#2`).** It is
+neither the constructor's edit lock nor the destructor's flush — both were guesses and
+both are wrong. It is a single call on the way to the pixels:
+
+`GetHeightData` → `GetHeightDataTempl` (`LandscapeEditInterface.cpp:1358`) →
+`GetHeightDataInternal` (`:859`) → `GetHeightMapColor` (`:815`) →
+`FLandscapeTextureDataInterface::GetTextureDataInfo` (`:3451-3457`), which constructs an
+`FLandscapeTextureDataInfo` whose constructor calls
+`Texture->Modify(bShouldDirtyPackage)` (`:4028-4043`) with the interface's
+`bShouldDirtyPackage` defaulting to **true** (`:88-90`). The heightmap texture is outered
+to the landscape proxy actor (`ALandscapeProxy::CreateLandscapeTexture`,
+`LandscapeEdit.cpp:7954-7957`), so `UObject::Modify` (`Obj.cpp:1652-1680`) marks the
+**proxy's** package — the map package on a classic level, which is exactly what the
+control run observed.
+
+The engine's own comment at `:4036-4038` admits the `Modify()` is unwanted for read-only
+use and that removing it properly would mean rebuilding `TLandscapeEditCache`. It
+therefore ships the opt-out instead: `FLandscapeTextureDataInterface::SetShouldDirtyPackage(false)`
+(`LandscapeEdit.h:91`), which is the fix.
 
 ## Why it matters
 
@@ -83,8 +102,26 @@ Read without an edit interface, or restore the dirty state around the read.
 - Whichever is chosen, the handler should assert its own postcondition in a test: dirty
   count before == dirty count after, on a clean-boot level.
 
-## Not yet checked
+## Siblings — checked
 
-Whether the sibling read verbs that use the same interface (`landscape.get_weights` and
-any other `FLandscapeEditDataInterface`-based reader) have the same behaviour. They almost
-certainly do; the same control run would settle it in a minute.
+There is no `landscape.get_weights` verb; `get_heights` is the only pure read verb built
+on this interface. The other four `FLandscapeEditDataInterface` reads in
+`LandscapeHandler.cpp` are read *halves inside write verbs*, and every one of them shared
+the defect (`GetWeightDataFast` reaches the same `GetTextureDataInfo` →
+`Texture->Modify` path at `LandscapeEditInterface.cpp:2650,2662`):
+
+- `landscape.sculpt` pre-edit snapshot — mattered on its own, because a sculpt refused
+  with `LANDSCAPE_SCULPT_NO_CHANGE` changed nothing and still left the level dirty.
+- `landscape.sculpt` verification readback.
+- `landscape.edit` read half of the read-modify-write.
+- `landscape.create_procedural_terrain` weightmap verification readback.
+
+All four now take the same opt-out. Safe because all three write verbs dirty explicitly
+and independently (`Landscape->MarkPackageDirty()` in `sculpt` / `edit`,
+`PinWright::MarkLevelActorModified` in the paint verb), so a non-dirtying read cannot
+silence a real write.
+
+## History
+
+- `#1-initial-repro` `OPEN` reporter — "5x5 `landscape.get_heights` with `includeSamples` on a fresh boot of `EAContentExamples58` / `Dota2_Map_688` takes `editor.list_dirty_packages` from count 0 to count 1, `/Game/Maps/Dota2_Map_688`, with no other RPC in between. Hit while snapshotting 1,145,215 heightmap samples for an offline ground-Z sampler; the level had to be quit with `discard: true` twice."
+- `#2-opt-out-of-texture-modify` `IN-REVIEW` developer — "Root cause corrected in the body above: not the edit lock and not the destructor's flush, but `FLandscapeTextureDataInfo`'s constructor calling `Texture->Modify(bShouldDirtyPackage)` with the interface default of true (`LandscapeEditInterface.cpp:4028-4043`, `:88-90`), reached from `GetHeightData` via `GetTextureDataInfo` (`:3451-3457`); the heightmap texture is outered to the landscape proxy, so the flag lands on the map package. Fixed in `Handlers/Environment/LandscapeHandler.cpp` by calling the engine's own `SetShouldDirtyPackage(false)` on every read-only `FLandscapeEditDataInterface` — `get_heights` plus the four sibling read halves listed above — and, for `get_heights` only, wrapping the read in a new `PinWright::PackageDirty::FScopedPackageDirtyRestore` (`Utils/PackageDirtyUtils.h`) that captures and restores the dirty flags of the landscape actor, every proxy and the level, and logs a Warning naming the package if it ever actually has to restore one, so a surviving cause is reported rather than masked. Contract is preserve, not clear. Tests `PinWright.landscape.get_heights.CleanLevelStaysClean` and `.DirtyLevelStaysDirty` assert both starting states over a code-built fixture landscape. `Docs/rpc-design.md` §11 and `Docs/wiki-src/landscape.md` updated in the same commit. Plugin commit `faac6950`. Compile-checked with `-SingleFile` on all three touched `.cpp` files (`Result: Succeeded`, real `[1/1] Compile` lines); the full build and automation suite are owned by a peer agent this wave and have NOT been run here."
