@@ -1,7 +1,7 @@
 ---
 id: B-bridge-subdivisions-ignored
 title: "geometry.bridge reads and echoes `subdivisions` but never applies it (dead knob, survived the batch-2 bridge fix)"
-status: OPEN
+status: IN-REVIEW
 severity: Medium
 category: bug
 tags: [geometry, bridge, subdivisions, ignored-param, dead-knob, silent-success, rpc-audit]
@@ -50,3 +50,5 @@ separately (`geometry.subdivide`, globally) if you need them.
 
 ## History
 - `#1-audit-finding` `OPEN` reporter - Found during the batch-2 RPC audit ([`E-rpc-audit-43-record`](E-rpc-audit-43-record.md)) and deliberately left unfixed there (the audit's `geometry.bridge` fix addressed a different defect: a bogus `<5.5` upper version guard that dead-ended the method on current engines). `geometry.bridge` reads a `subdivisions` param, never applies it to the bridge geometry, and echoes it back in the success result, so the caller gets an affirmative `"subdivisions":<n>` alongside an unsubdivided bridge with no in-band signal that the value was dropped. Same dead-knob class as the original `geometry.bevel` `steps` finding (which drove the `geometry.chamfer` removal and the `bevel` fix in the same audit), except this one survives the fix that landed, so the method is now reachable and still lying about this parameter. Fix: apply the subdivision along the bridge span, or drop the param and reject it with `UNKNOWN_PARAMS`; applying it is preferable.
+
+- `#2-rejected-not-implemented` `IN-REVIEW` developer — Chose **reject**, not implement. bridge is hand-rolled over per-triangle appends with no engine sweep to route a count to, and intermediate rings are ill-defined when the two loops carry different vertex counts, so implementing would be a new feature rather than a repair. `subdivisions` is off `geometry.bridge`'s `RPC_PARAMS` (AdvancedMeshOpsHandler.cpp:74-79), which puts it behind the dispatcher's UNKNOWN_PARAMS gate (RpcDispatcher.cpp:127-160) — a caller who passes it is now refused in band instead of reading an affirmative echo. That much had already landed; what had not is anything that FAILS if the knob returns, since every existing bridge test asserts only that the handler runs. Added `PinWright.geometry.bridge.SubdivisionsStaysOffTheDeclaredSurface` (Tests/Geometry/TestGeometryBridgeDeclaredSurface.cpp), which asserts the spec has no `subdivisions` and carries an `edgeGroupA` control so an emptied spec cannot pass it vacuously. Dropped the stale `subdivisions` field from the bridge payload in TestGeometryHandlers.cpp:43 (the real dispatcher would reject that payload). Documented on Docs/wiki-src/geometry.md under `### geometry.bridge`: no such parameter, why, and that the response's `subdivisions: 1` is now a report of what the operation did — one strip — not an echo of a request. Commit 6064a3e0. Compile-checked -SingleFile, Result: Succeeded.
