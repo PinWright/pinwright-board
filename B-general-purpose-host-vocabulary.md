@@ -1,7 +1,7 @@
 ---
 id: B-general-purpose-host-vocabulary
 title: "Shipped docs and render tests still contain host-project vocabulary"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: bug
 tags: [general-purpose, portability, documentation, tests]
@@ -23,3 +23,4 @@ or prohibit them and are not the leak described here.
 
 ## History
 - `#1-existing-portability-leak-found` `OPEN` reporter — A whole-deliverable scan found host-specific prose in four docs and hard-coded host assets in one render test; left separate from the three reproduced verb fixes because the test needs a real general-purpose fixture.
+- `#2-generic-docs-synthetic-render-and-repository-guard` `IN-REVIEW` developer — Replaced all four documentation leaks with neutral examples. The render regression now uses an engine-shipped neutral skinned mesh plus a runtime-registered synthetic 36-frame animation, so it no longer needs project content or a subtle canned animation. Root cause in `scripts/package-fab.ps1`: the vocabulary scan ran only on the release stage, while the manifest excludes the four main `Docs/` files and every `Private/Tests` tree. Added a repository-level scan with narrow guard/instruction exemptions and a failure fixture that writes the exact five formerly missed path classes and requires every path to be rejected. Verified the bundled-Python guard test (1/1), a clean live repository probe, full build `Result: Succeeded`, and scoped automation `659/659` succeeded with zero failures or skips.
