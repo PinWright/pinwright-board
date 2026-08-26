@@ -1,7 +1,7 @@
 ---
 id: B-anim-compile-stale-dirty
 title: "anim.compile uses stale skeleton state and dirties failures"
-status: OPEN
+status: IN-REVIEW
 severity: Critical
 category: bug
 tags: [animation, skeleton, rollback]
@@ -20,3 +20,4 @@ both object content and the prior package-dirty state on every post-mutation fai
 
 ## History
 - `#1-stale-and-dirty-reproduced` `OPEN` reporter — Same-session validation saw two bones while compile failed to add the new track; an injected post-write failure left one dirty content package.
+- `#2-refresh-and-rollback-implemented` `IN-REVIEW` developer — Skeleton hierarchy changes now refresh loaded animation mappings, and failed animation writes restore the original sequencer model, object state, and package-dirty state.

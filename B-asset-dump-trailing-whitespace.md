@@ -1,7 +1,7 @@
 ---
 id: B-asset-dump-trailing-whitespace
 title: "asset.dump emits trailing line whitespace"
-status: OPEN
+status: IN-REVIEW
 severity: Low
 category: bug
 tags: [asset-dump, text, determinism]
@@ -19,3 +19,4 @@ normal dumps and diff artifacts. Binary sidecars must remain unchanged.
 
 ## History
 - `#1-trailing-whitespace-reproduced` `OPEN` reporter — The production writer preserved spaces and tabs at the ends of four fixture lines; tracked output also contains affected text sidecars.
+- `#2-writer-canonicalization-implemented` `IN-REVIEW` developer — Normal and diff writers now strip trailing spaces and tabs before comparison and emission; focused and scoped automation are clean.
