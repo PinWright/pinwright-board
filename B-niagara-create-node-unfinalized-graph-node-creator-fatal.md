@@ -5,8 +5,8 @@ status: OPEN
 severity: Critical
 category: bug
 tags: [niagara, niagara-graph, create-node, editor-crash, assertion, fgraphnodecreator, error-path, returns-clean-then-dies, shared-editor]
-encounters: 1
-lastSeen: 2026-08-27T19:25:00+05:00
+encounters: 2
+lastSeen: 2026-08-27T19:16:48+05:00
 ---
 
 # `niagara.graph.create_node` takes the whole editor down whenever it rejects the payload
@@ -161,3 +161,28 @@ severity rationale: impact=editor-killing `appError` with silent loss of every s
 
 ## History
 - `#1-initial-repro` `OPEN` reporter — 2026-08-27, UE 5.8, Atlantis map build (map as forcing function, host `CLAUDE.md` § "What this project is for"). Hit while probing whether `niagara.graph.create_node` could author the `UNiagaraNodeEmitter` that `niagara.add_emitter` fails to create (`B-niagara-authored-emitter-forces-inert` #2). Single call `niagara.graph.create_node {assetPath:"/Game/PinWrightScratch/NS_TplProbe", target:{kind:"graph", scriptUsage:"SystemSpawnScript"}, nodeClass:"NiagaraNodeEmitter", x:-400, y:0}` returned the correct typed `UNSUPPORTED_NODE_CLASS` error, and the editor died ~10 s later on `Assertion failed: bPlaced [EdGraph.h:312] Created node was not finalized in a FGraphNodeCreator<EdGraphNode>` (`Saved/Logs/EAContentExamples58.log:7912-7935`, assert `2026.08.27-14.16.38.848` UTC, crash dump `14.16.48.918` UTC), callstack `FDebug::CheckVerifyFailedImpl2` <- `NiagaraGraphHandler.cpp:763` <- `RpcDispatcher.cpp:336` <- `RpcDispatcher.cpp:646`. Root cause read from source in this checkout: the node is constructed at `NiagaraGraphHandler.cpp:684-685` before `ApplyCreateNodePayload` validates at `:694`, and the rejection path `:697-698` returns without the `NodeCreator.Finalize()` at `:704`, so the stack `FGraphNodeCreator` destructor asserts in the function epilogue (hence the `:763` frame). `NODE_CREATE_FAILED` at `:688-689` is the same shape. The class allowlist lives in `ApplyCreateNodePayload` (`:571`) while `ResolveNiagaraSubclassByPath` (`:664`) accepts any `UNiagaraNode` subclass, so every class in that gap is fatal. Fix direction: validate before constructing. Not verified by re-running the crash — deliberately, since it kills a shared editor.
+
+- `#2-bystander-encounter` `OPEN` reporter — 2026-08-27T19:16:48+05:00, same editor instance, same
+  assert. I was the Sequencer/cine agent, not the caller. Adds two things #1 does not have:
+
+  **(a) The cost is not only "unsaved work".** The crash landed between my `sequencer.create`
+  (which saves the `.uasset` itself) and the `sequencer.set_display_rate` /
+  `sequencer.set_properties` calls that followed it. Those two verbs return
+  `pendingSave: true` / `applied: true` and mutate the loaded `UMovieScene` **in memory only**, so
+  `/Game/Atlantis/Cine/LS_Atlantis_Flythrough.uasset` survived on disk at its 19:03 mtime with
+  the default 30 fps display rate and no playback range. The asset therefore exists, is loadable,
+  and is silently wrong — the failure mode this host's `CLAUDE.md` § "Verify a write against disk"
+  is written about. Any verb whose response says `pendingSave` is unrecoverable across this crash,
+  and a caller that trusted the success response has no signal that it was rolled back.
+
+  **(b) Duplicate pair on the board.** `B-niagara-create-node-early-return-before-finalize-crash`
+  (committed 19:20:27, 13 s after this one at 19:20:14) is the same defect from the same assert,
+  filed independently by a third agent in the same editor: same file/lines
+  (`NiagaraGraphHandler.cpp:684/688/697/704`), same engine assert (`EdGraph.h:312`), same fix
+  direction. It carries one thing this ticket does not — the test-gap analysis at
+  `Tests/Niagara/TestNiagaraGraphCreateNode.cpp:124-135`, showing why the suite is green over the
+  crashing path. Merge that section in here and close the other as a duplicate, or vice versa; do
+  not fix twice. Three independent reports inside ten minutes is itself the severity evidence:
+  every agent that reads `B-niagara-authored-emitter-forces-inert` reaches for this verb next.
+
+  No new repro run — deliberately, per #1.
