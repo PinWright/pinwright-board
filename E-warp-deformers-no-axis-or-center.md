@@ -5,8 +5,8 @@ status: OPEN
 severity: Medium
 category: enhancement
 tags: [pwmodel, geometry, bend, twist, taper, warp-deformer, axis, center, harmonic_deform, parameter-gap]
-encounters: 1
-lastSeen: 2026-08-23T00:00:00Z
+encounters: 2
+lastSeen: 2026-08-27T18:57:03+05:00
 ---
 
 # The three warp deformers can only warp about world Z through the origin
@@ -73,11 +73,45 @@ Worth stating in the docs at the same time: the extent is measured **along that 
 centre**, which is the sentence that makes `symmetric_extents` / `lower_extent` legible for the
 first time.
 
+## Encounter 2026-08-27 — the prescribed workaround has an unstated precondition, and it fails silently
+
+Nothing above changes; this section is added beside the existing text. Evidence measured
+2026-08-27 on UE 5.8 in this checkout, while building `SM_Column_Broken_A`.
+
+The workaround this ticket prescribes at § *What it costs an author* is:
+
+> author the shape at the origin along +Z, warp it, then `transform at= rotate=` it into place
+
+**`transform rotate=` on geometry that is no longer at the origin is itself a trap.** The
+`transform` op's rotation **pivots about the part-local origin**, so it does not turn the geometry
+in place — it swings it around the origin on a lever arm of `distance * sin(angle)`. Verified in
+source at HEAD: `PwModelCompiler.cpp:2401-2406` calls `TransformMesh(Mesh, ReadTransformParams(P),
+…)`, and `ReadTransformParams` (`PwValueRead.h:276-281`) returns `FTransform(rotate, at, scale)`,
+which applies scale, then rotation, then translation — all about the origin. Measured instance: a
+tool authored at `z=1790`, tilted 7 degrees, was displaced `1790 * sin(7deg) = 218 uu` in X, cut the
+wrong part of the model, and compiled `success: true` with the entire documented health gate green.
+
+**Write the precondition onto the workaround:** it is safe only while **the shape is still at the
+part-local origin when the `transform` runs** — i.e. the `transform` must carry the shape's *first*
+placement, composing `rotate=` and `at=` in one op. It fails the moment the shape already has an
+`at=` (or any other translation) before it, which is the common case for a limb, rail or beam
+authored in place, and exactly the case this ticket's readers are trying to solve.
+
+If `axis=` / `center=` land on the three warps as proposed, the workaround becomes unnecessary
+rather than merely conditional, which is a further argument for the fix.
+
+Filed separately as `E-pwmodel-transform-rotate-pivots-origin` — same premise as this ticket (a
+`.pwmodel` op silently taking the part-local origin as its frame, undocumented and unwarned),
+different op and the opposite failure: these three warps fail to REACH off-origin geometry, while
+`transform rotate=` reaches it and DISPLACES it.
+
 ## Related
 
 - `E-geometry-warp-extent-semantics` — the extent semantics of the same three ops. Same family,
   different field; that one is about what `extent` measures, this one about what it measures
   *along*.
+- `E-pwmodel-transform-rotate-pivots-origin` — the op this ticket's workaround routes through.
+  See the encounter section above.
 
 ## History
 - `#1-warp-frame-pinned-to-identity` `OPEN` reporter — found while building a tapering, twisting
@@ -90,3 +124,25 @@ first time.
   gizmo-Z-to-Y-up matrix, `FMeshSpaceDeformerOp::GizmoFrame` / `SetTransform`. Proposed fix is
   `axis=` + `center=` with defaults that reproduce today's behaviour byte for byte, spelled
   exactly as `harmonic_deform` already spells them.
+- `#2-workaround-precondition-correction` `OPEN` reporter — Additional evidence and a correction
+  to this ticket's prescribed WORKAROUND; no status change, existing text untouched, detail in
+  the `Encounter 2026-08-27` section above. Measured 2026-08-27 on UE 5.8 in this checkout while
+  building `SM_Column_Broken_A`. The workaround "author the shape at the origin along +Z, warp
+  it, then `transform at= rotate=` it into place" routes through an op that carries the SAME
+  origin-as-frame premise this ticket is about: `transform rotate=` pivots about the part-local
+  origin, so on geometry that is no longer at the origin it swings the shape on a lever arm of
+  `distance * sin(angle)` instead of turning it in place. Source-verified at HEAD:
+  `PwModelCompiler.cpp:2401-2406` calls `TransformMesh(Mesh, ReadTransformParams(P), …)` and
+  `ReadTransformParams` (`PwValueRead.h:276-281`) returns `FTransform(rotate, at, scale)`, which
+  applies scale, then rotation, then translation, all about the origin. Measured: a boolean tool
+  at `z=1790` tilted 7 degrees was displaced `1790*sin(7deg) = 218` uu in X, cut the wrong part
+  of a radius-155 shaft, and compiled `success: true` with `isClosed: true`, positive
+  `signedVolume`, `boundaryEdges: 0`, `degenerateTriangles: 0`, `nonManifoldVertices: 0` — the
+  whole documented health gate — while leaving 168 triangles hanging 140 uu clear; only
+  `floatingGeometry` reported it. The unstated precondition, now written onto the workaround: it
+  is safe ONLY while the shape is still at the part-local origin when the `transform` runs, i.e.
+  the `transform` carries the shape's first placement. It fails as soon as the shape has an `at=`
+  before it — the common case for a limb, rail or beam authored in place, which is this ticket's
+  own motivating case. Filed separately as `E-pwmodel-transform-rotate-pivots-origin` (same
+  premise, different op, opposite failure: these warps fail to REACH off-origin geometry,
+  `transform rotate=` reaches it and DISPLACES it). `encounters` 1 -> 2, `lastSeen` refreshed.
