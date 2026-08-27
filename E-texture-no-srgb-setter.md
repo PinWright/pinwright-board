@@ -4,9 +4,9 @@ title: "texture.* has no sRGB setter — 'turn off sRGB' forces fallback to prop
 status: OPEN
 severity: Low
 category: ergonomic
-tags: [texture, srgb, setter-parity, property-set, fallback, docs]
-encounters: 2
-lastSeen: 2026-07-04T16:51:49.1377515+03:00
+tags: [texture, srgb, setter-parity, property-set, fallback, docs, set_compression_settings, material-compile-failure, delayed-failure]
+encounters: 3
+lastSeen: 2026-08-27T19:35:00+05:00
 ---
 
 # `texture.*` exposes no sRGB setter, despite `describe` reporting `srgb` and the linear/mask workflow needing it
@@ -104,6 +104,63 @@ Verbatim replay (HEAD, this iteration):
 - `texture.set_compression_settings {assetPath:".../T_ReplaySrgb", compressionSettings:"TC_Masks", save:true}` → `"Compression set to TC_Masks"`.
 - `texture.describe {...}` → `"compressionSettings":"TC_Masks", ..., "srgb":true` — sRGB left unchanged.
 
+## Encounter 2026-08-27 — the gap is not just ergonomic: it produces a shader that does not compile, and the error lands two verbs away
+
+Found building the Atlantis level on UE 5.8 (PinWright at the EAContentExamples58
+checkout's HEAD). The symptom and the workaround are exactly as recorded above
+and in `#2` — this section does not restate them. Three things are new, and the
+first is the reason this ticket is probably mis-rated.
+
+**1. The downstream consequence, which this ticket does not have at all.** Its
+worst stated outcome is friction ("forces fallback to `property.set`"). What
+actually happens next is a **hard failure**: a material sampling the texture with
+`SamplerType: "SAMPLERTYPE_Masks"` refuses to compile.
+
+```
+compileSucceeded: false
+compileErrors: ["(Node TextureSample) To use 'Masks' as sampler type, SRGB must be disabled for
+                 /Game/Atlantis/Textures/T_Caustic_Cells.T_Caustic_Cells"]
+```
+
+So the mask/data-texture workflow is not merely inelegant through the typed
+surface — it is **broken** through it. Nothing in this ticket mentions
+`SAMPLERTYPE_Masks`, a compile error, or that the defect is reachable from the
+`material.*` namespace at all.
+
+**2. The failure is delayed and displaced.** The error surfaces two verbs later,
+in a different namespace, against a different asset, a long way from the
+`set_compression_settings` call that caused it. This ticket frames the gap as a
+same-breath ergonomic detour the author notices immediately; in practice an
+author who does not already know the rule spends the detour debugging a material.
+
+**3. Reach, and a create-path proposal this ticket does not make.** Reproduced on
+all four textures authored in this session. The argument generalises: **the entire
+output of this namespace's `create_*` family is data, never colour** — noise,
+gradients, patterns — so every one of them needs sRGB off and none of them can get
+it. Beyond the two fixes already proposed here (add `texture.set_srgb`; auto-clear
+for known-linear compression types), `texture.create_noise_texture` should
+**default to `srgb: false`**, because a noise texture is never colour. This ticket
+proposes no create-path default change.
+
+**Source enumeration confirming "no verb can clear it on an existing texture."**
+Verified at HEAD in this tree during filing. `set_compression_settings`' entire
+mutation is `TextureHandler.cpp:937-941` (`CompressionSettings`, `UpdateResource`,
+`MarkPackageDirty`, save) — no `SRGB`. Every `SRGB` **write** in the whole texture
+namespace targets a texture the same call just created: `TextureHandler.cpp:138`
+(`CreateEmptyTexture`, behind every `texture.create_*`), `:750`
+(`create_normal_from_height`), `:1883` (`channel_pack`), `:2315`
+(`channel_extract`). The only other occurrence is a **read**, `:1201`
+(`get_texture_info`). There is no `texture.set_srgb` and no verb accepts an `srgb`
+parameter, so this ticket's central claim is now proven by enumeration rather than
+by absence of a search hit.
+
+**Re-rating recommendation (not applied — severity left to its author).** This is
+filed `category: ergonomic`, `severity: Low`, on the premise that the write is
+merely inelegant. On the board's own impact-x-reach rubric, a gap that yields a
+non-compiling shader on a normal path, with a misdirecting error two verbs
+downstream, across every procedural texture the namespace can create, does not
+read as Low and arguably not as `ergonomic`.
+
 ## History
 - `#1-initial-audit` `OPEN` reporter — Authoring three procedural utility
   textures (`/Game/Textures/Procedural`), the attempt configured compression,
@@ -127,3 +184,4 @@ Verbatim replay (HEAD, this iteration):
   `property.set SRGB=false` + `asset.save`. Complementary fix: auto-clear `SRGB`
   for known-linear compression types in `set_compression_settings`, alongside the
   proposed `texture.set_srgb`. encounters→2.
+- `#3-additional-masks-sampler-compile-failure` `OPEN` reporter — Additional evidence (Atlantis level build, UE 5.8, EAContentExamples58 checkout HEAD). Symptom and workaround identical to `#1`/`#2` and not restated; see the dated encounter section above. Three additions, and the first argues this ticket is mis-rated. (a) **The downstream consequence this ticket lacks entirely**: a material sampling the texture as `SamplerType:"SAMPLERTYPE_Masks"` returns `compileSucceeded: false` with `compileErrors: ["(Node TextureSample) To use 'Masks' as sampler type, SRGB must be disabled for /Game/Atlantis/Textures/T_Caustic_Cells.T_Caustic_Cells"]` — the mask/data-texture workflow is broken through the typed surface, not merely inelegant. This ticket has no compile error, no `SAMPLERTYPE_Masks`, and no indication the defect is reachable from `material.*`. (b) **Delayed and displaced failure**: the error surfaces two verbs later, in another namespace, against another asset, far from the `set_compression_settings` call that caused it — this ticket frames it as a detour the author notices at once. (c) **Reach plus a create-path proposal not made here**: reproduced on all four textures authored in the session, and the entire output of the namespace's `create_*` family is data and never colour, so `texture.create_noise_texture` should default to `srgb:false` in addition to the two fixes already proposed. **Source enumeration verified at HEAD**, which upgrades this ticket's central claim from "no search hit" to proven: `set_compression_settings`' whole mutation is `TextureHandler.cpp:937-941` with no `SRGB`; every `SRGB` write in the namespace targets a just-created texture (`:138` `CreateEmptyTexture` behind all `create_*`, `:750` `create_normal_from_height`, `:1883` `channel_pack`, `:2315` `channel_extract`); the only other occurrence is the read at `:1201` (`get_texture_info`); no `texture.set_srgb` exists and no verb accepts an `srgb` parameter. Recommend re-rating off `Low`/`ergonomic` — a non-compiling shader on a normal path with a misdirecting error two verbs downstream, across every procedural texture the namespace creates, is not pure friction. Severity deliberately NOT edited here; that is its author's call. No new bug; widens confirmed impact from ergonomic detour to material-compile failure. encounters→3.
