@@ -5,8 +5,8 @@ status: IN-REVIEW
 severity: Critical
 category: bug
 tags: [sequencer, create, level-sequence, save, mcp-safe-asset-save, no-disk-write, cold-load, persistence, silent-failure, false-success]
-encounters: 1
-lastSeen: 2026-07-11T08:02:05.5151743+03:00
+encounters: 2
+lastSeen: 2026-08-27T20:09:00+05:00
 ---
 
 # `sequencer.create` reports the LevelSequence created (existsAfter:true) but never writes the .uasset to disk
@@ -64,3 +64,45 @@ severity rationale: impact=corruption/silent-persistence-loss × reach=every-ses
 ## History
 - `#1-initial-repro` `OPEN` reporter — Cold-load-confirmed persistence loss on a cinematic-blockout task. `sequencer.create CIN_PoseBeat` reported `existsAfter:true`/`LevelSequence`, warm session read back 2 bindings + playback 0-120000 @ 30fps; a plain quit+relaunch (no baseline reset) then returned `[ASSET_NOT_FOUND]` from `editor.open_asset`/`asset.get`, `asset.exists=false`, no `.uasset` under `Content/`, and `editor.quit` had reported `dirtyCount=2`. Root cause verified in source: `SequenceHandler.cpp:335` `McpSafeAssetSave(NewObj)` + `:338` `AddAssetVerification` (registry existsAfter, not disk); `McpSafeAssetSave` (`AssetUtils.cpp:220-232`) only `MarkPackageDirty()`+`AssetCreated()`, never writes the package. Same root cause/code as the accepted `B-niagara-save-no-disk-write`/`B-metasound-create-save-no-disk-write`/`B-create-level-saved-true-no-umap` fixes, which each reroute their own create handler to the real-save helper but leave the sequencer create path untouched — no sequencer save ticket existed, so this fills the gap. Proposes routing the create save through `SaveAssetToDiskReportingPresence`, probing disk presence, and reporting `saved`/`pendingFlush` while leaving the shared corruption-sensitive `McpSafeAssetSave` alone.
 - `#2-fix` `IN-REVIEW` developer — GO, fix shipped. Rerouted the `sequencer.create` save off the mark-dirty-only `McpSafeAssetSave` to the real-save helper `SaveAssetToDiskReportingPresence(NewObj, bForce=true)` in `Handlers/Sequencer/SequenceHandler.cpp` (create handler), now reporting honest `saved`/`pendingFlush` before `AddAssetVerification` — mirrors the accepted niagara/metasound/level create-save siblings; the corruption-sensitive shared `McpSafeAssetSave` (~220 Blueprint/SCS callers) stays untouched (a fresh `ULevelSequence` is not a `UBlueprint`, so `SaveLoadedAssetThrottled`'s integrity-refusal branch never fires). Regression test: adopted the red test `PinWright.sequencer.create.SaveWritesToDisk` (`Tests/Sequencer/TestSequencerCreateSaveWritesToDisk.cpp`), which drives the production handler and asserts the `.uasset` is on disk (`IFileManager::FileSize>0`) — failed pre-fix, now green (red→green). Plugin compiled clean. Severity Critical retained (cold-load-confirmed silent LevelSequence loss). Scope = the create path only, matching the ticket's proposed scope; the sequencer *mutator* verbs (add_actor/tracks/keys) that also only mark dirty are a distinct out-of-ticket concern with `asset.save` as their documented path.
+- `#3-fix-holds-plus-adjacent-trap` `IN-REVIEW` reporter — **The `#2` fix holds. Not reproduced.**
+  Independent check on UE 5.8 / `EAContentExamples58` while authoring
+  `/Game/Atlantis/Cine/LS_Atlantis_Flythrough`: `sequencer.create` returned
+  `saved:true, existsOnDisk:true` and a 3144-byte `.uasset` was present on disk within seconds,
+  verified by `ls` rather than by the response. Incremental saves through the build then tracked the
+  content honestly: 8526 -> 10512 -> 11376 -> 12456 -> 13536 -> 14184 -> 15479 bytes as tracks and
+  key groups were added, each after `asset.save {force:true}`. The create path is persisting.
+
+  Three things worth recording that are adjacent to this ticket and were not obvious:
+
+  **(a) `overwrite:true` failing leaves the asset permanently unsaveable.**
+  `sequencer.create {name, path, overwrite:true}` on a live sequence returned
+  `[CREATE_ASSET_FAILED] Failed to create sequence asset`. The existing asset then still answered
+  every read verb normally (`get_properties`, `list_tracks`, `get_bindings` all correct), but every
+  subsequent save failed: `asset.save {force:true}` -> `saved:false, pendingFlush:true` twice, then
+  `editor.save_all` -> `[SAVE_FAILED] Saved 0 of 1 dirty assets`, `reason:"Unknown"`. The real reason
+  is only in the log: `LogEditorAssetSubsystem: Error: SaveAsset failed: Could not load asset:
+  '/Game/Atlantis/Cine/LS_Atlantis_Flythrough.LS_Atlantis_Flythrough' is not a valid asset.` So the
+  failed overwrite had already invalidated the asset before failing, and the failure code says
+  nothing about that. This is the same family as the ticket's headline — a persistence outcome that
+  disagrees with what the verb reported — but the opposite direction: not "reports saved, isn't", but
+  "reports a clean typed error, and has silently broken every future save". `overwrite:true` should
+  either be atomic (validate, then delete-and-recreate, restoring the original on failure) or refuse
+  before touching the existing asset. **Recovery, for anyone who hits it: `asset.reload` on the
+  package restores a valid object from the on-disk copy and saving works again** — no restart needed,
+  and no work is lost beyond whatever was in memory since the last successful save.
+
+  **(b) `pendingFlush:true` is not always flushable by retry.** The `asset.save` wiki says a throttled
+  write needs `editor.save_all` or `asset.save {force:true}`. In the state above, all three failed;
+  `pendingFlush` was reporting a throttle when the real cause was an invalid asset. A distinct
+  `saveState` for "not persistable" here would have named the problem four calls earlier.
+
+  **(c) Byte size is a sound signal for structural change and a useless one for value change.**
+  Flagged mid-session that the file was 14184 bytes both before and after a rebuild and therefore
+  suspected of not persisting. It was persisting: the rebuild produced an identical key count and
+  channel layout, and the double channels are fixed-width, so a value-only rewrite is size-neutral by
+  construction. Watching the byte count catches an added track or key group (it moved on all six of
+  mine); it cannot catch a re-keyed value, a repointed binding, or a changed playback range. For
+  those the honest check is `asset.save` -> `asset.reload` -> read the value back, which forces the
+  answer to come off disk. Worth adding to the ticket's guidance, since "verify the bytes grew" is
+  otherwise a check that quietly stops working exactly when a session moves from building to
+  iterating.
