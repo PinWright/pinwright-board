@@ -1,0 +1,191 @@
+---
+id: B-safepoint-tick-gate-inert-on-simpletickobjects-path
+title: "The tick-unsafe SafePoint gate never fires when a third-party editor tickable pumps the named-thread queue: `IsSafeNow()` tests `UWorld::bInTick`, which is false during `SimpleTickObjects`, so all 34 listed verbs run inline mid-frame anyway"
+status: OPEN
+severity: High
+category: bug
+tags: [safepoint, dispatch, tick-gate, rpc-dispatcher, mass-entity, crash-adjacent, guard-inefficacy, multi-agent, shared-editor]
+encounters: 1
+lastSeen: 2026-08-27T19:16:38+05:00
+---
+
+# A guard that reports safe on the one stack that has already produced editor kills
+
+`FRpcDispatcher::ProcessRequest` defers any verb on the tick-unsafe list when a
+world is ticking (`Dispatch/RpcDispatcher.cpp:449`):
+
+```cpp
+    if (PinWrightSafePoint::IsTickUnsafeMethod(Method) && !PinWrightSafePoint::IsSafeNow())
+```
+
+`IsSafeNow()` is `!ForcedUnsafeForTests() && !IsAnyWorldTicking()`
+(`Dispatch/SafePoint.h:192-195`), and `IsAnyWorldTicking()` is a loop over
+`GEngine->GetWorldContexts()` returning true only when some `World->bInTick` is
+set (`SafePoint.h:174-189`).
+
+**There is a live entry path into `ProcessRequest` on which `bInTick` is false for
+every world, and it is the path three of today's five editor kills actually ran
+on.** A third-party editor tickable — here `UMassEntityEditorSubsystem::Tick` —
+blocks on a task and pumps the game thread's named-thread queue, which drains a
+queued PinWright request and runs the handler **inline, inside the engine frame**,
+during `FTickableObjectBase::SimpleTickObjects`. `SimpleTickObjects` runs *before*
+the editor world tick (`EditorEngine.cpp:1936` against `:1967`), so no world has
+`bInTick` set, `IsSafeNow()` returns **true**, and the gate passes the request
+straight through to the inline branch.
+
+The verbs on that list are there because running them mid-frame kills the editor.
+The gate is their only protection, and on this stack it is inert.
+
+## This is a known gap — what is new is that it is now a measured one
+
+`Dispatch/SafePoint.cpp:304-312` already states it, in the `model.compile` entry:
+
+> **KNOWN GAP, stated because that stack is not the one this entry fixes.**
+> `IsSafeNow()` reads `UWorld::bInTick` only (`SafePoint.h`), and
+> `SimpleTickObjects` runs BEFORE the editor world tick (`EditorEngine.cpp:1936`
+> against `:1967`), so `bInTick` is false there and the gate lets the call
+> through. This entry closes the `UWorld::Tick` half of the window — the half
+> every other family here is listed for — and nothing more.
+
+That comment was written from a 2026-08-19 crash log and left deliberately open,
+on the reasoning that closing the rest would mean deferring listed methods
+unconditionally, "a behaviour change for all seven families above and for the
+tests that pin their inline path".
+
+**This ticket does not dispute that reasoning. It supplies the cost side of it,
+which the comment did not have:** on 2026-08-27 the unclosed half was taken three
+times in one session, by two different *listed* verbs, in a shared editor with
+four agents in it. The gap stopped being theoretical.
+
+## Evidence: three crashes, one stack, all in this checkout's logs
+
+The frames below are common to all three, outermost-last, read from the retained
+backup logs. `FRpcDispatcher::ProcessRequest` is running a handler **inline** —
+this is not a deferred-queue drain.
+
+```
+UnrealEditor-PinWright.dll!FRpcDispatcher::ProcessRequest()      RpcDispatcher.cpp:646
+UnrealEditor-Core.dll!TGraphTask<FAsyncGraphTask>::ExecuteTask() TaskGraphInterfaces.h:703
+UnrealEditor-Core.dll!FTaskBase::TryExecuteTask()                TaskPrivate.h:524
+UnrealEditor-Core.dll!FNamedTaskThread::ProcessTasksNamedThread() TaskGraph.cpp:807
+UnrealEditor-Core.dll!FNamedTaskThread::ProcessTasksUntilQuit()  TaskGraph.cpp:696
+UnrealEditor-Core.dll!TryWaitOnNamedThread()                     TaskPrivate.cpp:426
+UnrealEditor-Core.dll!FTaskBase::WaitWithNamedThreadsSupport()   TaskPrivate.cpp:240
+UnrealEditor-MassEntityEditor.dll!UMassEntityEditorSubsystem::Tick()
+                                                  MassEntityEditorSubsystem.cpp:196
+UnrealEditor-Engine.dll!FTickableObjectBase::SimpleTickObjects() Tickable.cpp:116
+UnrealEditor-UnrealEd.dll!UEditorEngine::Tick()                  EditorEngine.cpp:1936
+UnrealEditor-UnrealEd.dll!UUnrealEdEngine::Tick()                UnrealEdEngine.cpp:546
+UnrealEditor.exe!FEngineLoop::Tick()                             LaunchEngineLoop.cpp:5859
+```
+
+| # | Log (backup, UTC name) | Verb that ran there | On the tick-unsafe list? |
+|---|---|---|---|
+| 1 | `EAContentExamples58-backup-2026.08.27-08.26.21.log` | `render.capture_asset_preview` (`RenderHandler.cpp:1445`) | **yes** |
+| 2 | `EAContentExamples58-backup-2026.08.27-08.39.32.log` | `render.capture_asset_preview` (`RenderHandler.cpp:1445`) | **yes** |
+| 3 | `EAContentExamples58-backup-2026.08.27-14.16.48.log` | `niagara.graph.create_node` (`NiagaraGraphHandler.cpp:763`) | no |
+
+Verified by grep against each backup log: `UMassEntityEditorSubsystem::Tick`
+appears in exactly these three of the day's five crash callstacks (the other two
+are a Slate prepass on the game thread and an assert on the render thread, neither
+of which is a dispatcher stack).
+
+**What this proves and what it does not.** It proves the gate did not fire for a
+listed verb on a real stack, twice, because `render.capture_asset_preview` is in
+`GTickUnsafeMethodNames` (`SafePoint.cpp`, family B) and yet executed inline
+inside `SimpleTickObjects`. **It does not prove the gate's failure caused those
+crashes** — `render.capture_asset_preview`'s fault is an access violation in
+`CloseAllEditorsForAsset` that may well fire from any stack, and
+`niagara.graph.create_node` (row 3, not listed and not claimed to need listing)
+dies on its own unfinalized-RAII bug wherever it runs. Causation is unproven and
+is deliberately not claimed here. The defect being reported is narrower and
+certain: **a safety gate reports "safe" on a stack that is definitionally the
+unsafe one, so it protects none of its 34 verbs there.**
+
+## Why it matters more than the comment assumed
+
+- The listed families are not minor. Family A is `CollectGarbage` -> `~ULevel` ->
+  `FreeTickTaskLevel`, which asserts. Family B is re-entrant Slate pump + viewport
+  draw + `FlushRenderingCommands` from inside a frame. Family H
+  (`model.compile`) reconstructs a `UStaticMesh` in place while components still
+  reference it. Every one is an editor kill, and every kill takes down every agent
+  sharing the process.
+- The trigger is not something a caller controls. Whether a request lands in
+  `SimpleTickObjects` or in the safe window depends on which editor tickable
+  happens to block on a task that frame. `UMassEntityEditorSubsystem` is stock UE
+  5.8 and ships enabled; no PinWright user opted into it. So the same verb is safe
+  on one call and unguarded on the next, which is exactly the "survives one or two
+  calls, dies on a later one" behaviour reported against the capture family.
+- The gate's own log line is `Verbose`, so a deferral that *doesn't* happen leaves
+  no trace at default verbosity. There is currently no way to tell from a log
+  whether the gate fired.
+
+## What it should do
+
+Options, cheapest first. Picking one is a judgement call for whoever owns
+`SafePoint`; the point of the ticket is that "leave the half open" now has a
+measured price.
+
+1. **Widen the safety test beyond `bInTick`.** `IsSafeNow()` should also report
+   unsafe when the engine is anywhere inside `FEngineLoop::Tick` on the game
+   thread — a simple depth flag set/cleared by the subsystem's own tick, or
+   `GIsRunning`-style frame-phase state — rather than inferring frame position
+   from a single world's `bInTick`. This closes `SimpleTickObjects` without
+   deferring unconditionally, which is what the existing comment ruled out.
+2. **Do not execute PinWright requests from a nested named-thread pump at all.**
+   The root problem is that `ProcessRequest` can be re-entered from an arbitrary
+   third-party task wait. A frame-scoped "not from a nested pump" latch on the
+   dispatcher would make the entry path impossible regardless of the tick test.
+3. **At minimum, make the failure observable.** Promote the pass-through case to a
+   logged line (or count it), so a crash log shows whether a listed verb ran
+   guarded or unguarded. Today the absence of a `Verbose` line is unreadable
+   evidence, and every crash-forensics pass has to reconstruct the stack by hand
+   to find out.
+
+Whatever is chosen, the regression test has to drive the **nested-pump** path, not
+just `SetForcedUnsafeForTests(true)`. The existing tests pin the inline branch and
+the forced-unsafe branch; neither of them can observe this gap, because neither
+enters `ProcessRequest` from inside `SimpleTickObjects`.
+
+severity rationale: impact=the plugin's only guard for 34 verbs that are documented as editor-killing does not fire on a stack observed three times in one day, and its failure is invisible at default log verbosity x reach=every PinWright user on UE 5.8, since the tickable that opens the path (`UMassEntityEditorSubsystem`) is stock and enabled, and no caller action selects or avoids it. Not Critical only because no crash has been *proven* to be caused by the missed deferral rather than by the verb's own independent fault -> High
+
+## Related
+
+- `B-capture-asset-preview-no-safe-close-mode` (OPEN, Critical) — crashes 1 and 2
+  above are that ticket's crash A and crash B. Its verb is on the tick-unsafe list
+  and ran unguarded; that does not change its own root cause
+  (`CloseAllEditorsForAsset` at `CaptureSubject.cpp:1405`), but it does mean a
+  fixer cannot assume the gate kept the verb out of the frame.
+- `B-model-compile-live-niagara-mesh-renderer-raytracing-assert` /
+  `B-static-mesh-rebuild-crashes-live-niagara-mesh-renderer` (OPEN, Critical,
+  duplicate pair) — `model.compile` is the verb whose `SafePoint.cpp` entry
+  documents this gap, and its crash log carries the `FlushRenderingCommands called
+  recursively! 2 calls on the stack.` tell that entry cites. That crash is on the
+  render thread, so this ticket does **not** claim the gate gap caused it.
+- `B-niagara-create-node-unfinalized-graph-node-creator-fatal` /
+  `B-niagara-create-node-early-return-before-finalize-crash` (OPEN, Critical,
+  duplicate pair) — crash 3 above. Listed only as the third instance of the stack;
+  that verb is not on the tick-unsafe list and this ticket does not argue it should
+  be, since its fault is an unfinalized `FGraphNodeCreator` and is stack-independent.
+- `B-compile-material-not-tick-gated` (OPEN) — the adjacent question of *which*
+  verbs belong on the list. Orthogonal to this one: that ticket is about list
+  membership, this one is about the list having no effect on a given stack.
+
+## History
+
+- `#1-log-forensics` `OPEN` reporter — 2026-08-27, UE 5.8, `EAContentExamples58`,
+  `/Game/Maps/Atlantis`, PinWright at this checkout's HEAD. Found during a
+  forensics pass over all five of the day's editor kills, not by running anything:
+  the shared outer frames were what the three dispatcher-stack crashes had in
+  common, and checking them against `SafePoint.h` showed `IsSafeNow()` must have
+  returned true on all three. **No repro run and none recommended** — the editor
+  is shared with four working agents and every listed verb is an editor kill by
+  construction. Gate mechanism re-verified in current source during filing:
+  `RpcDispatcher.cpp:449`, `SafePoint.h:174-195`, and the pre-existing KNOWN GAP
+  note at `SafePoint.cpp:304-312` (which this ticket confirms rather than
+  contradicts). Callstack presence confirmed by grepping
+  `UMassEntityEditorSubsystem::Tick` across all five backup logs: present in
+  exactly the three named above. Deliberately filed as High, not Critical, and
+  with causation explicitly disclaimed — an earlier attribution in this same
+  session ("Slate stack exhaustion") was wrong and was only caught on re-check, so
+  the claim here is kept to what the logs actually show.

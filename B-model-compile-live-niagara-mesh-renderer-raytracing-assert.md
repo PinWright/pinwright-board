@@ -6,7 +6,7 @@ severity: Critical
 category: bug
 tags: [model, static-mesh, niagara, mesh-renderer, ray-tracing, editor-crash]
 encounters: 1
-lastSeen: 2026-08-27
+lastSeen: 2026-08-27T19:29:41+05:00
 ---
 
 # Recompiling a mesh that a spawned Niagara mesh renderer references crashes the editor
@@ -93,6 +93,28 @@ The assert is in engine code, so PinWright cannot fix it directly, but it can st
   first instead of losing the editor. A refusal that names the blocking actors is strictly better
   than a crash, and matches the house rule that an error must say what was checked and what to do.
 
+## Related
+
+- **`B-static-mesh-rebuild-crashes-live-niagara-mesh-renderer` (OPEN, Critical) is the SAME
+  DEFECT**, filed independently by another agent in the same editor from the same crash: same
+  log (`Saved/Logs/EAContentExamples58-backup-2026.08.27-14.29.41.log`), same assert
+  (`Array.h:1339`, `-1 into an array of size 0`), same innermost frame
+  (`FNiagaraRenderableStaticMesh::GetRayTraceLODModelData`), same trigger (`SM_Bubble` rebuilt on
+  frame 505, render thread aborts on frame 506). **Do not fix twice, and do not fix one and leave
+  the other OPEN.** The two are complementary, not redundant: this ticket carries the authoring
+  context, the deterministic repro sequence and the deactivate/re-spawn workaround; the sibling
+  carries the frame-accurate log excerpt and the argument that the guard belongs wherever the
+  shared `UStaticMesh` build call lives rather than in `model.compile` alone
+  (`geometry.convert_to_static_mesh` and the `asset.save` path likely reach it too). Merge into
+  whichever is kept and mark the other a duplicate.
+- `B-capture-asset-preview-no-safe-close-mode` (OPEN, Critical) — **this ticket is the cost of
+  that ticket's recommended workaround.** Its fix #3 tells callers to stop using
+  `render.capture_asset_preview` and prove assets from the level instead (`niagara.spawn_actor` /
+  `actor.spawn` + `render.capture_open_level` + delete). Following that advice is exactly what
+  leaves a live Niagara mesh renderer in the level, which is the precondition here. The guidance
+  is still right; it is incomplete. It must also say *delete the preview actor before recompiling
+  the mesh it draws* — otherwise it trades a capture-path crash for this one.
+
 ## History
 - `#1-initial-repro` `OPEN` reporter — Hit while authoring `/Game/Atlantis/VFX/NS_Bubbles_Ambient`
   on the Atlantis map build. `SM_Bubble` was recompiled from `subdivisions=3` to `subdivisions=4` to
@@ -100,3 +122,37 @@ The assert is in engine code, so PinWright cannot fix it directly, but it can st
   through a Niagara mesh renderer. Compile reported success; editor died on the next render-thread
   frame in the ray-tracing instance gather. Engine source lines captured from the log callstack;
   not traced into PinWright source beyond identifying `model.compile` as the trigger.
+
+- `#2-independent-log-confirmation` `OPEN` reporter — 2026-08-27, crash-forensics pass over all
+  five of the day's editor kills (no repro run; reproducing this one costs everyone in the editor
+  another crash). **Confirms #1 from the log alone, without using the reporter's knowledge of what
+  they had called** — worth recording because one of this session's earlier crash attributions
+  ("Slate stack exhaustion") was wrong and was only caught when someone re-checked it.
+
+  Independently verified in `Saved/Logs/EAContentExamples58-backup-2026.08.27-14.29.41.log`:
+  `LogStaticMesh: Building static mesh SM_Bubble` at `14.29.37:520` and `Built static mesh [0.00s]`
+  at `:521`, package saved `:574`-`:590`, and `appError` at `:605` — **85 ms from rebuild to
+  assert**, frame 505 to frame 506. Full 22-frame callstack matches the one in `## Symptom`
+  exactly. Ray tracing confirmed live in this session rather than assumed: `LogConfig: Set CVar
+  [[r.RayTracing:1]]` and `[[r.Lumen.HardwareRayTracing:1]]` at `14.20.43:081`, which is what puts
+  `GetDynamicRayTracingInstances` on the render path at all.
+
+  Two corrections/limits on the evidence, stated because they bound what the log can prove:
+
+  - **`## Repro`'s "Evidence" line points at the wrong file.** It cites
+    `Saved/Logs/EAContentExamples58.log`; that log was rotated by this crash and now begins at
+    19:30:43 local, after the fact. The crash lives in the retained backup named above (which
+    `## Environment` in the sibling ticket cites correctly).
+  - **The log does not name the triggering RPC.** `model.compile` emits no
+    `LogPinWrightSubsystem` line, and the last such line in the session is at `14.28.08:693`
+    (`actor.delete: PWTEST_BubCount`), 89 s earlier. The attribution to `model.compile` rests on
+    the `LogStaticMesh` build+save pair, which `model.compile` is the verb that produces — sound,
+    but inferred, not read. Likewise the log proves *a* live `FNiagaraRendererMeshes` from the
+    callstack, but does not name the actor; `PWTEST_Bub2` in #1 is the reporter's own knowledge.
+
+  Also note `LogRendererCore: Warning: FlushRenderingCommands called recursively! 2 calls on the
+  stack.` at `14.29.41:686`, immediately after the assert. That is the exact tell already
+  documented for this verb in `Plugins/PinWright/Source/PinWright/Private/Dispatch/SafePoint.cpp`
+  § H (lines 289-293) — so `model.compile` is *already* on the tick-unsafe list and the hazard
+  fired anyway; see `B-safepoint-tick-gate-inert-on-simpletickobjects-path` for why that list did
+  not protect it.

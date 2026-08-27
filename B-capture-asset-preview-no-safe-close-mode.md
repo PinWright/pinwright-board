@@ -131,9 +131,32 @@ grep -a -ci "clos.*editor"                                  ->   0
 ```
 
 Thirty-seven asset editors opened across one session (`SM_Fish_A`, `SM_Fish_B`,
-`SM_Column_Doric`, `SM_Coral_Brain`, `SM_Coral_Fan`, `SM_Coral_Tube`, …), none
-closed. Nothing in the plugin closes an editor opened with
-`closeAfterCapture: false`, and there is no cap on how many may be open at once.
+`SM_Column_Doric`, `SM_Coral_Brain`, `SM_Coral_Fan`, `SM_Coral_Tube`, …).
+Nothing in the plugin closes an editor opened with `closeAfterCapture: false`,
+and there is no cap on how many may be open at once.
+
+> **Correction to the second grep, 2026-08-27 (see History `#2`). The leak is
+> real; the count of `0` closes is a measurement artifact and should not be
+> quoted.** UE never logs the string "clos… editor" when an asset editor goes
+> away — it logs `LogSlate: Window '<AssetName>' being destroyed`. So
+> `grep -ci "clos.*editor"` was always going to return 0 and could not have
+> distinguished a total leak from a total success. Counted the way the engine
+> actually reports it, the same log gives:
+>
+> ```
+> opens                                          37
+> named asset-editor windows destroyed            8   (SM_Fish_A x3, SM_Portal_Ring x2,
+>                                                      SM_Fish_B, SM_Column_Doric,
+>                                                      SM_Column_Broken_A)
+> unnamed window destroys                        21   (startup baseline - identical 21 in a
+>                                                      session with 0 opens, so not editors)
+> ```
+>
+> **Net: 29 of 37 asset editors never closed.** The defect and its severity are
+> unchanged — an unbounded leak of 29 is the same bug as a leak of 37 — but a
+> fixer verifying the fix must diff `Opening Asset editor for` against
+> `LogSlate: Window '…' being destroyed`, filtered to named windows, or they will
+> measure `0` closes before and after the fix and conclude it did nothing.
 
 **Correcting the session log on this point.** The defect log entry that recorded
 this (D30) attributed the 09.49.42 crash to Slate prepass recursion / stack
@@ -235,3 +258,53 @@ severity rationale: impact=editor crash taking down every agent sharing the proc
 
 ## History
 - `#1-initial-repro` `OPEN` reporter — Found building the Atlantis level (map as forcing function; see host `CLAUDE.md` § "What this project is for"), 2026-08-27, UE 5.8, PinWright at this checkout's HEAD. **Four editor kills in one session.** Two of them are this ticket's teardown fault, and the pair is what proves it is not Niagara-specific: crash A at `2026.08.27-08.26.21` UTC (`EXCEPTION_ACCESS_VIOLATION` reading `0x0`, backup log `:6048`, frames `:6094-6114`) entered through `CaptureSubjectProviders_Niagara.cpp:197`, and crash B at `2026.08.27-08.39.32` UTC (reading `0x3f800000`, backup log `:3512`, frames `:3528-3545`) entered through `CaptureSubjectProviders_Mesh.cpp:636` — every frame from `CaptureSubject.cpp:1409` outward identical, only the provider differing. Both logs and both callstacks re-verified on disk in THIS checkout during filing, with the plugin frames carrying this tree's absolute paths; both provider call sites confirmed at those exact line numbers in current source. Guilty call is `AssetEditorSubsystem->CloseAllEditorsForAsset(Asset)` at `CaptureSubject.cpp:1405` (frames report `:1409`, the following `return`). Recorded that the existing pre-close gate at `CaptureSubject.cpp:1392-1403` (`CountPreviewSceneViewportHolders`) defends a *different* crash — the `SEditorViewport` destructor's `check(SceneViewport.IsUnique())` — and cannot see a toolkit-destructor AV, so the function looks defended and is not. The `closeAfterCapture:false` half re-measured in this tree: 37 `LogAssetEditorSubsystem: Opening Asset editor` lines against 0 closes in the 09.49.42 backup log. **Corrected the session log's D30 diagnosis**: it attributed the 09.49.42 crash to Slate prepass stack exhaustion, but that crash is an `EXCEPTION_ACCESS_VIOLATION` at `0x00000008000000b8` with 120 total frames and 36 `Prepass_Internal` frames, innermost `UNiagaraEmitter::GetEmitterData()` — it belongs to the sibling ticket. The leak stands on its own measurement; no crash is attributed to it. Also corrected the log's original Niagara-only framing, and noted that a capture returning `assetEditorClosed:true` does not mean the editor survived the following minute. Worked around by proving assets from the LEVEL instead (`niagara.spawn_actor` / `actor.spawn` + `render.capture_open_level`, then delete the preview actor), which opens no asset editor at all; defect untouched.
+
+- `#2-forensics-and-leak-recount` `OPEN` reporter — 2026-08-27, end-of-day forensics pass over all
+  five of the day's editor kills (log-only; nothing re-run, the editor is shared with four working
+  agents). Adds four things, one of which corrects this ticket.
+
+  **(a) Crashes A and B independently re-confirmed.** Both re-read from the retained backup logs
+  without reference to #1's account. Crash A: `EXCEPTION_ACCESS_VIOLATION reading address 0x0`,
+  83 frames, `CaptureSubjectProviders_Niagara.cpp` -> `CloseAssetEditor` ->
+  `CloseAllEditorsForAsset` -> `FNiagaraSystemToolkit::~FNiagaraSystemToolkit`, innermost
+  `DestructItems<TUniquePtr<SBoxPanel::FSlot>>` / `SBoxPanel::~SBoxPanel`. Crash B: reading
+  `0x3f800000`, 50 frames, `CaptureSubjectProviders_Mesh.cpp` -> same two frames -> innermost
+  `_mi_heap_malloc_zero` / `FMallocMimalloc::Realloc` under
+  `FLayoutSaveRestore::SaveToConfig` (the toolkit persisting its tab layout on close). Worth
+  noting for a fixer: B's innermost frame is the **allocator**, reached through unrelated JSON
+  work, which is the signature of heap corruption committed earlier in the same teardown rather
+  than a fault at that line. A and B are the same bug at different distances from it. Handler
+  frame re-verified: `RenderHandler.cpp:1445` sits inside the `render.capture_asset_preview`
+  registration at `:293` (next registration is `render.capture_open_level` at `:1480`).
+
+  **(b) The `0 closes` figure was a grep artifact — corrected inline above.** Real number is
+  **29 of 37 leaked**, not 37. Flagged because the ticket's own verification recipe would have
+  read `0` both before and after a correct fix.
+
+  **(c) The leak is not ongoing — the avoidance guidance worked.** `Opening Asset editor for`
+  across every session after the guidance landed: `14.16.48` log **0**, `14.29.41` log **0**,
+  current live log **0**. Nothing else in the plugin is opening asset editors behind agents'
+  backs. So the open question "are editors still accumulating?" resolves **no**, and neither of
+  the day's last two crashes is a capture crash.
+
+  **(d) The workaround in fix #3 relocated the hazard rather than removing it, and now has its
+  own Critical ticket.** This ticket recommends proving assets from the level
+  (`niagara.spawn_actor` / `actor.spawn` + `render.capture_open_level` + delete). Crash 5 of the
+  day (`14.29.41` log) is the direct consequence: a preview actor left in the level with a Niagara
+  **mesh renderer** makes any later rebuild of the mesh it draws fatal on the render thread
+  (`FNiagaraRenderableStaticMesh::GetRayTraceLODModelData`, `-1 into an array of size 0`, 85 ms
+  after `model.compile` rebuilt `SM_Bubble`). Filed as the duplicate pair
+  `B-model-compile-live-niagara-mesh-renderer-raytracing-assert` /
+  `B-static-mesh-rebuild-crashes-live-niagara-mesh-renderer`. **Fix #3's wording needs one more
+  clause — delete the preview actor before recompiling the mesh it draws — or this ticket keeps
+  sending callers into that one**, exactly the way `## Do not fix one of these and stop` describes
+  for the other two family members. The family is now four tickets, not three.
+
+  Also filed from this pass: `B-safepoint-tick-gate-inert-on-simpletickobjects-path` (High). Both
+  of this ticket's crashes ran their handler **inline inside the engine frame**, under
+  `UEditorEngine::Tick` -> `SimpleTickObjects` -> `UMassEntityEditorSubsystem::Tick` ->
+  `FTaskBase::WaitWithNamedThreadsSupport` -> `FRpcDispatcher::ProcessRequest`, even though
+  `render.capture_asset_preview` is on the tick-unsafe deferral list — `IsSafeNow()` tests
+  `UWorld::bInTick`, which is false during `SimpleTickObjects`. That does **not** change this
+  ticket's root cause and is not claimed to have caused either crash, but a fixer should not
+  assume the SafePoint gate is keeping this verb out of the frame, because it demonstrably is not.

@@ -78,6 +78,24 @@ in one shared editor with four agents in it; each one loses every unsaved level 
 flight, for everybody. The blast radius is wider than the caller: the agent that ran the rebuild got
 its save committed, and the agent that merely asked for a screenshot got the crash.
 
+## Related
+
+- **`B-model-compile-live-niagara-mesh-renderer-raytracing-assert` (OPEN, Critical) is the SAME
+  DEFECT**, filed independently by a different agent in the same editor from this same crash —
+  same log, same assert, same innermost frame, same `SM_Bubble` trigger. **Do not fix twice, and
+  do not fix one and leave the other OPEN.** That ticket adds what this one lacks: the authoring
+  context (`SM_Bubble.pwmodel` recompiled `subdivisions=3` -> `4` against a live `PWTEST_Bub2`),
+  a deterministic three-step repro, and the `actor.delete` / `effect.deactivate_niagara`
+  workaround. This ticket adds the frame-accurate timeline and the point in `## Suggested fix`
+  that the guard belongs at the shared `UStaticMesh` build call, not in `model.compile` alone.
+  Merge into whichever is kept and mark the other a duplicate.
+- `B-capture-asset-preview-no-safe-close-mode` (OPEN, Critical) — **its recommended workaround is
+  this ticket's precondition.** That ticket's fix #3 moves callers off
+  `render.capture_asset_preview` and onto `actor.spawn` / `niagara.spawn_actor` +
+  `render.capture_open_level`. That is what puts a live Niagara mesh renderer in the level in the
+  first place. The advice needs one more clause — *delete the preview actor before recompiling
+  the mesh it draws* — or it simply relocates the crash.
+
 ## Environment
 
 UE 5.8, `EAContentExamples58`, `/Game/Maps/Atlantis`, 2026-08-27T19:29:41+05:00 (log UTC 14:29:41).
