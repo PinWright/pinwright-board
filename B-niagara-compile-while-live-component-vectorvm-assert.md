@@ -229,3 +229,23 @@ severity rationale: impact=`appError` on a worker thread killing the shared edit
   `RequestCompile`. What this encounter adds is that the client-side workaround is not sufficient in
   a shared editor, because **a placed level actor is also a live component** — an agent that deletes
   only its own `PWxxx_` preview actors still leaves the shipped `VFX_*` actor of that system ticking.
+- `#3-crash-attribution-disproven-fix-stands` `IN-REVIEW` developer — Correcting the record, from an
+  independent log-forensics pass in the `EAContentExamples58` session that owns the original log.
+  **The crash timeline in `#1` does not support this ticket.** `14.41.41:838` (appError) and
+  `14.41.59:225` are the *same* assert — the second is the crash handler re-logging on the same
+  thread, not a second event — and the entry that actually precedes it is `sequencer.set_playhead`
+  opening the LevelSequence editor at `14.41.41:045`, **793 ms** earlier. The last PinWright RPC
+  before the death is an `actor.delete` at `14.39.22`, over two minutes earlier and not a compile.
+  So the 14:41 death was not caused by a compile against a live component, and a future triager
+  should not use this ticket's timestamps to recognise the pattern. The `#2` encounter is
+  circumstantial (no dump, no assert line) and is not evidence either way.
+  **What survives, and is what `#2-quiesce-before-compile` fixed, is the source-level defect, which
+  was read from source rather than inferred from the log:** `FinalizeNiagaraEdit` called
+  `RequestCompile(true)` with no preceding `KillSystemInstances` while six sibling call sites did.
+  That asymmetry is real, independent of which crash is attributed to it, and the fix stands as
+  written. Only the evidence section is wrong; severity left at Critical because the defect is a
+  missing guard on a worker-thread `appError` path, which the crash log does not need to prove.
+  Note also that the two `#2` bullets above are a numbering collision from two sessions appending
+  concurrently, not a lost entry — both are intact and this is the third entry.
+  **Not merged with `B-niagara-di-count-mismatch-vectorvm-assert-kills-editor`**, which describes the
+  same crash *event* but is a different defect with a different fix site; see that ticket's `#3`.
