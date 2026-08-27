@@ -4,8 +4,8 @@ title: "niagara.graph.create_node kills the editor on every rejected payload: it
 status: OPEN
 severity: Critical
 category: bug
-tags: [niagara, niagara-graph, create-node, editor-crash, assertion, fgraphnodecreator, error-path, returns-clean-then-dies, shared-editor]
-encounters: 2
+tags: [niagara, niagara-graph, create-node, editor-crash, assertion, fgraphnodecreator, error-path, returns-clean-then-dies, shared-editor, test-gap]
+encounters: 3
 lastSeen: 2026-08-27T19:16:48+05:00
 ---
 
@@ -135,6 +135,84 @@ first place: the `UNSUPPORTED_NODE_CLASS` message should say that
 replaces `niagara.add_emitter`'s missing `RebuildEmitterNodes`
 (`B-niagara-authored-emitter-forces-inert`).
 
+## Merged from `B-niagara-create-node-early-return-before-finalize-crash`
+
+Everything in this section came from `B-niagara-create-node-early-return-before-finalize-crash`, an
+independent report of this same defect filed 13 s earlier by a third agent in the same editor: same
+file and lines (`NiagaraGraphHandler.cpp:684/688/697/704`), same engine assert (`EdGraph.h:312`),
+same fix direction. That ticket was **merged into this one and deleted** — nothing below was
+discarded, and nothing below duplicates a claim made above.
+
+### Why the test suite is green over the crashing path
+
+`Tests/Niagara/TestNiagaraGraphCreateNode.cpp:124-135` covers exactly this case — and passes. It
+calls `NiagaraGraphCreate::ApplyCreateNodePayload(Node, nullptr)` **directly**, on a
+`NewObject<UNiagaraNodeAssignment>(GetTransientPackage())`. No `FGraphNodeCreator` is ever
+constructed, so the destructor that does the killing is not on the path under test. Same for the
+`INVALID_OP` case at `:110-121`.
+
+Test 6 in that file (`:136+`) *does* go through `InvokeHandlerWithCapture`, but only for
+`CLASS_NOT_FOUND`, which returns at `:666` — **before** the creator is constructed. The one
+dispatcher-level error case exercised is the one case that cannot crash.
+
+This is the failure mode `agent-conventions.md` § *Tests + fixtures* warns about — the test does not
+call the same production symbol the handler does — and here it hides a Critical, not a cosmetic. As
+written, the unit tests stay green **through the entire fix and through a revert of it**. That is
+why `## What it should do` asks for the regression test at the live loopback seam
+(`Tests/Infra/TestMcpTransport.cpp`) rather than another direct-call unit test.
+
+### The observed error-then-abort ordering
+
+```
+LogPinWrightSubsystem: Warning: Automation request failed (UNSUPPORTED_NODE_CLASS):
+  Node class 'NiagaraNodeEmitter' is not supported by niagara.graph.create_node v1.
+LogWindows: Error: Assertion failed: bPlaced
+  [File:C:\UE_5.8\Engine\Source\Runtime\Engine\Classes\EdGraph\EdGraph.h] [Line: 312]
+  Created node was not finalized in a FGraphNodeCreator<EdGraphNode>
+LogWindows: Error: [Callstack] UnrealEditor-PinWright.dll!AutoHandler_334_()
+  [Handlers/Niagara/NiagaraGraphHandler.cpp:763]
+```
+
+The error response is emitted correctly and *then* the process aborts (`appError` ->
+`StaticShutdownAfterError` -> exit), which is why the client sees a well-formed
+`UNSUPPORTED_NODE_CLASS` and a dead transport on the next call rather than anything connecting the
+two.
+
+Both early returns are fatal, not just the observed one:
+
+| line | path | fatal? |
+|------|------|--------|
+| 688 | `NODE_CREATE_FAILED` — `CreateNode` returned null | yes |
+| 697 | any `ApplyCreateNodePayload` error — `UNSUPPORTED_NODE_CLASS`, `INVALID_OP`, … | yes |
+
+`~FGraphNodeCreator` is an unconditional `checkf(bPlaced, ...)`; it does **not** check whether a node
+was actually created, so even the null-node path at `:688` aborts.
+
+### Fix detail: where the class predicate belongs
+
+The class check is the last branch of `NiagaraGraphCreate::ApplyCreateNodePayload`
+(`NiagaraGraphHandler.cpp:571`), which runs **after** the node has already been constructed. A class
+the verb does not support is knowable from `nodeClass` alone, before any graph mutation. Split that
+check out into a predicate taking a `UClass*` and run it next to the `ResolveNiagaraSubclassByPath`
+check at `:662`; `UNSUPPORTED_NODE_CLASS` then returns at `:669` with no transaction, no graph
+`Modify()` and no half-built node.
+
+### This is the only `FGraphNodeCreator` call site that does work before `Finalize()`
+
+All ~45 other `FGraphNodeCreator` call sites in the plugin finalize immediately after `CreateNode`;
+this handler is the only one that does work in between. A bare `return` between `CreateNode` and
+`Finalize()` is never correct with this engine type — worth an audit note alongside the other call
+sites so the pattern is not reintroduced.
+
+### Why callers keep reaching for this verb
+
+`F-niagara-graph-create-node` is `DONE`, and advertises the verb as available for "the ~30 other
+`UNiagaraNode*` subclasses". The v1 supported list is much shorter, so every class in the gap is a
+landmine. Combined with `B-niagara-authored-emitter-forces-inert` § `#2` — which names the missing
+`UNiagaraNodeEmitter` in the system graph as the root cause of emitters that never simulate — this
+verb is the obvious next call for anyone reading that diagnosis, which is exactly how all three
+reports arrived within ten minutes.
+
 ## Impact
 
 Critical. One refused argument on a read-shaped exploratory call terminates the
@@ -186,3 +264,17 @@ severity rationale: impact=editor-killing `appError` with silent loss of every s
   every agent that reads `B-niagara-authored-emitter-forces-inert` reaches for this verb next.
 
   No new repro run — deliberately, per #1.
+
+- `#3-merged-independent-report` `OPEN` reporter — 2026-08-27T19:16:38+05:00 (log UTC 14:16:38),
+  same editor instance, same assert. Originally filed as its own ticket
+  `B-niagara-create-node-early-return-before-finalize-crash` (committed 19:20:27, 13 s before this
+  one); **merged into this ticket and that file deleted** during a duplicate-consolidation pass —
+  its content is preserved in `## Merged from ...` above, not discarded. Observed as a bystander:
+  another agent in the same editor issued the call while this reporter was mid-measurement on the
+  same level. Not reproduced deliberately (doing so costs everyone in the editor another crash).
+  Root cause read straight from source: `NiagaraGraphHandler.cpp:684/688/697/704` against
+  `EdGraph.h:312`; test gap read from `Tests/Niagara/TestNiagaraGraphCreateNode.cpp:124-135`.
+  Environment: UE 5.8, `EAContentExamples58`, `/Game/Maps/Atlantis`. The log this crash is in was
+  rotated by the crash itself and is retained as
+  `Saved/Logs/EAContentExamples58-backup-2026.08.27-14.16.48.log` (the original ticket cited the
+  live `Saved/Logs/EAContentExamples58.log`, which has since rolled past it).
