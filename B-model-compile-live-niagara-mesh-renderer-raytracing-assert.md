@@ -4,8 +4,8 @@ title: "model.compile on a static mesh a live Niagara mesh renderer is drawing k
 status: OPEN
 severity: Critical
 category: bug
-tags: [model, static-mesh, niagara, mesh-renderer, ray-tracing, editor-crash]
-encounters: 1
+tags: [model, static-mesh, niagara, mesh-renderer, ray-tracing, editor-crash, render-thread, stale-reference, missing-guard, shared-editor]
+encounters: 2
 lastSeen: 2026-08-27T19:29:41+05:00
 ---
 
@@ -62,6 +62,59 @@ subsequent render-thread frame.
 (19:29 local; logs are UTC+0, machine is UTC+5). The `model.compile` that preceded it is the last
 PinWright line before the assert.
 
+## Merged from `B-static-mesh-rebuild-crashes-live-niagara-mesh-renderer`
+
+Everything in this section came from `B-static-mesh-rebuild-crashes-live-niagara-mesh-renderer`, an
+independent report of this **same crash** filed 19 s later by a different agent in the same editor —
+same log, same assert, same innermost frame, same `SM_Bubble` trigger, same frame 505 -> 506
+timeline. That ticket was **merged into this one and deleted**; nothing below was discarded.
+
+### A second reading of the mechanism: a stale cached LOD index
+
+The rebuild reallocates the mesh's `RenderData->LODResources`; the renderer's cached LOD index is
+now past the end of the array, and the first ray-tracing instance gather after the rebuild indexes
+out of bounds. `check()` on the render thread is an unrecoverable `appError` — no error response, no
+chance to recover, the process is gone for every agent in the editor.
+
+This is a **different reading of the same `-1 into an array of size 0`** than `## Symptom` above,
+which reads it as "the mesh has no render data at the instant the gather runs, so the
+highest-available-LOD computation returns -1". Both agree the gather runs against an array the
+rebuild invalidated. Which of the two it actually is decides the guard: a stale *index* is fixed by
+a reregister, an *empty* LOD array needs the component fully deactivated across the rebuild. A fixer
+should settle this before choosing, rather than assuming either reading.
+
+### Why this is ours and not just an engine assert
+
+The engine assert is the symptom; the missing guard is the defect, and it is the **same shape** as
+`B-niagara-edit-with-open-asset-editor-slate-crash`: a mutating verb returns success against an
+object that something else in the editor still holds a live, now-stale reference to, and the process
+dies on the next redraw rather than at the call. There the stale holder was an open Slate title bar;
+here it is a render-thread proxy. Neither verb checks.
+
+Nothing in the mesh-build path looks for dependent Niagara renderers. The rebuild is exactly what
+`model.compile` does on every iteration of an authoring loop, so on a level where any Niagara system
+uses a mesh renderer **the hazard is armed permanently**, and it fires on *whatever redraws next* —
+in this instance a `render.capture_open_level` issued by an unrelated agent, which is how it was
+observed. That capture request got a dropped stream and no diagnosis; the log was the only way to
+learn the capture was a bystander rather than the cause. Any diagnosis that starts from "which call
+returned the error" will therefore blame the wrong verb.
+
+### Additional fix directions
+
+These extend `## Suggested fix` below rather than replacing it:
+
+1. **`FlushRenderingCommands()` alone is not enough.** The cached LOD index is *state*, not a queued
+   command. The guard has to be `FComponentReregisterContext` (or `DeactivateImmediate()` +
+   reactivate) per affected `UNiagaraComponent`, around the rebuild.
+2. **Name the typed refusal.** `NIAGARA_RENDERER_DEPENDS_ON_MESH`, listing the blocking components,
+   so the caller gets the deactivate-first workflow explicitly instead of a dead editor.
+3. **Report the dependency in `static_mesh.describe`.** "This mesh is referenced by N live Niagara
+   mesh renderers" is cheap, read-only, and would let a careful caller avoid the whole class before
+   touching anything.
+4. **Put the guard at the shared build call, not in `model.compile`.** Check whether
+   `model.compile`, `geometry.convert_to_static_mesh` and the `asset.save` path all reach the same
+   `UStaticMesh` build; if they do, a guard in `model.compile` alone leaves the other two armed.
+
 ## Impact
 
 Critical. It kills the editor for every agent sharing it, and everything not yet saved is gone. The
@@ -95,18 +148,17 @@ The assert is in engine code, so PinWright cannot fix it directly, but it can st
 
 ## Related
 
-- **`B-static-mesh-rebuild-crashes-live-niagara-mesh-renderer` (OPEN, Critical) is the SAME
-  DEFECT**, filed independently by another agent in the same editor from the same crash: same
-  log (`Saved/Logs/EAContentExamples58-backup-2026.08.27-14.29.41.log`), same assert
-  (`Array.h:1339`, `-1 into an array of size 0`), same innermost frame
+- `B-static-mesh-rebuild-crashes-live-niagara-mesh-renderer` (**merged into this ticket and
+  deleted**) was the SAME DEFECT, filed independently by another agent in the same editor from the
+  same crash: same log (`Saved/Logs/EAContentExamples58-backup-2026.08.27-14.29.41.log`), same
+  assert (`Array.h:1339`, `-1 into an array of size 0`), same innermost frame
   (`FNiagaraRenderableStaticMesh::GetRayTraceLODModelData`), same trigger (`SM_Bubble` rebuilt on
-  frame 505, render thread aborts on frame 506). **Do not fix twice, and do not fix one and leave
-  the other OPEN.** The two are complementary, not redundant: this ticket carries the authoring
-  context, the deterministic repro sequence and the deactivate/re-spawn workaround; the sibling
-  carries the frame-accurate log excerpt and the argument that the guard belongs wherever the
-  shared `UStaticMesh` build call lives rather than in `model.compile` alone
-  (`geometry.convert_to_static_mesh` and the `asset.save` path likely reach it too). Merge into
-  whichever is kept and mark the other a duplicate.
+  frame 505, render thread aborts on frame 506). The two were complementary, not redundant, so
+  everything that ticket carried and this one did not — the stale-LOD-index reading of the assert,
+  the "why this is ours" argument, and the three extra fix directions including that the guard
+  belongs wherever the shared `UStaticMesh` build call lives rather than in `model.compile` alone —
+  is preserved above under `## Merged from ...`. **There is now one ticket for this defect; fix it
+  once, here.**
 - `B-capture-asset-preview-no-safe-close-mode` (OPEN, Critical) — **this ticket is the cost of
   that ticket's recommended workaround.** Its fix #3 tells callers to stop using
   `render.capture_asset_preview` and prove assets from the level instead (`niagara.spawn_actor` /
@@ -156,3 +208,14 @@ The assert is in engine code, so PinWright cannot fix it directly, but it can st
   § H (lines 289-293) — so `model.compile` is *already* on the tick-unsafe list and the hazard
   fired anyway; see `B-safepoint-tick-gate-inert-on-simpletickobjects-path` for why that list did
   not protect it.
+
+- `#3-merged-independent-bystander-report` `OPEN` reporter — 2026-08-27T19:29:41+05:00 (log UTC
+  14:29:41), same editor, same crash. Originally filed as its own ticket
+  `B-static-mesh-rebuild-crashes-live-niagara-mesh-renderer`; **merged into this ticket and that file
+  deleted** during a duplicate-consolidation pass — its content is preserved in
+  `## Merged from ...` above, not discarded. Observed as a bystander while measuring rock/rubble
+  grounding on the same level: another agent's `SM_Bubble` rebuild was the trigger, and this
+  reporter's own `render.capture_open_level` merely supplied the redraw that fired it — the capture
+  returned a dropped stream with no diagnosis. Not reproduced deliberately. Timeline and callstack
+  read from `Saved/Logs/EAContentExamples58-backup-2026.08.27-14.29.41.log`; ray tracing confirmed
+  active in the editor viewport.
