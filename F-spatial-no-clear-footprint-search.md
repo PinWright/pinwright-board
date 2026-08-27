@@ -5,8 +5,8 @@ status: OPEN
 severity: Medium
 category: feature
 tags: [spatial, placement, occupancy, clearance, footprint, level-building, verify_placement, workaround]
-encounters: 1
-lastSeen: 2026-08-27T20:25:12.0000000+05:00
+encounters: 2
+lastSeen: 2026-08-27T23:55:00.0000000+05:00
 ---
 
 # `spatial` can verify a placement you already chose, but cannot find one
@@ -100,3 +100,30 @@ placement task -> Medium
 
 ## History
 - `#1-initial-report` `OPEN` reporter — Filed from a level-dressing task in `EAContentExamples58` (`/Game/Maps/Atlantis`): decide whether a 4004 × 2272 × 1023 collapsed-stair mesh could be composed into an existing temple-debris field. The question is pure occupancy and no `spatial` verb answers it — `verify_placement` needs the transform and the blocking actor names up front, `measure_overlap`/`measure_distance` are pairwise, `place_relative`/`place_on_surface`/`ground_actors` solve Z for a spot already chosen, `raycast` is one ray. Worked around with 2 `python.execute` scrapes (including a walk of `InstancedStaticMeshComponent` instance transforms, the only way to see scatter occupancy) plus ~150 lines of client-side OBB/SAT/capsule geometry over a 17 328-pose grid. Two bugs in that hand-rolled math each produced confident wrong output first (unclamped segment-segment projection measuring to the infinite line — every camera-path clearance read 0; and an `overlap == 0.0` result passing a `< 0` reject filter — poses on top of the temple podium ranked best), caught only by unit-testing the helpers, which is the case for the capability living in the plugin. Dedup: ripgrep across the board for clearance / free-space / OBB / candidate-placement found no occupancy-search ticket; `F-spatial-raycast-no-batch-multi-origin` is terrain flatness not actor occupancy, `F-actor-aggregate-bounding-box` measures an existing set. Proposes a read-only `spatial.find_clear_placement` taking a footprint (or `assetPath`), a search region + `yawStep`, `ignoreActors`/`onlyClasses`/min-clearance and an optional keep-out polyline, returning ranked clear poses with measured clearance and the **binding actor** for rejected ones, and required to see HISM/ISM instances rather than only actors.
+
+- `#2-camera-corridor-clearance` `OPEN` reporter — Second encounter from the same map, the other
+  half of the same missing capability: gating a **camera path** (the keep-out-polyline case this
+  ticket already names) rather than placing an asset. Re-keying the orbit third of
+  `/Game/Atlantis/Cine/LS_Atlantis_Flythrough` needed "is any geometry within 900 uu of this
+  polyline, and which actor binds it" at 1201 sample points. Nothing in `spatial` answers it:
+  `measure_distance` is actor-AABB pairwise and an AABB is the wrong shape for the dome that
+  actually bounds this path; `verify_placement` needs the blocking actor names up front, which is
+  the answer; and the scatter that binds most of the path is HISM instances, invisible to every
+  actor-level verb. Hand-rolled again in `python.execute` over
+  `SystemLibrary.sphere_trace_multi`.
+  **The hand-rolled instrument produced a false "clear", and so did the project doc's recommended
+  form of it.** A one-way segment sweep is direction-blind on initial overlaps: `A -> B` at
+  radius 900 returned `[]` while `B -> A` on the same segment returned
+  `[STA_FallenB_03, 855 uu]`. A zero-length vertical probe (`p` to `p + 1 uu` in Z) shares the
+  blindness — 931.8 uu reported where the real surface point is 855.1. On the strength of the
+  one-way sweep `Docs/map/atlantis-spec.md` had published "the retuned path measures 0 segments
+  under 900 uu"; a 6-direction probe measuring true `|p − impact_point|` finds **167 frames under
+  900**, tightest 573 uu. That is the same failure mode as encounter #1 (hand-rolled clearance math
+  is confidently wrong before it is right), reached from a different direction, and it is the
+  argument for the verb: the correct query is not expressible, so every caller re-derives it and
+  some of them ship the wrong answer as a green metric.
+  Two incidental UE 5.8 notes for whoever implements it: `FHitResult` has no
+  `get_editor_property('hit_actor')` (raises; `hit.to_dict()['hit_actor']` works), and
+  `sphere_trace_multi` returns `Array[HitResult] or None` — `None`, not an empty array, on a clean
+  sweep. Ask for `minClearance` + the binding actor name on a **polyline** input, not only a
+  footprint search.

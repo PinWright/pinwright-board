@@ -4,9 +4,9 @@ title: "sequencer sub-section methods take TICK-resolution frames while set_prop
 status: OPEN
 severity: Low
 category: ergonomic
-tags: [cross-method-unit-split, units, sequencer, add_sub_sequence, set_sub_section_range, set_properties, docs, discoverability]
-encounters: 1
-lastSeen: 2026-07-11T07:41:26.7708793+03:00
+tags: [cross-method-unit-split, units, sequencer, add_sub_sequence, set_sub_section_range, set_properties, list_sections, python-scripting-channels, docs, discoverability]
+encounters: 2
+lastSeen: 2026-08-27T23:55:00.0000000+05:00
 ---
 
 # sequencer frame-unit split across sibling write methods is not cross-referenced in the docs
@@ -95,3 +95,29 @@ assembly is a specific cinematics path, not every-session -> Low.
 
 ## History
 - `#1-initial-audit` `OPEN` reporter — Struggle audit of a clean/done master-cinematic assembly task (focus `sequencer.add_sub_sequence`; 17 RPCs, zero retries, zero errors, plan_divergence none, outcome clean). Sub-section write methods `add_sub_sequence` / `set_sub_section_range` take tick-resolution frames (docs say `(tick resolution)`) while sibling writer `set_properties` takes display-rate frames (docs say only `frame`); the split is never cross-referenced, so a caller who learns "ticks" from the sub-section family and carries it into `set_properties` silently mis-sizes the master playback range by the tick-resolution factor with no error. Not a defect — the Judge's replay confirmed `set_properties` converts correctly (playbackEnd:180 -> 144000 ticks) and the agent self-resolved via a planned `get_properties` read; filed as the pure-discoverability residual: a reciprocal cross-reference note on the sub-section H3s + the sequencer.md overlay giving the tick<->displayFrame conversion. Distinct from `E-sequencer-property-unit-drift` (the now-fixed set_properties write bug, whose fix scope never names the sub-section methods); same docs-pairing family as `E-add-sync-marker-frame-vs-seconds`. Evidence: agent friction line "unit-convention split ... which I resolved via get_properties (tickRes 24000, 30fps)"; CallAnalyzer "a less careful caller would silently pass a tick value like 144000 to playbackEnd ... with no error."
+
+- `#2-list-sections-ticks-vs-python-display-frames` `OPEN` reporter — Same unit split, one method
+  further out, and this half costs a **silent no-op** rather than a mis-sized range.
+  `sequencer.list_sections {includeKeys:true}` reports each key's time as
+  `keys[].frame` in **tick-resolution ticks** (`0, 16000, 52000 … 480000` at tickRes 24000 /
+  60 fps), with no unit qualifier on the field. The documented follow-on for editing those keys is
+  UE's Python scripting-channel API — `add_keyframe` duplicates rather than replaces and there is no
+  `remove_keyframe`, so `MovieSceneScriptingDoubleChannel.get_keys()[i].set_value(...)` is the only
+  way to retune an existing key — and **that API reports the same keys' times in display frames**
+  (`0, 40, 130 … 1200`). A caller who reads times out of `list_sections` and matches them against
+  `key.get_time().frame_number.value` matches **nothing**.
+  Encountered 2026-08-27 re-keying `/Game/Atlantis/Cine/LS_Atlantis_Flythrough` in
+  `EAContentExamples58`: an edit script keyed on the ticks `list_sections` had just returned applied
+  **0 of 30** edits, and every verification it ran afterwards still passed — key counts unchanged,
+  key times unchanged, tangents unchanged, `mark_package_dirty` -> `True`,
+  `save_asset(only_if_is_dirty=False)` -> `True`. Nothing in the response distinguished "wrote
+  nothing" from "wrote everything"; only an explicit per-key before/after log caught it. The
+  failure is silent in exactly the way the sub-section case in `#1` is, and it lands on the
+  **reader** the caller reaches for first.
+  Remedy fits this ticket's existing scope: name the unit on `list_sections`'s `keys[].frame` in
+  `docs/wiki-src/sequencer.list_sections.md` (**tick-resolution ticks**), and add to the
+  `sequencer.md` units note that the Python scripting-channel surface a caller is sent to for
+  key edits speaks display frames, with the same `displayFrame = tick * frameRate.num /
+  tickResolution.num` conversion. Adjacent, already filed:
+  `B-sequence-add-keyframe-duplicates-existing-frame` (why the Python route is necessary at all)
+  and `B-sequencer-section-range-display-frames-as-ticks`.
