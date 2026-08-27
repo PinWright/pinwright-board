@@ -136,6 +136,28 @@ Whichever is chosen, fix `Saved/PinWright/wiki/actor.list.md:66`'s "it mirrors
 `actor.describe`" — under (a) that sentence is simply false, and it is the
 sentence that caused this.
 
+## Distinct from related tickets
+
+- `F-actor-list-omits-location` (OPEN, Low, **feature**) asks for `location` /
+  `transform` to be ADDED to this same allow-list, and explicitly frames itself
+  as "an enrichment/convenience gap, NOT a documented-contract violation". This
+  ticket is the complementary **bug**: not that a key is missing, but that
+  supplying any key the handler cannot emit is swallowed without a word, and
+  that a projection made entirely of such keys returns success-shaped rows that
+  are empty objects. The two want different fixes — that one widens the
+  allow-list, this one demands the allow-list be *enforced* (or the wiki's
+  "mirrors `actor.describe`" claim be made true). Fixing `F-actor-list-omits-location`
+  alone would silence the `location` case while leaving `folder` and every
+  typo (`Label`, `clas`, `pathname`) silently empty.
+- `E-actor-list-no-limit-spills` (IN-REVIEW) shipped the `fields` projection
+  this ticket reports on, deliberately scoped to `label/name/path/class`. The
+  silent-drop behaviour is a property of how that projection reads its input,
+  not a regression of it.
+- `E-blueprint-param-name-path-vs-assetpath` is the same *family* of
+  vocabulary friction one namespace over, but concerns a top-level parameter
+  name (which the dispatcher rejects loudly), not values inside an array
+  (which nothing checks).
+
 severity rationale: impact=silent no-op returning a success-shaped response with empty rows, indistinguishable from "no such data", against a documented mirror promise x reach=`actor.list` is the primary world-inspection verb and folder is the routine question on any multi-agent build -> High
 
 ## History
