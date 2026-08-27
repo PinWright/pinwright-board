@@ -5,8 +5,8 @@ status: OPEN
 severity: High
 category: bug
 tags: [sequencer, get_binding_transform, rotation, frotator, silent-wrong-data, readback, verification-verb, camera, transform-track]
-encounters: 1
-lastSeen: 2026-08-27T19:41:00+05:00
+encounters: 2
+lastSeen: 2026-08-27T20:50:00+05:00
 ---
 
 # The rotation readback is shifted by one field
@@ -122,3 +122,34 @@ UE 5.8, `EAContentExamples58`, `/Game/Maps/Atlantis`, 2026-08-27. Sequence
   values and disagrees. Confirmed at three frames including one non-key frame (760) whose value is
   produced by interpolation, so the permutation is in the readback and not in the authored data. The
   positional half of the same response is correct and was used, unchanged, to verify the seam.
+
+- `#2-independent-confirmation-from-world-geometry` `OPEN` reporter — 2026-08-27, UE 5.8, same asset
+  (`/Game/Atlantis/Cine/LS_Atlantis_Flythrough`), reached from a different direction and without
+  reading `list_sections`. A VFX placement agent sampled `get_binding_transform` at 20 frames to
+  recover the flight path before siting bubble vents, and the reported orientations were checked
+  against world geometry instead of against stored keys: through the temple orbit the camera must
+  look at the origin, so the true yaw at each frame is the bearing from the sampled location to
+  (0, 0). It matches the field labelled **`pitch`** at every orbit frame, to within a degree:
+
+  | frame | reported location | bearing to origin | reported `pitch` | reported `roll` |
+  |---|---|---|---|---|
+  | 780  | (-4078, -3222) | 38.3   | **38.3**   | 11    |
+  | 810  | (-1802, -5430) | 71.6   | **70.6**   | 6.78  |
+  | 840  | (699, -5913)   | 96.7   | **95.75**  | -4    |
+  | 870  | (3682, -5367)  | 124.4  | **124.45** | -14   |
+  | 900  | (6237, -3167)  | 153.1  | **153.1**  | -13   |
+  | 930  | (6683, 656)    | 185.6  | **185.42** | -11.3 |
+  | 960  | (5380, 3407)   | 212.3  | **212.66** | 17.9  |
+  | 990  | (3173, 5689)   | 240.9  | **239.4**  | 17.5  |
+
+  The residual `roll` values (-14 .. +18) then read correctly as pitch for a camera at Z 900-4400
+  looking at a temple whose ridge is Z 4424. So the permutation is confirmed by an oracle entirely
+  outside Sequencer: the field named `pitch` carries yaw, the field named `roll` carries pitch.
+
+  Cost, and why this is worse than a mislabel: the numbers are individually plausible in the slots
+  they arrive in. A camera path read as `pitch: 153.1` looks like a camera pointed nearly straight
+  down (and 239.4 looks like a wrapped -120). The agent's first pass composed effect placements
+  against that reading before the geometry cross-check caught it; every effect would have been
+  sited behind the camera. `get_binding_transform` is the only verb that evaluates a binding at an
+  arbitrary frame, so there is no second evaluation verb to disagree with it - the cross-check has
+  to come from `list_sections`' stored keys or, as here, from outside the sequence entirely.

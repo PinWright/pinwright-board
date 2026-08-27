@@ -1,12 +1,12 @@
 ---
 id: B-niagara-compile-while-live-component-vectorvm-assert
 title: "compile:true on any niagara.* edit recompiles a system whose ANiagaraActor is still ticking, and the live emitter instance executes the new bytecode against its old DataSets: VectorVM asserts on a worker thread and the editor dies"
-status: OPEN
+status: IN-REVIEW
 severity: Critical
 category: bug
 tags: [niagara, compile, editor-crash, assertion, vectorvm, live-instance, kill-system-instances, worker-thread, shared-editor]
-encounters: 1
-lastSeen: 2026-08-27T19:45:00+05:00
+encounters: 2
+lastSeen: 2026-08-27T20:50:00+05:00
 ---
 
 # `compile: true` does not kill the live system instances first, so the simulation asserts inside the VectorVM
@@ -186,3 +186,46 @@ severity rationale: impact=`appError` on a worker thread killing the shared edit
 
 ## History
 - `#1-initial-repro` `OPEN` reporter — 2026-08-27, UE 5.8, Atlantis map build. Hit while authoring `/Game/Atlantis/VFX/NS_FishSchool` with `PWFISH_Probe` spawned and `IsActive()` confirmed `true` (that check is itself from `B-niagara-authored-emitter-forces-inert` #2). `niagara.set_property {propertyPath:"MeshIndexBinding.BindingSourceMode", compile:true, save:true}` never returned (`WinError 10054`); log shows `Runnable thread Background Worker #3 crashed` then `Assertion failed: DataSetIdx < ExecCtx->DataSets.Num() [VectorVMRuntime.cpp:421]` at `2026.08.27-14.41.59.225` UTC, callstack `SetupBatchStatePtrs` <- `ExecVectorVMState` <- `FNiagaraScriptExecutionContextBase::Execute` <- `FNiagaraEmitterInstanceImpl::Tick` <- `FNiagaraSystemInstance::Tick_Concurrent` <- `FNiagaraSystemSimulation::Tick_Concurrent` on a `LowLevelTasks` worker. Root cause read from source in this checkout: `FinalizeNiagaraEdit` (`NiagaraEditTypes.cpp:1567-1606`) calls `Target.System->RequestCompile(true)` with no preceding `KillSystemInstances`, and `niagara.add_emitter` repeats it at `NiagaraHandler.cpp:96`, while the helper `PinWrightNiagara::KillSystemInstances` (`NiagaraInstanceUtils.cpp:12`) is already called by six sibling call sites (`NiagaraHandler.cpp:202`, `NiagaraEditHandler.cpp:1032/2982/3037`, `NiagaraAdvancedEditHandler.cpp:179`, `NiagaraJsonHelpers.cpp:140`). Timing-dependent, not deterministic — several earlier `compile:true` calls on the same live system in the same session survived. Workaround used afterwards: `actor.delete` the preview actor before any `compile:true`, re-spawn to capture.
+- `#2-quiesce-before-compile` `IN-REVIEW` developer — `NiagaraEdit::FinalizeNiagaraEdit` now calls `PinWrightNiagara::KillSystemInstances(*Target.System)` at the top of its `Options.bCompile`/`Target.System` branch, before the `RequestCompile(true)` (`Handlers/Niagara/NiagaraEditTypes.cpp`), which covers every `niagara.*` edit verb plus `niagara.compile` since they all route `compile`/`save` through that finalizer. `niagara.add_emitter` got the same call immediately before its own `RequestCompile` (`Handlers/Niagara/NiagaraHandler.cpp`); `remove_emitter` already quiesced before mutating and needed nothing. The emitter-target branch of the finalizer had the same hole with a wider blast radius — `UNiagaraSystem::RequestCompileForEmitter` recompiles every loaded system using the emitter — so a new sibling helper `PinWrightNiagara::KillSystemInstancesUsingEmitter(const UNiagaraEmitter&, const FGuid&)` (`Handlers/Niagara/NiagaraInstanceUtils.h/.cpp`) kills the instances of every system whose `UsesEmitter` matches, and runs before that call. Verified against engine source that the guard does not merely move the crash: `DestroyInstance()` -> `FNiagaraSystemInstance::Deactivate(bImmediate=true)` drains the in-flight concurrent tick via `WaitForConcurrentTickAndFinalize` before releasing, and the `FNiagaraSystemUpdateContext` at the tail of `RequestCompile` reinitializes auto-activate components while `UNiagaraComponent::Activate` parks on `HasOutstandingCompilationRequests()` until the compile lands, so the preview restarts against the new compiled data instead of racing it. New regression test `PinWright.niagara.CompileQuiesce.KillsLiveInstancesBeforeRecompile` (`Source/PinWright/Private/Tests/Niagara/TestNiagaraCompileQuiesce.cpp`) counts `UNiagaraComponent::OnSystemInstanceChanged()` broadcasts — `DestroyInstance()`'s unconditional last act — and asserts the target system's component is quiesced exactly once on `compile:true`, zero times on `compile:false`, and that a component bound to a different system is never touched; against pre-fix source all three counts are 0. Not compiled or run here (orchestrator owns builds).
+
+- `#2-circumstantial-second-editor-death-no-dump` `OPEN` reporter — 2026-08-27, UE 5.8, Atlantis map,
+  shared editor with three agents. **Circumstantial: no assert text and no crash dump were produced,
+  so this is a timing match, not a proven repro.** Recorded because the shape matches #1 exactly and
+  because the missing dump is itself a diagnostic fact worth knowing about this failure mode.
+
+  Sequence from `Saved/Logs/EAContentExamples58-backup-2026.08.27-15.31.35.log` (UTC):
+
+  ```
+  15.30.28  McpSafeLevelSave: saved /Game/Maps/Atlantis
+  15.30.35  LogNiagara: Compiling System NiagaraSystem /Game/Atlantis/VFX/NS_Bubbles_Stream took 0.938789 sec
+  15.30.41  LogFileHelpers: Saving Package: /Game/Atlantis/VFX/NS_Bubbles_Stream
+  15.31.16  actor.delete: Deleted actor 'PWBUB_P1'
+  15.31.35  actor.delete: Deleted actor 'PWTEST_Bubbles'
+  <log ends; process gone; port 27145 refuses; no UnrealEditor process; no new folder in Saved/Crashes>
+  ```
+
+  At the moment of that compile there were **three** live `UNiagaraComponent`s playing
+  `NS_Bubbles_Stream` in the open level: the placed `VFX_BubbleVent_A` plus the two preview actors
+  `PWBUB_P1` and `PWTEST_Bubbles` — and the two deletes that would have satisfied the ticket's own
+  workaround happen 35 s and 54 s **after** the compile, not before it. That is the documented
+  ordering hazard, executed in the wrong order by an agent that did know about the workaround.
+
+  Two details that differ from #1 and are worth recording:
+
+  - **The death produced no `Saved/Crashes` entry and no assert line in the log.** #1 left a full
+    `Assertion failed: DataSetIdx < ExecCtx->DataSets.Num()` with a `LowLevelTasks` worker callstack.
+    Here the log simply stops. An agent triaging the next occurrence should not conclude "no assert,
+    therefore not this bug" — absence of a dump is compatible with the same worker-thread `appError`.
+  - **Blast radius, again on a different agent.** The agent that issued the compile was repairing
+    `NS_Bubbles_Stream`; the agent that lost work was placing VFX. Four `ANiagaraActor`s spawned
+    between the last level save and the death were gone on restart, and of the surviving seven,
+    **eight of thirteen `niagara.modify_parameter` User overrides had reverted to the asset default**
+    (verified by decoding `NiagaraComponent0.OverrideParameters.ParameterData` off the reloaded
+    components, not by trusting the setter echo). Re-applying and re-verifying them cost ~25 RPCs.
+    This is the "two of five crashes killed the wrong agent" pattern the map spec's § Shared-editor
+    safety rules describes, now at three of eight.
+
+  Nothing new about the fix: `FinalizeNiagaraEdit` still needs `KillSystemInstances` before
+  `RequestCompile`. What this encounter adds is that the client-side workaround is not sufficient in
+  a shared editor, because **a placed level actor is also a live component** — an agent that deletes
+  only its own `PWxxx_` preview actors still leaves the shipped `VFX_*` actor of that system ticking.
