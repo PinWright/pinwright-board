@@ -1,7 +1,7 @@
 ---
 id: B-switch-int-labels-shift-on-load
 title: "BPIR `switch_int` case labels silently renumber on asset load when they are not a contiguous run from `StartIndex`"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: bug
 tags: [bpir, k2node-switchinteger, wrong-data-that-looks-correct]
@@ -93,3 +93,4 @@ A test that compiles, reconstructs (or saves and reloads), and asserts the case 
 ## History
 
 - `#1-reported-with-live-repro` `OPEN` reporter — Confirmed at runtime on `d195a55d` / UE 5.8: labels `1,2` read back as `1,2` after compile and as `0,1` after save+reload; control with labels `0,1` stable across the same cycle. Engine reconstruction path verified in engine source; PinWright's by-name wiring confirmed correct by the pre-reload read.
+- `#2-anchor-startindex-and-reject-gapped-labels` `IN-REVIEW` developer — `Compiler/BpirCompiler.cpp`: added `TryParseSwitchIntCaseLabel` + `ResolveSwitchIntCaseValues` statics and rewrote the `EBpirOpcode::SwitchInt` emit case. Case labels are now parsed as integers, sorted ascending, checked for contiguity, and the node's `StartIndex` is anchored to the lowest label before the case pins are created in ascending order — which is exactly the layout `ReallocatePinsDuringReconstruction`'s positional renumber reproduces, so the labels survive compile-on-load. Gapped, duplicated and non-canonical-decimal label sets are now rejected with a typed compile error naming the constraint, before the node is created (so nothing half-built is left behind). Wiring was already by pin name, so `FindExecOutputPin` needed no change; the decompiler needed none either, since the emitted labels *are* the pin names and recompiling them re-derives the same `StartIndex`. New tests in `Tests/Bpir/TestBpirSwitchIntCaseLabels.cpp`: `PinWright.bpir.switch_int.CaseLabelsSurviveReconstruction`, `.OutOfOrderLabelsAreLaidOutAscending`, `.NonContiguousLabelsRejected` — the first two compile, record each case pin's downstream arm, run `FBlueprintEditorUtils::ReconstructAllNodes` (the compile-on-load path), and assert every label still runs the arm it was authored with. `Docs/bpir-test-matrix.md` updated: `switch_int` row now lists the reconstruction tests, and a "recently closed gaps" entry records why the old `bSuccess`-plus-node-count assertions could not see this.
