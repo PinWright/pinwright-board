@@ -1,7 +1,7 @@
 ---
 id: B-sequencer-get-binding-transform-rotation-fields-rotated
 title: "sequencer.get_binding_transform labels the rotation triple one position out — it reports (pitch, yaw, roll) under the keys (roll, pitch, yaw), so a camera's orientation reads back plausible and wrong on the namespace's only evaluation verb"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: bug
 tags: [sequencer, get_binding_transform, rotation, frotator, silent-wrong-data, readback, verification-verb, camera, transform-track]
@@ -153,3 +153,23 @@ UE 5.8, `EAContentExamples58`, `/Game/Maps/Atlantis`, 2026-08-27. Sequence
   sited behind the camera. `get_binding_transform` is the only verb that evaluates a binding at an
   arbitrary frame, so there is no second evaluation verb to disagree with it - the cross-check has
   to come from `list_sections`' stored keys or, as here, from outside the sequence entirely.
+
+- `#3-read-through-property-composites` `IN-REVIEW` developer — Root cause is engine-side, not in the
+  emit path: `FInterrogationChannels::QueryLocalSpaceTransforms`' fully-animated fast path builds its
+  result as `FIntermediate3DTransform(LocX, LocY, LocZ, RotY, RotZ, RotX, ...)`
+  (`MovieSceneInterrogationLinker.cpp`, identical in UE 5.3-5.8), so Rotation.Y lands in `R_X`,
+  Rotation.Z in `R_Y` and Rotation.X in `R_Z`; since `GetRotation()` returns `FRotator(R_Y, R_Z, R_X)`
+  the triple surfaces rotated one slot left, exactly as measured. The partially-animated path in the
+  same function assigns `R_X/R_Y/R_Z` straight from `DoubleResult[3..5]` and is correct, so a fixed
+  re-shuffle on our side would break masked-channel sections. `sequencer.get_binding_transform` now
+  keeps `QueryLocalSpaceTransforms` only as an emptiness probe (eval-disabled track) and reads the
+  values back with `FSystemInterrogator::QueryPropertyValues(ComponentTransform, ...)`, which maps
+  `DoubleResult[3] -> R_X, [4] -> R_Y, [5] -> R_Z` as `ComponentTransform` declares them and is
+  path-independent. Response shape unchanged; location/scale unchanged. Files:
+  `Source/PinWright/Private/Handlers/Sequencer/SequenceHandler.cpp` (get_binding_transform only).
+  Test added: `PinWright.Sequencer.EvaluatedReadback.RotationFieldsMatchAuthoredComponents` in
+  `Source/PinWright/Private/Tests/Sequencer/TestSequencerBindingTransformRotationFields.cpp` — keys
+  roll/pitch/yaw as three distinct non-zero values via linear ramps and asserts each component under
+  its own key at a non-key frame; pre-fix all three assertions fail. Not compiled or run (orchestrator
+  owns builds). Untouched: `list_sections`' unlabelled channel array (ticket suggestion 3) — separate
+  ticket.
