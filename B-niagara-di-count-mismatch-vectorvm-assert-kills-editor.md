@@ -1,7 +1,7 @@
 ---
 id: B-niagara-di-count-mismatch-vectorvm-assert-kills-editor
 title: "Editor crash: a Niagara system left with 0 compiled DataInterfaceInfos against 2 resolved ones asserts in VectorVM on its NEXT TICK, so any verb that forces a re-tick (sequencer.set_playhead opening the Level Sequence editor) kills the shared editor minutes after the write that broke it"
-status: OPEN
+status: IN-REVIEW
 severity: Critical
 category: bug
 tags: [niagara, vectorvm, data-interface, compile, presave, sequencer, set-playhead, editor-kill, delayed-fault, shared-editor, latent-corruption]
@@ -128,10 +128,10 @@ worth using.
 
 ## Distinct from related tickets
 
-- `B-static-mesh-rebuild-crashes-live-niagara-mesh-renderer` and
-  `B-model-compile-live-niagara-mesh-renderer-raytracing-assert` (both filed today) are **renderer**
-  faults — a live Niagara *mesh renderer* holding a stale LOD index, asserting on the render thread
-  / in the ray-tracing gather. This one is the **simulation** side: VectorVM on a concurrent worker,
+- `B-model-compile-live-niagara-mesh-renderer-raytracing-assert` (filed today; the duplicate
+  `B-static-mesh-rebuild-crashes-live-niagara-mesh-renderer` was merged into it and deleted) is a
+  **renderer** fault — a live Niagara *mesh renderer* holding a stale LOD index, asserting on the
+  render thread / in the ray-tracing gather. This one is the **simulation** side: VectorVM on a concurrent worker,
   no mesh involved, triggered by a tick rather than by a mesh rebuild.
 - `B-niagara-authored-emitter-forces-inert` is the *inert* failure (no `NiagaraNodeEmitter`, so the
   emitter never runs). This is the opposite: the emitter does run, and running is what kills the

@@ -1,7 +1,7 @@
 ---
 id: B-capture-asset-preview-no-safe-close-mode
 title: "`render.capture_asset_preview` has no safe `closeAfterCapture` value: true crashes the editor inside the shared `CaptureSubject::CloseAssetEditor()` teardown for BOTH the mesh and Niagara providers, false leaks every asset editor it opens"
-status: OPEN
+status: IN-REVIEW
 severity: Critical
 category: bug
 tags: [render, capture_asset_preview, capture-subject, crash, access-violation, editor-teardown, asset-editor, resource-leak, multi-agent]
@@ -293,9 +293,10 @@ severity rationale: impact=editor crash taking down every agent sharing the proc
   day (`14.29.41` log) is the direct consequence: a preview actor left in the level with a Niagara
   **mesh renderer** makes any later rebuild of the mesh it draws fatal on the render thread
   (`FNiagaraRenderableStaticMesh::GetRayTraceLODModelData`, `-1 into an array of size 0`, 85 ms
-  after `model.compile` rebuilt `SM_Bubble`). Filed as the duplicate pair
-  `B-model-compile-live-niagara-mesh-renderer-raytracing-assert` /
-  `B-static-mesh-rebuild-crashes-live-niagara-mesh-renderer`. **Fix #3's wording needs one more
+  after `model.compile` rebuilt `SM_Bubble`). Filed as
+  `B-model-compile-live-niagara-mesh-renderer-raytracing-assert` (the duplicate
+  `B-static-mesh-rebuild-crashes-live-niagara-mesh-renderer` was merged into it and deleted).
+  **Fix #3's wording needs one more
   clause — delete the preview actor before recompiling the mesh it draws — or this ticket keeps
   sending callers into that one**, exactly the way `## Do not fix one of these and stop` describes
   for the other two family members. The family is now four tickets, not three.
@@ -308,3 +309,72 @@ severity rationale: impact=editor crash taking down every agent sharing the proc
   `UWorld::bInTick`, which is false during `SimpleTickObjects`. That does **not** change this
   ticket's root cause and is not claimed to have caused either crash, but a fixer should not
   assume the SafePoint gate is keeping this verb out of the frame, because it demonstrably is not.
+
+- `#3-deferred-close-and-pool-of-one` `IN-REVIEW` developer — Fixed in the SHARED teardown, so both
+  providers get it without either provider file changing (the Niagara one was owned by another agent
+  this wave and is untouched). Two changes, one queue.
+
+  **(a) The close leaves the release stack.** `PinWrightCaptureSubject::CloseAssetEditor`
+  (`Handlers/Render/CaptureSubject.cpp`) no longer calls `CloseAllEditorsForAsset` inline. It keeps
+  both existing gates — the three-state rule and `CountPreviewSceneViewportHolders` — adds a
+  "nothing open, report closed, queue nothing" early return, and then calls the new
+  `ScheduleDeferredAssetEditorClose(Asset)`, returning **false**. The queue is drained from a
+  one-shot `FTSTicker::GetCoreTicker()` pass, which `Dispatch/SafePoint.h` already proves runs after
+  `GEngine->Tick` returns — one full unwind past the release path, past the provider state teardown
+  (`EnablePreview` / `SetVisibility` / `RestoreComponentState`) and past the Slate frame the capture
+  re-entered. The drain re-runs the holder gate and the `FindEditorForAsset` read-back at execution
+  time rather than trusting them from the queue, holds an `FScopedUnattendedRpc` (the ticker pass is
+  outside the dispatcher's own scope and a toolkit teardown can raise a modal), and reports a
+  refused close instead of retrying. New public surface on `CaptureSubject.h`:
+  `ScheduleDeferredAssetEditorClose`, `HasPendingDeferredAssetEditorClose`,
+  `NumPendingDeferredAssetEditorCloses`, `FlushDeferredAssetEditorCloses`.
+
+  **(b) `closeAfterCapture: false` is bounded at one open editor.**
+  `AcquireAssetEditorViewport` registers every window this subsystem opens into a pool, at the OPEN
+  rather than on success — an acquire that opened a window and then refused on a missing viewport
+  used to leak it outright — and queues every OTHER pooled window for close. A window the caller
+  already had open (`bWasAlreadyOpen`) is never adopted, so a user's own tab is never evicted. That
+  turns the measured 29-of-37 unbounded leak into at most one capture-opened editor alive at a time,
+  without ever tearing down the editor whose rows the current capture is using.
+
+  **(c) Response honesty, paid explicitly.** `assetEditorClosed` still means MEASURED, so it is now
+  `false` on the normal close path — the window really is still there when the call answers. A new
+  `assetEditorCloseDeferred` sits beside it, on the verb's top-level response
+  (`Handlers/Render/RenderHandler.cpp`, `render.capture_asset_preview`) and inside the shared
+  `subject` block (`MakeSubjectInfoObject`, so every asset kind and every capture verb publishes it
+  with no provider line). Without it `assetEditorClosed: false` would permanently conflate "left
+  open, as you asked" with "queued, gone next tick". The `closeAfterCapture` parameter description
+  was rewritten to state both the deferral and the pool.
+
+  **Files:** `Source/PinWright/Private/Handlers/Render/CaptureSubject.{h,cpp}`,
+  `Handlers/Render/RenderHandler.cpp` (the `render.capture_asset_preview` handler only),
+  `Handlers/Render/CaptureSubjectProviders_Mesh.cpp` (comment only — it calls the shared close and
+  needed no code change), `Tests/Render/TestCaptureSubjectAnimation.cpp` (one existing assertion
+  that asserted a synchronous `bEditorClosed` now asserts queued-then-flushed).
+
+  **Tests:** new `Tests/Render/TestCaptureSubjectDeferredClose.cpp` with
+  `PinWright.render.capture_subject_close.CloseIsDeferredOffTheReleaseStack` and
+  `PinWright.render.capture_subject_close.LeaveOpenIsBoundedToOneEditor`, on the synthetic engine
+  fixtures `/Engine/BasicShapes/Cube` and `Sphere`. They assert the GUARD, not the crash, per the
+  crash-ticket rule: after `CloseAssetEditor` returns, the toolkit is provably STILL ALIVE (its
+  destructor chain did not run on that stack), the return is `false`, exactly one close is queued,
+  and flushing the queue actually closes it; and a window kept by `closeAfterCapture: false` is
+  queued as soon as the next capture opens one while the new one is not. Every one of those read the
+  other way before the fix. Skips are reported through `PINWRIGHT_ASSERTIONS_SKIPPED` when the host
+  cannot realise a Static Mesh preview viewport.
+
+  **Not done, and named rather than assumed.** No compile and no runtime verification — this wave's
+  agents do not build or launch the editor, so the fix is argued from the callstacks and the
+  plugin's own proven safe-point analysis, not measured. Verification must run BOTH paths as this
+  ticket demands: `closeAfterCapture` default (expect `assetEditorClosed: false` +
+  `assetEditorCloseDeferred: true`, and the window gone a tick later) and `closeAfterCapture: false`
+  twice on different assets (expect the first window closed when the second capture starts). Count
+  closes as `LogSlate: Window '<AssetName>' being destroyed`, per `#2(b)` — not the grep that
+  returned 0 both before and after. Two adjacent things this does not touch:
+  `render.capture_animation_preview` publishes `assetEditorClosed` from its own local
+  (`AnimationPreviewCaptureHandler.cpp:1424`) and will now report `false` there with no top-level
+  `assetEditorCloseDeferred` beside it, though its `subject` block carries one — that handler was
+  outside this ticket's file ownership and wants a one-line follow-up. And the sibling
+  `B-niagara-edit-with-open-asset-editor-slate-crash` is narrowed but not closed by (b): the pool
+  keeps at most one editor open, so the stale-emitter window still exists for the asset being
+  captured.

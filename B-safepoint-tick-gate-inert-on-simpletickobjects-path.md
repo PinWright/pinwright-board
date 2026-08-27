@@ -156,9 +156,9 @@ severity rationale: impact=the plugin's only guard for 34 verbs that are documen
   and ran unguarded; that does not change its own root cause
   (`CloseAllEditorsForAsset` at `CaptureSubject.cpp:1405`), but it does mean a
   fixer cannot assume the gate kept the verb out of the frame.
-- `B-model-compile-live-niagara-mesh-renderer-raytracing-assert` /
-  `B-static-mesh-rebuild-crashes-live-niagara-mesh-renderer` (OPEN, Critical,
-  duplicate pair) — `model.compile` is the verb whose `SafePoint.cpp` entry
+- `B-model-compile-live-niagara-mesh-renderer-raytracing-assert` (OPEN, Critical;
+  the duplicate `B-static-mesh-rebuild-crashes-live-niagara-mesh-renderer` was merged
+  into it and deleted) — `model.compile` is the verb whose `SafePoint.cpp` entry
   documents this gap, and its crash log carries the `FlushRenderingCommands called
   recursively! 2 calls on the stack.` tell that entry cites. That crash is on the
   render thread, so this ticket does **not** claim the gate gap caused it.
