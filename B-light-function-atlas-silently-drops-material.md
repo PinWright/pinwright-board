@@ -1,7 +1,7 @@
 ---
 id: B-light-function-atlas-silently-drops-material
 title: "A light function material is silently dropped from the light function atlas, so it modulates surfaces but NOT volumetric fog, and no PinWright read-back distinguishes that from a working setup"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: bug
 tags: [lighting, light-function, volumetric-fog, god-rays, material, atlas, silent-noop, measured-vs-requested, directional-light]
@@ -189,3 +189,24 @@ diagnostic anywhere.
   before (a default-valued bool is not serialized). The plugin defect is untouched: no verb
   reports the compatibility bit, and the only diagnostic in the engine is a show-flag overlay
   whose legend is clipped off the right edge of a square capture.
+- `#2-report-measured-atlas-compatibility` `IN-REVIEW` developer — `get_material_info` now emits a
+  measured `lightFunctionAtlas` block for any MD_LightFunction material: `compatible` read off the
+  compiled shader map via `FMaterial::MaterialIsLightFunctionAtlasCompatible_GameThread()` (omitted,
+  not defaulted false, when there is no game-thread shader map), `forceCompatible` echoing
+  `bForceCompatibleWithLightFunctionAtlas`, a measured `atlasGeneration` block for the
+  `r.LightFunctionAtlas` cvar, and `warning` / `atlasWarning` naming the remedy for each gate. The
+  incompatible warning states the translator rule and names the new setter. Added
+  `material.authoring.set_light_function_atlas_compatible` (write + recompile + measured read-back,
+  plus a `domainWarning` when the material is not a light function, since the flag is inert there),
+  and `set_material_domain` now returns the same block when it switches a material INTO
+  LightFunction. Logic lives in the new
+  `Source/PinWright/Private/Handlers/Material/MaterialLightFunctionAtlas.h`; call sites in
+  `Handlers/Material/MaterialAuthoringHandler.cpp`. Tests:
+  `PinWright.material.authoring.get_material_info.LightFunctionAtlasCompatibility` and
+  `PinWright.material.authoring.set_light_function_atlas_compatible.OverrideFlipsTheMeasuredBit`
+  (`Tests/Material/TestMaterialLightFunctionAtlasCompatibility.cpp`). `MaterialDiscoveryHandler.cpp`
+  was left unchanged: it catalogs expression CLASSES, and `bPotentiallyManipulateTexCoords` is a
+  translator-time fact that cannot be derived from an expression CDO. Not addressed: `actor.describe`
+  / `lighting.*` still report `LightFunctionMaterial` with no compatibility beside it, and the
+  per-consumer `r.VolumetricFog.UsesLightFunctionAtlas` / `r.Translucent.*` / `r.SingleLayerWater.*`
+  sampling switches are named in the warning text but not measured.
