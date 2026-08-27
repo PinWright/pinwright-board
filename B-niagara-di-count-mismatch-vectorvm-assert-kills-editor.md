@@ -155,3 +155,38 @@ logs are UTC+0, machine UTC+5). Log: `Saved/Logs/EAContentExamples58.log:4421-44
   without it. Two other agents had already deleted three `NiagaraActor`s at 14:39:22 (`:4604-4606`),
   which suggests the systems were suspected before the crash; the level was not saved, so the
   actors came back on restart and the trap was re-armed.
+- `#2-write-path-di-count-gate` `IN-REVIEW` developer — Added a post-write data-interface validity
+  gate to the two system-mutating verbs in `Source/PinWright/Private/Handlers/Niagara/NiagaraHandler.cpp`
+  (`niagara.add_emitter`, `niagara.remove_emitter`). New
+  `Handlers/Niagara/NiagaraDataInterfaceConsistency.{h,cpp}` runs the same comparison the engine
+  runs in `FNiagaraScriptRuntimeCompiledData::ValidateWithScript` — compiled
+  `FNiagaraVMExecutableData::DataInterfaceInfo.Num()` vs `ResolvedDataInterfaces.Num()`, per script,
+  via `ForEachScriptWithOwningContext` — and returns Consistent / Mismatched / Unverified. Scripts
+  with no resolved entry (an emitter handle added since the last compile) are skipped rather than
+  flagged, so the gate has no false-positive direction. On Mismatched the handlers now refuse:
+  no save, `NIAGARA_DATA_INTERFACE_MISMATCH` naming each offending script with both counts, and the
+  in-memory mutation facts echoed on the error payload. On a pass the verdict is echoed as
+  `dataInterfaceCheck` so an unverified pass is not reported as a verified one. Test
+  `PinWright.niagara.data_interface_consistency.WritePathReportsVerdict`
+  (`Source/PinWright/Private/Tests/Niagara/TestNiagaraDataInterfaceConsistency.cpp`) asserts the
+  guard, not the crash. Suggested fixes 2 (`sequencer.set_playhead` pre-flight), 3
+  (`niagara.validate` DI-count check) and 4 (a verb to enumerate/remove orphan resolved DIs) are
+  not addressed here — they are outside this file and want their own tickets.
+- `#3-root-cause-confirmed-compile-save-race` `IN-REVIEW` developer — Independent confirmation of the
+  mechanism, from a log-forensics pass in the `EAContentExamples58` session. **The root cause is
+  passing `compile: true` and `save: true` on the same `niagara.*` call.** The compile is
+  asynchronous, so the save writes an invalidated compile — the `0` compiled versus `2` resolved
+  `DataInterfaceInfo` state this ticket describes. Separating them into `niagara.compile {force,
+  wait}` followed by `asset.save` took one system from **44 mismatch warnings to 0**, which is a
+  measurement rather than an inference. This was flagged as an unproven hypothesis in
+  `#2-write-path-di-count-gate` ("saving while a compile is in flight is a plausible route into the
+  mismatch, but I could not prove it"); it is now proven, by a different session, from the log.
+  Consequence for the fix: the post-write gate shipped in `#2` is a **backstop, not the cure** — it
+  refuses to persist a corrupt system, which is what stops the editor kill, but the underlying race
+  is only closed when `compile` actually completes before `save` runs. That is
+  `B-niagara-compile-wait-does-not-wait`, whose `wait: true` is currently ignored; the two tickets
+  should be verified together, and this one should not be marked `DONE` on the gate alone.
+  **This ticket is deliberately NOT merged into
+  `B-niagara-compile-while-live-component-vectorvm-assert`.** The two describe the same crash *event*
+  but are different defects with different fix sites — that one is a missing `KillSystemInstances`
+  before `RequestCompile`, this one is a compile/save ordering race.
