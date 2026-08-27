@@ -5,8 +5,8 @@ status: OPEN
 severity: High
 category: bug
 tags: [spatial, ground_actors, placement, shared-state, concurrency, multi-agent, undo, data-loss, silent-mutation]
-encounters: 1
-lastSeen: 2026-08-27T19:30:00+05:00
+encounters: 2
+lastSeen: 2026-08-27T19:45:00+05:00
 ---
 
 # A batch seat matched 89 actors when the caller had spawned 83, moved all 89, and reported only counts
@@ -69,3 +69,55 @@ Batch placement verbs selected by name pattern are the documented way to work at
 shared editor a name prefix is not a safe scope, and this verb has no dry run, no pre-flight naming,
 and no undo for a successful move. Six of another agent's actors were relocated here and cannot be
 restored from the response. No editor instability.
+
+## Encounter 2 — the six were recoverable, and the fix that would have prevented it
+
+**The blind restore to `(0, 0, 0)` was correct, and it is now verified three independent ways.**
+Restoring guessed the authoring convention rather than knowing it, so it was checked, not trusted:
+
+1. **Convention.** `/Game/Maps/Atlantis` holds **17** plain-`Actor` HISM holders — 11 in
+   `Atlantis/Flora`, 6 in `Atlantis/Rubble`. All 17 sit at identity: location `(0,0,0)`, rotation
+   zero, scale 1. The 11 flora holders were never touched by the bad call, so they are an
+   uncontaminated control for what a holder in this level is supposed to be.
+2. **Reproduction of the author's own number.** The rubble agent reported its instances at
+   "lowest corner 20–90 cm below ground". Re-measuring that same quantity now — lowest transformed
+   AABB corner minus the `LandscapeProxy` height under it, 194 instances sampled across all six
+   holders — gives **−20.1 … −98.9 cm, median −32.5**, with **zero** samples above ground. A residual
+   holder offset δ would shift every one of those numbers by δ; the shallow edge landing on −20.1
+   against an authored floor of −20 pins **|δ| ≲ 1 cm**.
+3. **Vision.** Low-angle captures at three widely separated sites — (2200, 2900) looking NE,
+   (5659, 6100) looking back SW over the same field, and (−8800, −9200) in the opposite quadrant —
+   show rocks and rubble meeting the sand with contact shadows and no daylight beneath any of them.
+
+Measured with `r.ScreenPercentage 100` (this editor defaults to 50) and exposure pinned min=max=1.
+
+### The fix this ticket should carry
+
+The three suggestions above are all about *scoping the selector*. They are worth doing, but none of
+them addresses what actually happened, and a caller who scoped perfectly could still hit it:
+**seating a HISM holder is meaningless for any selector.** `ground_actors` fits the actor's
+world AABB to the ground; for a holder whose component owns instances authored in world space that
+AABB is the bounding box of the entire scatter — here 24000 × 24000 — so the "footprint" it samples
+is the whole map and the seat lifts every instance together. The verb reported `placed` for six
+actors it had moved 445–496 cm, because the post-move re-measurement agreed with a solve that was
+itself meaningless.
+
+Add a fourth, and put it first: **refuse an actor whose seated bounds come from an
+`UInstancedStaticMeshComponent` / `UHierarchicalInstancedStaticMeshComponent`**, with a typed
+`HOLDER_NOT_SEATABLE` naming the component and its instance count, and pointing the caller at
+grounding the instance transforms when they are computed. It is a one-predicate check, it needs no
+new caller discipline, and unlike the selector fixes it cannot be defeated by a name collision. The
+same predicate belongs on `verify_grounding`, which will otherwise keep answering a question about
+the scatter's bounding box as though it were about a prop.
+
+`previousTransform` on every moved actor (suggestion 1) is still the one that would have made this
+recoverable without inference, and it remains the highest-value change for a shared editor.
+
+## History
+
+- `#1-reported` `OPEN` reporter — original capture of six foreign actors, unrecoverable from the
+  response.
+- `#2-restore-verified-and-root-fix` `OPEN` reporter — Restore to identity confirmed correct by the
+  three checks above; 564 instances intact and bedded. Adds the `HOLDER_NOT_SEATABLE` refusal as the
+  root-cause fix, since every selector-scoping remedy leaves the underlying "a HISM holder has no
+  seatable footprint" defect in place. Status left `OPEN` — reporter, not fixer.
