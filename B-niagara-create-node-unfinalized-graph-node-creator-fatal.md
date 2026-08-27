@@ -1,7 +1,7 @@
 ---
 id: B-niagara-create-node-unfinalized-graph-node-creator-fatal
 title: "niagara.graph.create_node kills the editor on every rejected payload: it constructs the node before validating, then returns the typed error without calling NodeCreator.Finalize(), so ~FGraphNodeCreator asserts bPlaced and the process dies"
-status: OPEN
+status: IN-REVIEW
 severity: Critical
 category: bug
 tags: [niagara, niagara-graph, create-node, editor-crash, assertion, fgraphnodecreator, error-path, returns-clean-then-dies, shared-editor, test-gap]
@@ -279,3 +279,33 @@ severity rationale: impact=editor-killing `appError` with silent loss of every s
   rotated by the crash itself and is retained as
   `Saved/Logs/EAContentExamples58-backup-2026.08.27-14.16.48.log` (the original ticket cited the
   live `Saved/Logs/EAContentExamples58.log`, which has since rolled past it).
+
+- `#4-validate-before-construct` `IN-REVIEW` developer — Fixed in
+  `Source/PinWright/Private/Handlers/Niagara/NiagaraGraphHandler.cpp`. The v1 supported-class list
+  moved out of the tail of `ApplyCreateNodePayload` into a new
+  `NiagaraGraphCreate::ValidateCreateNodeClass(UClass*)` (declared in
+  `Handlers/Niagara/NiagaraGraphCreateNodePayload.h`), which the handler runs immediately after the
+  `CLASS_NOT_FOUND` gate — before the `FScopedTransaction`, before `Graph->Modify()`, and before any
+  `FGraphNodeCreator` exists — so `UNSUPPORTED_NODE_CLASS` no longer constructs anything.
+  `ApplyCreateNodePayload` delegates its tail to that same predicate, so the allowlist has exactly
+  one definition. The remaining window is closed structurally rather than by discipline: the
+  creator is scoped to a block holding only `CreateNode()` → `ApplyCreateNodePayload` → node
+  position → `Finalize()`, with no `return` inside it; a payload rejection (`INVALID_OP`) is carried
+  out in a local and handled after the block, where the finalized node is dropped with
+  `Graph->RemoveNode`. The `NODE_CREATE_FAILED` null check at the old `:688` is gone —
+  `UEdGraph::CreateNode` routes through `NewObject`, which cannot return null for a concrete class,
+  and a null could not have been reported from inside the creator anyway since `Finalize()`
+  dereferences the node. That code is now emitted *before* construction for a class carrying
+  `CLASS_Abstract | CLASS_Deprecated | CLASS_NewerVersionExists`, which is the case `NewObject`
+  would have fataled on. Regression test
+  `PinWright.niagara.graph.create_node_guard.RejectionLeavesGraphUnchanged`
+  (`Source/PinWright/Private/Tests/Niagara/TestNiagaraGraphCreateNodeCreatorGuard.cpp`) drives the
+  verb through the dispatcher against a real `UNiagaraGraph` on a synthetic transient system and
+  asserts the guard, not the crash: an unsupported `nodeClass` returns `UNSUPPORTED_NODE_CLASS` with
+  the graph node count unchanged; `NiagaraNodeOp` with an unknown `opName` returns `INVALID_OP` with
+  the node count unchanged (that is the path that still runs inside the creator's lifetime, so a
+  class-check-only fix still fails it); then a supported class succeeds with exactly one node added
+  and a non-empty `nodeId`, proving the verb is still reachable and that `Finalize()` still runs.
+  Not compiled or run here — the orchestrator owns builds. Closes both reports: the duplicate
+  `B-niagara-create-node-early-return-before-finalize-crash` was merged into this ticket and deleted
+  (see `#3`) before this fix landed, so there is no second file to flip.
