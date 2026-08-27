@@ -5,6 +5,8 @@ status: IN-REVIEW
 severity: Medium
 category: ergonomic
 tags: [niagara, niagara-graph, set-parameter, error-message, scope, docs]
+encounters: 2
+lastSeen: 2026-08-27T18:56:59+05:00
 ---
 
 # `niagara.graph.set_parameter` is silently scoped to exposed User.* Float/Bool params
@@ -148,6 +150,62 @@ are settable.
   rapid-iteration / non-Float-Bool cases the legacy `niagara.graph.set_parameter`
   rejects.
 
+## Encounter 2026-08-27 — the escape hatch this ticket points callers at does not reach emitter scopes
+
+**This section reports a contradiction with the fix shipped in `#2`. It does not
+edit any text above; the body's reasoning stands as written by its author.**
+
+Observed 2026-08-27 on UE 5.8 in the EAContentExamples58 checkout, PinWright at
+`8e76cad5`, filed in full as `B-niagara-set-parameter-emitter-scope-unreachable`.
+
+This ticket asserts twice, in "The narrow scope of this legacy RPC is by design"
+and again in Cross-ref, that `niagara.set_parameter` "CAN set the `Constants.*` /
+rapid-iteration scalars", and that the reporter's `NS_Confetti` case "was settable
+all along via `niagara.set_parameter` with a rapid-iteration scope". In this tree it
+cannot be:
+
+- `niagara.set_parameter`'s three emitter-scoped scopes (`rendererBindings`,
+  `spawnRapidIteration`, `updateRapidIteration`) all fall past
+  `ResolveParameterStore`'s `if (!OutTarget.EmitterData) return EMITTER_REQUIRED`
+  guard at `Handlers/Niagara/NiagaraEditTypes.cpp:489-492`.
+- The verb's own registration at `Handlers/Niagara/NiagaraEditHandler.cpp:2196-2205`
+  declares `assetPath`/`scope`/`name`/`type`/`value`/`compile`/`save` and **no
+  `emitter`**, so supplying one is refused by the dispatcher's declared-parameter
+  gate (`Dispatch/RpcDispatcher.cpp:126-161`, `UNKNOWN_PARAMS` at `:159`) before the
+  handler body runs.
+
+Live result: `scope:"spawnRapidIteration"` without `emitter` → `EMITTER_REQUIRED`;
+with `emitter` → `UNKNOWN_PARAMS`. No argument combination reaches the store.
+
+`NS_Confetti`'s `Constants...Velocity Speed Scale` / `Constants...Spawn Probability`
+are **per-emitter** rapid-iteration scalars, so they are in exactly the unreachable
+set. On the evidence above, the re-do in `#1` was not a wrong-method choice: there
+was no right method.
+
+**Two shipped artefacts inherit the claim and currently misdirect callers**, until
+`B-niagara-set-parameter-emitter-scope-unreachable` is fixed:
+
+1. The `PARAMETER_NOT_FOUND` and `UNSUPPORTED_PARAM_TYPE` messages `#2` added to
+   `niagara.graph.set_parameter`, which point at "`niagara.set_parameter` (scope +
+   type + value) to set a non-User scope".
+2. The `### niagara.graph.set_parameter` section `#2` added to
+   `Docs/wiki-src/niagara.graph.md`, which names the same recourse.
+
+A caller who follows either now burns one round-trip on `EMITTER_REQUIRED` and a
+second on `UNKNOWN_PARAMS` and ends with no route at all — worse than the opaque
+`PARAM_FAILED` this ticket set out to fix, because it looks like a lead.
+
+The cheapest resolution is to fix the sibling (declare `emitter` on
+`niagara.set_parameter`, matching `NiagaraCurveHandler.cpp:237` and
+`NiagaraAdvancedEditHandler.cpp:443`), which makes this ticket's claim and both
+shipped artefacts true as written. Otherwise the message and the wiki section need
+their pointer qualified to the `user` / `systemSpawnRapidIteration` /
+`systemUpdateRapidIteration` scopes only.
+
+Minor: this ticket cites `niagara.set_parameter` at `NiagaraEditHandler.cpp:1738`
+in two places; in this tree the registration is at `:2196`.
+
 ## History
 - `#1-initial-audit` `OPEN` reporter — Process-audit finding from the `niagara.graph` op-splice task (38 calls). `niagara.graph.set_parameter` (`NiagaraGraphHandler.cpp` ~426-474) only consults `System->GetExposedParameters()` and only probes Float/Bool typedefs, so it can set exactly one thing: an exposed `User.*` Float/Bool scalar. Three distinct failure cases (name not exposed, exposed-but-wrong-type, unsupported type) all collapse into one opaque `[PARAM_FAILED] Parameter not found or type not supported (Float/Bool only).` In the task this hid the `User.*`-only scope: `NS_Confetti` exposes only `Constants.*` scalars, so all three `set_parameter` attempts failed identically, and with no scope hint the agent abandoned `NS_Confetti` and redid the entire op-splice in `NS_EQ_Reactive` (the one system with a `User.*` scalar) — discovered by inspecting three systems by exhaustion. Distinct from `B-set-niagara-param-no-validation` (different methods: runtime `effect.set_niagara_parameter`/`niagara.modify_parameter`; opposite direction: false success). Proposes splitting the error into `PARAMETER_NOT_FOUND` vs a type-unsupported code that names the actual type + scope, plus a `docs/wiki-src/niagara.graph.md` note that the RPC is exposed-`User.*`-scalar-only and `niagara.add_parameter` is the way to create a settable knob. Ripgrep across OPEN/closed found no existing ticket on `niagara.graph.set_parameter`'s scope or error message.
 - `#2-reword-and-fix` `IN-REVIEW` developer — REWORD then implement. Reword corrections (per three validity lenses): (a) fixed wrong citation — `PARAMETER_NOT_FOUND` is at `ErrorCodes.h:405`, not :399; (b) reuse the existing `UNSUPPORTED_PARAM_TYPE` (`:563`) / `UNSUPPORTED_TYPE` (`:568`) code for the wrong-type branch instead of inventing a new `PARAM_TYPE_UNSUPPORTED`; (c) dropped the type-widening as out-of-scope gold-plating (the richer sibling `niagara.set_parameter`, `NiagaraEditHandler.cpp:1738`, already covers other scopes/types); (d) acknowledged that sibling as the escape hatch the reporter could have used on `NS_Confetti`'s `Constants.*` scalar, so the re-do was partly a wrong-method choice. FIX: in `niagara.graph.set_parameter` (`Source/EditorAutomationRpcGateway/Private/Handlers/Niagara/NiagaraGraphHandler.cpp`), after the Float and Bool typedef probes both miss, re-probe the exposed (User.*) store by name only via `FNiagaraUserRedirectionParameterStore::FindParameterVariable(..., IgnoreType=true)` (returns `FNiagaraVariableWithOffset*` carrying the actual type) and branch: name absent → `PARAMETER_NOT_FOUND` (names the User.*-only scope, points at `niagara.inspect`/`niagara.add_parameter`/`niagara.set_parameter`); name present but not Float/Bool → `UNSUPPORTED_PARAM_TYPE` (names the actual type via `GetType().GetName()`, points at `niagara.set_parameter`). Added `#include "NiagaraParameterStore.h"` + `"NiagaraUserRedirectionParameterStore.h"`. DOCS: added a `### niagara.graph.set_parameter` section to `Docs/wiki-src/niagara.graph.md` stating the exposed-User.*-scalar-only (Float/Bool) restriction and the `niagara.add_parameter` / `niagara.set_parameter` recourses. TESTS (`Source/EditorAutomationRpcGateway/Private/Tests/Assets/TestNiagaraHandlers.cpp`): `niagara.graph.set_parameter.NotFoundCode` (non-exposed name → expects `PARAMETER_NOT_FOUND`) and `niagara.graph.set_parameter.UnsupportedTypeCode` (exposed `User.ColorTint` Vec3 → expects `UNSUPPORTED_PARAM_TYPE` and message naming the actual `Vector3f` type); both would fail under the reverted single-`PARAM_FAILED` fall-through. Not compiled/tested here (later phase).
+- `#3-encounter-sibling-escape-hatch-unreachable` `IN-REVIEW` reporter — Additional evidence, no status change and no edit to existing text. Contradiction recorded: this ticket asserts twice (body § "The narrow scope of this legacy RPC is by design", and Cross-ref) that `niagara.set_parameter` CAN set `Constants.*` / rapid-iteration scalars, and `#2` shipped that claim into the new `PARAMETER_NOT_FOUND` / `UNSUPPORTED_PARAM_TYPE` messages on `niagara.graph.set_parameter` AND into the new `### niagara.graph.set_parameter` section of `Docs/wiki-src/niagara.graph.md`. Observed 2026-08-27 on UE 5.8 in the EAContentExamples58 checkout (PinWright `8e76cad5`): `niagara.set_parameter {scope:"spawnRapidIteration"}` returns `EMITTER_REQUIRED` without `emitter` and `UNKNOWN_PARAMS` with it, so the emitter-scoped stores are unreachable by any argument combination. Source-confirmed in that tree: `ResolveParameterStore`'s `if (!OutTarget.EmitterData) return EMITTER_REQUIRED` at `Handlers/Niagara/NiagaraEditTypes.cpp:489-492` gates `rendererBindings`/`spawnRapidIteration`/`updateRapidIteration`, while the `niagara.set_parameter` registration at `Handlers/Niagara/NiagaraEditHandler.cpp:2196-2205` declares no `emitter` and the dispatcher's declared-param gate (`Dispatch/RpcDispatcher.cpp:126-161`, emit at `:159`) refuses the key first. `NS_Confetti`'s `Constants...` scalars are per-emitter, i.e. in exactly the unreachable set, so `#1`'s re-do was not a wrong-method choice. Consequence: the shipped error message and wiki section now point callers at a dead end. Filed in full as `B-niagara-set-parameter-emitter-scope-unreachable`; fixing that (declare `emitter`, per `NiagaraCurveHandler.cpp:237` / `NiagaraAdvancedEditHandler.cpp:443`) makes this ticket's claim and both artefacts true as written. Minor: the `NiagaraEditHandler.cpp:1738` citation for `set_parameter` is stale (`:2196` in that tree). `encounters` 1→2, `lastSeen` refreshed.
