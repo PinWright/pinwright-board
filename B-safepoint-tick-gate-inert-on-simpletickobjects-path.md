@@ -162,9 +162,9 @@ severity rationale: impact=the plugin's only guard for 34 verbs that are documen
   documents this gap, and its crash log carries the `FlushRenderingCommands called
   recursively! 2 calls on the stack.` tell that entry cites. That crash is on the
   render thread, so this ticket does **not** claim the gate gap caused it.
-- `B-niagara-create-node-unfinalized-graph-node-creator-fatal` /
-  `B-niagara-create-node-early-return-before-finalize-crash` (OPEN, Critical,
-  duplicate pair) — crash 3 above. Listed only as the third instance of the stack;
+- `B-niagara-create-node-unfinalized-graph-node-creator-fatal` (OPEN, Critical;
+  the duplicate `B-niagara-create-node-early-return-before-finalize-crash` was merged
+  into it and deleted) — crash 3 above. Listed only as the third instance of the stack;
   that verb is not on the tick-unsafe list and this ticket does not argue it should
   be, since its fault is an unfinalized `FGraphNodeCreator` and is stack-independent.
 - `B-compile-material-not-tick-gated` (OPEN) — the adjacent question of *which*

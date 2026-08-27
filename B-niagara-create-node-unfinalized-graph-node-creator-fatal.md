@@ -260,7 +260,8 @@ severity rationale: impact=editor-killing `appError` with silent loss of every s
   direction. It carries one thing this ticket does not — the test-gap analysis at
   `Tests/Niagara/TestNiagaraGraphCreateNode.cpp:124-135`, showing why the suite is green over the
   crashing path. Merge that section in here and close the other as a duplicate, or vice versa; do
-  not fix twice. Three independent reports inside ten minutes is itself the severity evidence:
+  not fix twice. *(Resolved on consolidation: that ticket was merged into this one and its
+  file deleted — see `## Merged from ...` and `#3-merged-independent-report`.)* Three independent reports inside ten minutes is itself the severity evidence:
   every agent that reads `B-niagara-authored-emitter-forces-inert` reaches for this verb next.
 
   No new repro run — deliberately, per #1.
