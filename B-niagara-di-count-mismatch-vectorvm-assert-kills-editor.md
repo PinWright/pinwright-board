@@ -4,9 +4,9 @@ title: "Editor crash: a Niagara system left with 0 compiled DataInterfaceInfos a
 status: IN-REVIEW
 severity: Critical
 category: bug
-tags: [niagara, vectorvm, data-interface, compile, presave, sequencer, set-playhead, editor-kill, delayed-fault, shared-editor, latent-corruption]
-encounters: 1
-lastSeen: 2026-08-27T19:41:41+05:00
+tags: [niagara, vectorvm, data-interface, compile, presave, autosave, sequencer, set-playhead, editor-kill, game-thread-hang, delayed-fault, shared-editor, latent-corruption]
+encounters: 2
+lastSeen: 2026-08-27T22:03:02+05:00
 ---
 
 # A data-interface count mismatch is logged as a Warning and detonates later as an `appError`
@@ -190,3 +190,54 @@ logs are UTC+0, machine UTC+5). Log: `Saved/Logs/EAContentExamples58.log:4421-44
   `B-niagara-compile-while-live-component-vectorvm-assert`.** The two describe the same crash *event*
   but are different defects with different fix sites — that one is a missing `KillSystemInstances`
   before `RequestCompile`, this one is a compile/save ordering race.
+- `#4-autosave-arms-it-with-no-plugin-save` `OPEN` reporter — **New route into the same 0-vs-2 state,
+  observed twice in one session, with no PinWright save verb involved at all.** A `niagara.*` edit
+  passed `compile:false, save:false` still (a) marks the package dirty and (b) leaves the compiled
+  scripts stale. The **editor's own 10-minute autosave** then presaves that dirty package, hits the
+  mismatch, and logs `Invaliding compile results`. Mitigation `#3` ("separate compile from save")
+  cannot help here, because there is no save to separate — the caller did not ask for one, and the
+  arming window is 0-10 minutes wide after *any* uncompiled `niagara.*` edit.
+
+  **Occurrence A — wedged the shared editor for 14 minutes.** 21:33:55+05 I called
+  `niagara.set_static_switch {assetPath:"/Game/Atlantis/VFX/NS_FishSchool", inputName:"Mass Mode",
+  value:2, compile:false, save:false}` purely to read back the resolved enumerator (the oracle this
+  board recommends for `B-niagara-static-switch-enum-value-map-undiscoverable`). It returned
+  `{"value":"NewEnumerator3"}` and nothing else. At 21:37:56+05 the autosave fired
+  (`Saved/Logs/EAContentExamples58-backup-2026.08.27-16.51.23.log:3127-3144`): `SAVEPACKAGE ... 
+  NS_FishSchool_Auto2.uasset ... AUTOSAVING=true`, then the mismatch on **both** SpawnScript and
+  UpdateScript, 0 compiled against the same two resolved DIs this ticket names. **The game thread
+  never completed another tick.** `EDITOR_NOT_READY` climbed 133 s -> 683 s; the last non-audio log
+  line for the next 14 minutes was that autosave; the editor had to be killed. Three live
+  `VFX_FishSchool_*` components of that system were in the level at the time. Note the shape
+  difference from `#1`: not the VectorVM `appError` but a silent permanent game-thread hang, so
+  there is no callstack and no crash log — only the Warning.
+
+  **Occurrence B — identical write, no wedge, one variable changed.** 22:00+05, five
+  `niagara.set_module_input {compile:false, save:false}` calls on the same system; autosave at
+  22:03:02+05 logged the identical mismatch pair (`Saved/Logs/EAContentExamples58.log:3048-3059`).
+  The editor survived. The **only** difference from A: beforehand I had detached all three
+  components with `UNiagaraComponent::SetAsset(nullptr)`, so nothing was ticking the invalidated
+  scripts. That is a controlled-ish confirmation that the live component is the detonator and the
+  presave is the primer, and it is why this ticket and
+  `B-niagara-compile-while-live-component-vectorvm-assert` need fixing together.
+
+  **`effect.deactivate_niagara` is not a sufficient guard.** Its handler
+  (`Handlers/VFX/EffectHandler.cpp:716`) calls `UNiagaraComponent::Deactivate()`, which stops
+  spawning but leaves existing particles simulating for their full lifetime — 26-42 s on these
+  emitters — and leaves `IsActive()` reading `true`. `DeactivateImmediate()` is not exposed to
+  Python and has no RPC. The only reliable detach available to a caller today is
+  `SetAsset(nullptr)` via `python.execute`, which destroys the system instance outright.
+
+  **Repair recipe, verified against disk.** With no component referencing the system:
+  `niagara.compile {force:true, wait:true}` as its own call, then `asset.save {force:true}` as its
+  own call. Presave then logs no mismatch and the `.uasset` mtime advances. Applied to all three of
+  `NS_FishSchool` / `_Orange` / `_Silver`; zero mismatch warnings across six subsequent saves.
+
+  **Suggested fix, in addition to the four above.** A graph-mutating `niagara.*` verb called with
+  `compile:false, save:false` currently hands the caller a dirty package with stale compiled scripts
+  and says nothing. It should do one of: (a) refuse when the target system has live components in
+  the level, naming them — this also closes the sibling ticket; (b) warn in the response that the
+  asset is now autosave-armed until a compile lands, so the caller knows the clock is running;
+  or (c) not leave the package dirty when neither compile nor save was requested. (a) is the
+  strongest: it is the only one that protects the *other* agents in a shared editor, who never see
+  this caller's response.
