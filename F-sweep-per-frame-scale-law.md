@@ -5,8 +5,8 @@ status: IN-REVIEW
 severity: Medium
 category: feature
 tags: [pwmodel, geometry, sweep, extrude_along_spline, scales, taper, scale-curve, cross-section]
-encounters: 1
-lastSeen: 2026-08-23T00:00:00Z
+encounters: 2
+lastSeen: 2026-08-27T18:57:03+05:00
 ---
 
 # A swept tube could taper only straight
@@ -100,6 +100,38 @@ Plugin commit `a2587117`:
 touched translation units (all `Result: Succeeded`); a link build plus a suite run are pending,
 which is why this is `IN-REVIEW` and not `DONE`.
 
+## Encounter 2026-08-27 — the `signedVolume` backstop this design leans on is weaker than stated
+
+Nothing above changes. This section records evidence measured 2026-08-27 on UE 5.8 in this
+checkout that **narrows one premise** of the refusal design, so a tester disposing of this ticket
+knows what the backstop does and does not cover. It is added beside the existing text, not into it.
+
+The argument at `:51-53` for holding rather than extrapolating is that an extrapolated negative
+scale gives "a mesh that renders correctly and lights inside-out, i.e. exactly the class of defect
+`health.signedVolume` exists to catch after the fact". The refusal design is still right — holding
+cannot produce a value the author did not write, and that is a good reason on its own. But
+`signedVolume` catches **less** than "that class of defect".
+
+Measured on a straight 200 x 10 x 1800 tube, 15 rings, emitted through `append_buffers` as a
+closed 4-sided tube, with the cross-section rotating along the path — a twisted ribbon whose walls
+push through each other. `model.validate` per twist:
+
+| total twist | `signedVolume` | analytic swept volume | isClosed | boundaryEdges | orientationConsistent | degenerateTriangles |
+|---|---|---|---|---|---|---|
+| 0   |  3,600,000 | 3,600,000 | true | 0 | true | 0 |
+| 90  |  2,245,522 | 3,600,000 | true | 0 | true | 0 |
+| 180 |    892,987 | 3,600,000 | true | 0 | true | 0 |
+| 310 | -1,022,818 | 3,600,000 | true | 0 | true | 0 |
+
+`signedVolume` moves **smoothly** and there is no threshold. It catches a **uniform sign flip**, so
+it does cover the specific extrapolation failure this ticket refuses. It does **not** catch a
+partial self-intersection: the 90 and 180 rows are 38% and 75% short of the solid the author wrote
+and pass the published gate `isClosed && signedVolume > 0` with every other health field green.
+
+Consequence for a tester: "`signedVolume` catches it after the fact" is a sound reason to refuse
+`scale <= 0`, and is **not** a general safety net for cross-section geometry. Filed separately as
+`B-pwmodel-health-no-self-intersection`.
+
 ## History
 - `#1-linear-only-taper-along-a-path` `OPEN` reporter — hit while building a tapering form from
   ops against a documented radius law. `revolve profile=` takes an arbitrary radius law but has
@@ -118,3 +150,20 @@ which is why this is `IN-REVIEW` and not `DONE`.
   is asserted rather than assumed. Plugin commit `a2587117`. Compile-checked with `-SingleFile`
   on all four files; **not linked, suite not run** — needs a tester to run the six new tests
   after the next link build.
+- `#3-signedvolume-backstop-narrowed` `IN-REVIEW` reporter — Additional evidence, no status
+  change and no edit to the existing text; see the `Encounter 2026-08-27` section above.
+  Measured 2026-08-27 on UE 5.8 in this checkout while building `SM_Kelp_Blade`. This ticket's
+  justification for holding rather than extrapolating (`:51-53`) calls a mesh that "renders
+  correctly and lights inside-out" *"exactly the class of defect `health.signedVolume` exists to
+  catch after the fact"*. A twist sweep on a straight 200 x 10 x 1800 tube, 15 rings, closed
+  4-sided via `append_buffers`, shows `signedVolume` moving SMOOTHLY with no threshold: 0deg
+  3,600,000 (= analytic); 90deg 2,245,522; 180deg 892,987; 310deg -1,022,818 — with `isClosed:
+  true`, `boundaryEdges: 0`, `orientationConsistent: true`, `degenerateTriangles: 0` on every
+  row. The published gate `isClosed && signedVolume > 0` therefore PASSES meshes that are 38% and
+  75% short of the solid the author wrote; only the sign flip at 310 fails. The refusal design is
+  unaffected — `signedVolume` does catch the uniform sign flip an extrapolated negative scale
+  produces, which is the case this ticket refuses — but it is not the general backstop for
+  cross-section geometry that the sentence reads as, and a partial pinch is invisible to it.
+  Recorded here so a tester disposing of this ticket does not over-read the claim. Filed
+  separately as `B-pwmodel-health-no-self-intersection`. `encounters` 1 -> 2, `lastSeen`
+  refreshed.
