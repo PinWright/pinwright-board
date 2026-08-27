@@ -5,8 +5,8 @@ status: OPEN
 severity: High
 category: bug
 tags: [sequencer, add_keyframe, transform-track, duplicate-keys, silent-corruption, no-echo, iteration, cinematics, curve-integrity]
-encounters: 1
-lastSeen: 2026-08-27T20:00:00+05:00
+encounters: 2
+lastSeen: 2026-08-27T22:45:00+05:00
 ---
 
 # Re-keying an existing frame corrupts the curve instead of updating it
@@ -134,3 +134,23 @@ UE 5.8, `EAContentExamples58`, `/Game/Maps/Atlantis`, 2026-08-27. Sequence
   in-memory artefact. Repaired by `sequencer.remove_track` on the transform track, re-adding it, and
   re-authoring all 23 keys; the rebuilt track reads back at exactly 23 keys per channel with the
   intended values.
+- `#2-source-located` `OPEN` reporter — Confirmed the call site while retuning the same camera
+  path. The transform branch writes with `Channels[n]->GetData().AddKey(TickFrame,
+  MakeDoubleKey(v))` at `Handlers/Sequencer/SequenceHandler.cpp:2276-2329` and `:2416` — the plain
+  insert, exactly as `#1` predicted. **The fix is already present in the same function**: the
+  generic float and bool branches a few lines below use
+  `Channel->GetData().UpdateOrAddKey(...)` at `:2469` and `:2508`. So this is three lines adopting
+  the sibling branch's call, not new logic. Note the same three lines also carry
+  `B-sequence-add-keyframe-transform-keys-never-auto-set-tangents` (default-constructed
+  `FMovieSceneTangentData`, `AutoSetTangents()` never called) — one edit closes both, and both
+  should get their regression tests in that edit.
+  **A cheaper repair route than `#1`'s full track rebuild exists.** UE's Python sequencer scripting
+  API has what the RPC surface lacks: `MovieSceneScriptingDoubleChannel` exposes `get_keys()`,
+  `add_key`, and **`remove_key`**, and each returned key carries `set_value` / `set_time` /
+  `set_tangent_mode` / `set_arrive_tangent` / `set_leave_tangent`. Driven through
+  `python.execute` that is a read-modify-write over the existing curve. Verified on this sequence:
+  ten keys re-valued across four channels (40 `set_value` calls) left `keyCount` at exactly 23 per
+  channel, key times unchanged, and tangent mode/values untouched — so it neither duplicates nor
+  perturbs anything else. Recommend citing it in the ticket as the interim workaround, since
+  `remove_track` + `add_transform_track` + 23 re-keys is a large blast radius for what is usually a
+  one-key fix.

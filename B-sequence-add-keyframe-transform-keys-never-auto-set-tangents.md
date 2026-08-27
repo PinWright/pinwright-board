@@ -1,0 +1,173 @@
+---
+id: B-sequence-add-keyframe-transform-keys-never-auto-set-tangents
+title: "Transform keys from sequence.add_keyframe are stamped RCIM_Cubic + RCTM_Auto but their tangents are never computed, so every key keeps ArriveTangent/LeaveTangent 0 — the curve degrades to a chain of zero-tangent smoothsteps and the camera stops dead at EVERY key, not just the endpoints"
+status: OPEN
+severity: High
+category: bug
+tags: [sequencer, add_keyframe, transform-track, tangents, curves, cinematics, camera-path, silent-corruption, motion]
+encounters: 1
+lastSeen: 2026-08-27T22:45:00+05:00
+---
+
+# `RCTM_Auto` without `AutoSetTangents()` is `RCTM_None` with extra steps
+
+The transform branch of the frame-numbered `sequence.add_keyframe` stamps every key
+`InterpMode = RCIM_Cubic`, `TangentMode = RCTM_Auto`, then writes it through the **raw channel
+data** path:
+
+```
+Handlers/Sequencer/SequenceHandler.cpp:2186-2192
+    FMovieSceneDoubleValue KeyValue(InValue);
+    KeyValue.InterpMode  = KeyInterpMode;    // cubic
+    KeyValue.TangentMode = KeyTangentMode;   // auto
+    // KeyValue.Tangent is left default-constructed = all zeros
+
+Handlers/Sequencer/SequenceHandler.cpp:2276-2329   Channels[n]->GetData().AddKey(TickFrame, MakeDoubleKey(v));
+Handlers/Sequencer/SequenceHandler.cpp:2416        Channels[ChannelBase+i]->GetData().AddKey(...);
+```
+
+`TMovieSceneChannelData::AddKey` inserts the struct verbatim. It does not, and cannot, compute
+tangents — `AutoSetTangents()` is on the channel, not on its data view. The only writers that reach
+it are the channel's own typed adders (`MovieSceneDoubleChannel.cpp:218, 229, 262, 268`, entered via
+`AddCubicKey` at `:157-160`), and this branch never goes through them.
+
+So `RCTM_Auto` is recorded as an intent that nothing acts on, and `ArriveTangent` / `LeaveTangent`
+stay **0.0 on every key forever**. Evaluation reads the stored tangents directly, so a cubic key
+with zero tangents is a flat-in/flat-out Hermite and the channel becomes a chain of independent
+smoothsteps.
+
+## What it does to a shot
+
+The camera **decelerates to a standstill at every keyframe** and accelerates out of it again. Not
+"eases" — stops. A path authored as one continuous move plays as N-1 separate moves.
+
+Measured on `/Game/Atlantis/Cine/LS_Atlantis_Flythrough` — 23 keys, 60 fps, frames 0-1200, a 20 s
+flythrough meant to read as one unbroken flight. Speed sampled from
+`MovieSceneScriptingDoubleChannel.evaluate_keys` over all 1201 display frames:
+
+| key frame | 0 | 40 | 130 | 250 | 380 | 480 | 560 | 640 | 700 | 740 | 780 |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| speed uu/s | 101 | 33 | 25 | 24 | 34 | 47 | 54 | 109 | 266 | 378 | 448 |
+
+| key frame | 820 | 860 | 880 | 900 | 940 | 970 | 1010 | 1050 | 1085 | 1116 | 1160 | 1200 |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| speed uu/s | 511 | 953 | 995 | 511 | 707 | 527 | 875 | 1348 | 1286 | **92** | **101** | **101** |
+
+Against **per-segment peaks of 1,500 - 24,043 uu/s**. Every one of the 23 keys is a local minimum of
+speed, most by one to two orders of magnitude. Read straight off the asset, all 23 keys of all six
+animated channels report:
+
+```
+tangentMode = RCTM_AUTO,  arriveTangent = 0.0,  leaveTangent = 0.0
+```
+
+## The two call shapes disagree, which is the tell
+
+`sequencer.add_keyframe`'s other registered shape (seconds-based, float property tracks,
+`Handlers/Sequencer/SequencerHandler.cpp:195`) writes via `Channel.AddCubicKey(FrameNumber, Value,
+TangentMode)`, which **does** reach `AutoSetTangents()`. The same nominal request therefore produces
+a smooth curve on a float property track and a stuttering one on a transform track, purely as a
+function of which handler the dispatcher picked. Neither response says so.
+
+## Why this is High
+
+- **Silent.** Every published signal is clean: `keyCount` is right, values are right, `interp` reads
+  back `cubic`, `tangentMode` reads back `auto`. `list_sections {includeKeys:true}` does not emit
+  tangent values, so no readback on the surface can show the fault.
+- **Misdirecting.** The symptom is "the motion looks wrong", so the author edits the keys — which
+  are correct. The cause is a struct field nobody wrote.
+- **Transform tracks are the common case.** This is how every RPC-authored camera move is built.
+
+## It invalidates the documented loop-seam workaround
+
+`F-sequencer-explicit-tangent-values-for-looping-cinematics` prescribes two "decoy" keys at frames
+40 and 1160 to supply the seam velocity the forced-zero endpoint tangents cannot, and verifies with
+
+```
+arriving  (P1200 - P1190)/10 = (+7.4375, -2.3750, -11.9062) per frame
+departing (P10    - P0)  /10 = (+7.4375, -2.3750, -11.9062) per frame
+```
+
+Those numbers are reproduced **exactly** by a pure zero-tangent smoothstep over the 40-frame f0-f40
+span: `h(0.25) = 3(0.25)^2 - 2(0.25)^3 = 0.15625`, and
+`0.15625 x (476, -152, -762) / 10 = (7.4375, -2.375, -11.9062)`.
+
+They are a 10-frame **average across an ease**, not a seam velocity. Instantaneous:
+
+```
+P1    - P0    = (+0.8776, -0.2803, -1.4049)   ~ 53 uu/s
+P1200 - P1199 = (+0.8776, -0.2802, -1.4049)   ~ 53 uu/s
+```
+
+The camera still arrives at the seam at rest and leaves at rest — the exact hitch the decoy keys
+were added to remove. The mirror makes the stop *symmetric*, so the loop does not visibly jump, but
+it does not make it moving. The workaround cannot work while this bug stands: adding keys near an
+endpoint cannot change the endpoint's tangent, and here it cannot change any interior key's tangent
+either, because none are ever computed.
+
+## Expected
+
+A key stamped `RCTM_Auto` has auto tangents. UE's endpoint rule then applies as designed (first
+key's leave tangent and last key's arrive tangent forced to 0), which is what the decoy-key
+technique is written against.
+
+## Suggested fix
+
+1. In the transform branch of `SequenceHandler.cpp`, collect the touched channel indices and call
+   `Channels[i]->AutoSetTangents()` once per channel before `SendSuccess`. Same shape in the generic
+   float branch at `:2469`.
+2. Prefer the typed adders (`AddCubicKey` / `AddLinearKey` / `AddConstantKey`) over
+   `GetData().AddKey` — they carry the tangent contract, so the fix becomes structural rather than a
+   remembered extra call. **This is the same line that needs `UpdateOrAddKey` semantics for
+   `B-sequence-add-keyframe-duplicates-existing-frame`; one edit closes both.**
+3. Regression test: author three cubic/auto keys at frames 0 / 50 / 100 with values 0 / 100 / 0 on a
+   transform track's `Location.Z`, then assert the **middle** key's stored `ArriveTangent` /
+   `LeaveTangent` are non-zero (UE gives it the prev-to-next slope) while first and last are zero.
+   Pre-fix all three are zero, so it fails before the fix — differential proof.
+4. Emit `arriveTangent` / `leaveTangent` / `tangentMode` from `BuildChannelKeysJson` under the
+   existing `includeKeys` gate, so this class of fault is visible from a readback at all.
+
+## Workaround available today
+
+UE's Python sequencer scripting API reaches what the RPC surface does not.
+`MovieSceneScriptingDoubleChannel` exposes `get_keys()`, `add_key`, **`remove_key`**, and each key
+carries `get_value`/`set_value`, `get_time`/`set_time`, `get_tangent_mode`/`set_tangent_mode`,
+`get_arrive_tangent`/`set_arrive_tangent`, `get_leave_tangent`/`set_leave_tangent`. Via
+`python.execute` that is a complete read-modify-write over an existing curve — no duplication risk,
+no track rebuild. Verified: `set_value` changes only the value, leaving key count, key times and
+tangent mode untouched.
+
+## Distinct from
+
+- `F-sequencer-explicit-tangent-values-for-looping-cinematics` (Medium, feature) is the missing
+  *capability* to supply tangent values. This is a *bug*: the tangent mode the caller can already
+  select is not honoured. Fixing this makes that ticket's workaround start working; fixing that one
+  does not fix this.
+- `F-sequencer-curve-channel-ops` (IN-REVIEW) shipped interp/tangent-mode **selection** and the
+  per-key `interp` readback. It delivered the parameter; this ticket is that the transform path
+  never acts on it.
+- `B-sequence-add-keyframe-duplicates-existing-frame` (High) is the other defect on the same three
+  source lines — `AddKey` instead of `UpdateOrAddKey`. Same call site, different property.
+
+## Environment
+
+UE 5.8, `EAContentExamples58`, `/Game/Maps/Atlantis`, 2026-08-27. Sequence
+`/Game/Atlantis/Cine/LS_Atlantis_Flythrough`, display rate 60, tick resolution 24000, playback
+`[0, 1200]`. Binding `C35BAEA544B50124B4EA1B8B9313991C` (`ACineCameraActor` possessable), track
+`MovieScene3DTransformTrack_0`, section `MovieScene3DTransformSection_0`, 23 keys per channel on
+`Location.X/Y/Z` and `Rotation.X/Y/Z`.
+
+## History
+
+- `#1-measured` `OPEN` reporter — Found while retuning the last third of the 20 s Atlantis
+  flythrough. Dumped all 23 keys of all six channels via
+  `unreal.MovieSceneScriptingDoubleChannel.get_keys()`: every key `RCTM_AUTO` with
+  `arriveTangent == leaveTangent == 0.0`. Evaluated the six channels over all 1201 display frames
+  with `evaluate_keys` and differenced them — speed collapses to a local minimum at all 23 key
+  frames (24-1348 uu/s) against segment peaks up to 24,043 uu/s. Traced to
+  `SequenceHandler.cpp:2186-2192` (zero-initialised `FMovieSceneTangentData`) plus the
+  `GetData().AddKey` writes at `:2276-2329` and `:2416`, none of which reach `AutoSetTangents()`;
+  contrasted against `SequencerHandler.cpp:195`, the sibling call shape, which does. Also showed the
+  decoy-key verification in `F-sequencer-explicit-tangent-values-for-looping-cinematics` is
+  reproduced to four decimal places by the zero-tangent smoothstep, so that workaround does not in
+  fact produce seam velocity.

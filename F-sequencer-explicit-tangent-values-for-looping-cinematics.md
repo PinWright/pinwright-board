@@ -5,8 +5,8 @@ status: OPEN
 severity: Medium
 category: feature
 tags: [sequencer, keyframes, tangents, curves, looping, cinematics, camera-path, workaround-required]
-encounters: 1
-lastSeen: 2026-08-27T19:40:00+05:00
+encounters: 2
+lastSeen: 2026-08-27T22:45:00+05:00
 ---
 
 # A looping camera move cannot be closed properly through this API
@@ -93,3 +93,21 @@ of the most common things anyone builds with a level sequence.
   verified numerically with `sequencer.get_binding_transform` at frames 1190/1200/0/10 (velocities
   matched exactly on all three position axes and on both animated rotation channels). Not filed as a
   bug: nothing misbehaves, the capability is simply absent.
+- `#2-workaround-does-not-work` `OPEN` reporter — The decoy-key technique in `#1` does **not**
+  produce seam velocity, and its own verification numbers are the proof. `(P10−P0)/10 =
+  (P1200−P1190)/10 = (+7.4375, −2.3750, −11.9062)` is reproduced to four decimals by a pure
+  zero-tangent smoothstep across the 40-frame f0–f40 span: `h(0.25) = 3(0.25)² − 2(0.25)³ =
+  0.15625`, and `0.15625 × (476, −152, −762) / 10 = (7.4375, −2.375, −11.9062)`. That is a
+  10-frame **average across an ease**, not an instantaneous velocity — and it is symmetric for the
+  trivial reason that f40 and f1160 are mirrored, whatever the tangents are. Measured
+  instantaneously on the same asset: `P1−P0 = (+0.8776, −0.2803, −1.4049)` and `P1200−P1199 =
+  (+0.8776, −0.2802, −1.4049)`, ≈ 53 uu/s — the camera still arrives at the loop at rest and
+  leaves at rest. The mirror makes the stop *symmetric* (so the still cut is invisible) but not
+  *moving*. Root cause is not the missing tangent-value parameter this ticket asks for: on this
+  build **no** key on the track ever gets auto tangents at all, because the transform write path
+  never calls `AutoSetTangents()` — see
+  `B-sequence-add-keyframe-transform-keys-never-auto-set-tangents`. Adding keys near an endpoint
+  cannot change the endpoint's tangent, and here it cannot change any interior key's tangent
+  either. **This feature stays worth doing** — explicit tangent values are still the only way to
+  author a non-zero seam velocity once the bug is fixed — but it should be sequenced after it, and
+  the `#1` workaround should not be recommended to anyone in the meantime.
