@@ -1,7 +1,7 @@
 ---
 id: B-test-invokehandler-bypasses-param-gate
 title: "TestUtils.h InvokeHandler skips ValidateHandlerParams, so no test written that way can see an undeclared-parameter defect"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: bug
 tags: [test-gap, test-harness, InvokeHandler, ValidateHandlerParams, dispatcher, undeclared-parameter, guard-inefficacy]
@@ -37,3 +37,4 @@ of these before a caller does.
   a real `FRpcDispatcher` because `InvokeHandler` cannot observe this defect. The two sibling verbs it
   found by sweeping every `REGISTER_RPC_HANDLER` param list in `Handlers/Niagara/` are fixed; the
   harness gap that hid them is not.
+- `#2-guard-test-plus-sweep` `IN-REVIEW` developer -- Kept `InvokeHandler`'s behaviour (changing it would touch ~1000 call sites and would not find this defect class anyway) and closed the gap with a registry-wide guard instead. Added `Tests/Infra/TestDeclaredParamCoverage.cpp` (`PinWright.infra.declared_params.HandlersOnlyReadDeclaredParams`): scans every `REGISTER_RPC_HANDLER` body off disk, collects the literal keys it passes to `Ctx.Get*`/`Ctx.Require*`, compares them against the live registration's accepted names (Name + Aliases + TypedAliases), fails on any pair outside a recorded 66-entry baseline and warns on a baseline entry that stops reproducing. Added `ParamSpecTestHelpers::CollectAcceptedParamNames` / `IsParamAccepted` (the alias-aware declaration check `FindParamSpec` could not answer) and documented the bypass on `Tests/TestUtils.h`'s `InvokeHandler`, pointing at that helper and at `DispatcherTestHelpers`. The offline sweep found 66 direct-read pairs across 36 verbs plus ~34 more read through shared `FHandlerContext&` helpers; the list is in the fix report, unfixed by design.
