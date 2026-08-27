@@ -1,13 +1,29 @@
 ---
 id: B-verify-grounding-maxgap-counts-overhangs
-title: "`spatial.verify_grounding` gates `pass` on `maxGapCm`, which measures the highest overhanging geometry rather than the seating, so anything with a capital, a flank or an overhang fails with a reason that is false — and the one genuine failure in the batch is indistinguishable from the eight false ones"
-status: OPEN
+title: "DUPLICATE of `B-verify-grounding-maxgap-false-fail` — same defect, filed ~2 min apart from the same session; unique content merged there, this file kept only as the audit trail"
+status: WONTFIX
 severity: High
 category: bug
 tags: [spatial, verify-grounding, ground-actors, max-gap, footprint-columns, false-failure, overhang, curvature, misleading-failreason]
 encounters: 1
 lastSeen: 2026-08-27T19:15:37+05:00
 ---
+
+> **DUPLICATE — do not work this ticket.** The live ticket for this defect is
+> **`B-verify-grounding-maxgap-false-fail`** (OPEN, High), committed at 19:07:11 +0500 on
+> 2026-08-27; this one was committed at 19:09:01, ~2 min later, by a second reporter working
+> the same session's defect log. A dedup sweep run before the other ticket existed found no
+> match, so both were written in parallel.
+>
+> Everything below that the live ticket did not already have — the source-verified correction
+> that **`maxGap` IS a declared parameter** (`GroundPlacementHandler.cpp:875-878`), the
+> argument that no value of `maxGap` can fix this, the full `pass` gating chain, the
+> `actorColumns`/`supportedColumns` line references for fix (a), the fourth intact-column row,
+> and the `spatial.verify_placement` cross-verb datum — has been **merged into that ticket's
+> `#1` History entry**. Nothing here is lost by ignoring this file.
+>
+> Kept rather than deleted so the ID stays claimed and `git blame` keeps the parallel-filing
+> record. Read the live ticket instead.
 
 # The float check measures the top of the actor, not the bottom
 
@@ -216,3 +232,4 @@ severity rationale: impact=wrong verdict with a false, actionable-looking reason
 
 ## History
 - `#1-maxgap-measures-the-capital` `OPEN` reporter — Found while building the Atlantis example level on host project EAContentExamples58 (map as forcing function; see that project's `CLAUDE.md` § "What this project is for"), 2026-08-27, UE 5.8, PinWright at this checkout's HEAD. 13 avenue columns seated by `spatial.ground_actors` (`placed:13, failed:0`), then `spatial.verify_grounding {samples:4, maxPenetration:60, detail:"all"}` -> `pass:false, checked:13, passed:5, failed:8`; **all 8 failures false**. Controlled mesh-only experiment on one flat pad (`groundSpreadCm:0`, `averageNormal (0,0,1)` throughout): 4 intact `SM_Column_Doric` fail at `maxGapCm` 2266-2328 while 3 broken columns pass at -22.21/-13.39/-2.95 from the identical call — snap the capital off and the same column passes. Failing actors report `minGapCm -48.4`, `coverage 1`, `contactPoints 4-6`, i.e. every seating field says seated; the 2327.90 cm is the capital's underside 2352 uu up. Second mechanism on `SM_Column_Toppled`: `maxGapCm` 76.27/82.20/95.65 is the cylinder flank — with `footprintInset 0.1` the outermost column sits at 0.9R and `147 - 147*sqrt(1-0.81) = 83` uu predicts the measured 76-96 band, so any lying cylinder/barrel/log/dome can never satisfy `maxGapCm <= 2`. Real-fault cross-checks: `spatial.raycast` on the pad -> `z:0.0`, `normal (0,-0.023,0.9997)`; `ground_actors`' own post-move check -> `seatErrorCm 1.1e-13` for every one. **Correction to the originating log, which must not propagate:** it claimed `maxGap` is not a parameter of the verb. It IS — declared at `Handlers/Spatial/GroundPlacementHandler.cpp:875-878` (default `"2"`, alias `max_gap`) beside `maxPenetration`, read at `:935-940`, falling back to `constexpr double DefaultContactToleranceCm = 2.0` at `Handlers/Spatial/GroundPlacementUtils.h:79`. The knob's existence does not help: `maxGap` would have to exceed 2327 to admit a seated column, which switches the float check off for the whole batch rather than loosening it — no value accepts a seated column while still rejecting a hovering one, because the compared number is not a property of the seating. Gating chain verified: `GroundPlacementUtils.cpp:465-472` (the `MaxGapCm > MaxGapCm` fail with the "Part of this actor floats %.2f cm" message), `bEnforceGapBounds` forced true at `GroundPlacementHandler.cpp:950`, `bPass = true` only at `GroundPlacementUtils.cpp:508`, second `ACTOR_NOT_GROUNDED` emit at `:448` (zero contact points), serialized at `GroundPlacementHandler.cpp:446`/`:450` and batch `:988`. Impact: the batch's one genuine failure (three shafts balanced on one end, `contactPoints:1`, `groundSpreadCm:300`, real `maxGapCm` 451) carried the same field and same `failCode` as the 8 false ones and was indistinguishable by `pass`/`failCode` alone. Fix (a) is half-built — the verb already separates `actorColumns` from `supportedColumns` (`GroundPlacementHandler.cpp:461-462`, used separately at `GroundPlacementUtils.cpp:433`), so scoping the float max to supported columns needs no new data. Cross-verb datum: `B-trace-complex-hits-render-geometry` line 75 records `spatial.verify_placement {expect:{grounded:{maxGap:2}}}` -> `pass:true`, gap ~1.7e-13 on a flat-bottomed probe cube, i.e. the shape the 2 cm threshold was designed for. Worked around by gating on `coverage`/`contactPoints`/`groundSpreadCm` instead of `pass`; defect untouched.
+- `#2-retired-as-duplicate` `WONTFIX` reporter — Retired by its own author as a **duplicate of `B-verify-grounding-maxgap-false-fail`** (OPEN, High), which describes the same defect from the same session's defect log and was committed at 19:07:11 +0500 against this file's 19:09:01 — ~2 min earlier, and after the dedup sweep that preceded this filing had already run clean. Not a WONTFIX on the merits: the defect is real, `High`, and is being tracked on the other ticket, which is the canonical one by filing order. Every claim here that the live ticket lacked was merged into its `#1` History entry before this retirement — the source-verified correction that `maxGap` IS declared (`GroundPlacementHandler.cpp:875-878`, read at `:935-940`, default from `GroundPlacementUtils.h:79`), which directly contradicts a false claim carried in that ticket's body; the argument that no value of `maxGap` separates a seated column from a hovering one, which voids its suggested-fix rung #2 and strengthens rung #1; the full `pass` gating chain (`GroundPlacementUtils.cpp:465-472`, `:508`, `:448`; `GroundPlacementHandler.cpp:950`, `:446`, `:450`, `:988`); the `actorColumns`/`supportedColumns` references showing fix #1 is half-built (`GroundPlacementHandler.cpp:461-462`, `GroundPlacementUtils.cpp:433`); the fourth intact-column row `AVE_Col_N6_intact` (`maxGapCm 2266.82`); the `ground_actors` `seatErrorCm 1.1e-13` disagreement; and the `spatial.verify_placement {expect:{grounded:{maxGap:2}}}` cross-verb datum from `B-trace-complex-hits-render-geometry` line 75. File kept rather than deleted so the ID stays claimed and the parallel-filing record survives in `git blame`.
