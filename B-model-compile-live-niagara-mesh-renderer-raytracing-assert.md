@@ -134,6 +134,27 @@ expire), recompile, then re-spawn. Disabling ray tracing (`r.RayTracing 0`) woul
 specific gather, but that changes what every other agent's captures look like and is not safe on a
 shared editor.
 
+**The deactivate variant is now proven end-to-end on SHIPPED actors, 2026-08-27 (see `#5`).** The
+preview-actor advice above does not cover the case that matters most: a `VFX_*` actor that ships in
+the level is a live consumer too, and it cannot be deleted. Sequence that worked, on eleven live
+consumers of `SM_Bubble`:
+
+1. Enumerate every consumer first. `grep -al "SM_Bubble"` over `Content/` found exactly two Niagara
+   systems, whose eleven placed actors `actor.find_by_class {className:"NiagaraActor"}` then named.
+   Do this before touching anything — deleting your own preview actor is not enough.
+2. `effect.deactivate_niagara` on all eleven. It stops spawning but does NOT kill live particles.
+3. **Wait out the longest particle lifetime** — here `Lifetime Max` 34 s from the ambient system's
+   `InitializeParticle`, so 50 s. This is the step that empties the renderer.
+4. **Gate on a capture, not on the clock.** `render.capture_open_level` at a pose that normally
+   shows a bubble column, read the PNG, and confirm zero particles draw. A frame with no particles
+   is the only observable proof the renderers have nothing left to gather; the wait alone is an
+   assumption. The capture is safe here precisely because the rebuild has not happened yet.
+5. `model.compile`, then `effect.activate_niagara` on all eleven.
+
+Editor survived (`Building static mesh SM_Bubble` -> `Built static mesh [0.01s]`, 108 -> 432
+triangles, no assert). Cost is a ~1 min quiesce window in which the level renders without the
+effect, which is cheap against an editor kill.
+
 ## Suggested fix
 
 The assert is in engine code, so PinWright cannot fix it directly, but it can stop reaching it:
@@ -256,3 +277,34 @@ The assert is in engine code, so PinWright cannot fix it directly, but it can st
   `## Merged from ...`) while this fix was in flight; its file was NOT recreated, so this bullet is
   the IN-REVIEW record for both. Not compiled or run here — the orchestrator owns builds — and
   `ERR_MESH_REBUILD_CONSUMER_NOT_QUIESCABLE` must be appended to `ErrorCodes.h` before this compiles.
+
+- `#5-guard-absent-from-a-second-checkout-manual-quiesce-worked` `IN-REVIEW` reporter —
+  2026-08-27, `EAContentExamples58`, raising `SM_Bubble` from `subdivisions=4` to `7` to kill a
+  faceted bubble silhouette. **No crash: the hazard was avoided, not hit.** Two things worth
+  recording.
+
+  **`#4`'s guard is NOT in this checkout, so this tree is still armed.** Verified before relying on
+  it, per the house rule that a board claim must be confirmed against the tree in hand:
+  `Source/PinWrightGeometry/Private/Handlers/Model/MeshRebuildRenderGuard.h` does not exist here,
+  `grep -rn ERR_MESH_REBUILD_CONSUMER_NOT_QUIESCABLE Source/` returns nothing, and
+  `Binaries/Win64/UnrealEditor-PinWrightGeometry.dll` is dated 2026-08-26 19:13 — older than the
+  fix. `#4` says "not compiled or run here"; it was written against a different one of the three
+  hosts that share this board. **A reader of this ticket must not assume `model.compile` is
+  guarded because `#4` is IN-REVIEW.** Until the fix is built and shipped to a given host, the
+  manual sequence in `## Workaround` is the only protection there.
+
+  **The workaround needed extending before it was usable.** As written it addressed *preview*
+  actors and told the caller to delete them. The live consumers here were eleven shipped `VFX_*`
+  actors — placed, density-tuned content that must not be deleted or re-seated — so the delete
+  path did not apply and the deactivate path had to carry the whole job. What made it safe was
+  gating on a capture rather than on the elapsed wait: `effect.deactivate_niagara` leaves particles
+  alive for their full lifetime, so "deactivated" and "not drawing" are up to 34 s apart on this
+  content, and only the frame proves which one you have. That sequence is now written into
+  `## Workaround` above.
+
+  This also sharpens `## Suggested fix` #3 (report the dependency in `static_mesh.describe`): the
+  enumeration step had to be done with `grep` over `.uasset` bytes plus `actor.find_by_class`,
+  because no read verb answers "who is drawing this mesh right now". `static_mesh.describe` on
+  `/Game/Atlantis/Meshes/SM_Bubble` returns bounds, LODs and materials and says nothing about the
+  eleven live Niagara components that make recompiling it fatal. That read-only field would have
+  replaced the whole manual enumeration.
