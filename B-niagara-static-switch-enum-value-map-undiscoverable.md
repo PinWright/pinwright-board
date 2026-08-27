@@ -1,7 +1,7 @@
 ---
 id: B-niagara-static-switch-enum-value-map-undiscoverable
 title: "niagara.set_static_switch takes an integer no published read can supply, so an enum switch silently selects the wrong branch"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: bug
 tags: [niagara, static-switch, user-defined-enum, asset-dump, discoverability, silent-noop]
@@ -115,3 +115,4 @@ Any one of these closes it; (a) plus (b) is the complete fix.
   Probed both enums above to establish that the name index is a permutation of the value for
   `ENiagara_SizeScaleMode` and identity for `ENiagara_LifetimeMode`, so no fixed rule recovers it.
   `asset.dump` on the enum asset carries no value<->name table at all.
+- `#2-publish-enum-branch-table` `IN-REVIEW` developer — Fixed together with `B-niagara-static-switch-enum-display-name` (same function, same mechanism); see that ticket for the resolver half. Added `NiagaraStaticSwitch::FEnumSwitchOption` + `BuildEnumOptions` / `MakeEnumOptionsJson` / `ResolveEnumOption` to `Handlers/Niagara/NiagaraEditTypes.h/.cpp`: the branch table is `{index, name, displayName}` per selectable entry, built over `NumEnums()` with the trailing `_MAX` sentinel and `Hidden` / `Spacer` entries dropped, mirroring the filter in `UNiagaraNodeStaticSwitch::GetOptionValues`. `index` is the branch selector, confirmed against `FNiagaraEditorUtilities::ResolveConstantValue` (engine `NiagaraEditorUtilities.cpp`), which resolves the caller-pin default through `GenerateFullEnumName` + `GetIndexByName` and uses the resulting INDEX, so the integer this verb takes is unchanged. The table is now published from three places: `niagara.set_static_switch`'s success response (`index`, `displayName`, `enumPath`, `enumOptions[]`, in `Handlers/Niagara/NiagaraEditHandler.cpp`), its `INVALID_VALUE` rejection payload, and — the read the ticket asks for — every enum entry of `staticSwitchInputs` in `NiagaraDumpBuilder::BuildStaticSwitchInputs`, which feeds `niagara_stack.json` and `niagara_model.json`; both aspect versions bumped 2 -> 3 in `Handlers/Asset/AssetDumpCache.cpp`. Test `PinWright.niagara.set_static_switch.EnumBranchTablePublished` (`Tests/Niagara/TestNiagaraStaticSwitchEnum.cpp`) builds a synthetic `UUserDefinedEnum` whose entry order permutes the `NewEnumeratorN` names and asserts the published table pairs index 2 with `NewEnumerator1` / "Random Uniform" — the mapping that previously existed in no response at all. NOT changed: `DecodePinDefault`'s silent coerce-to-0 on an unresolvable stored name (`NiagaraEditTypes.cpp`), because its one caller reports `source:"override"` off a successful decode and turning the miss into a failure would make the dump claim an override while printing the declared default; flagged for its own ticket.
