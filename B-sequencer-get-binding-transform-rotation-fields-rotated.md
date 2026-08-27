@@ -5,8 +5,8 @@ status: IN-REVIEW
 severity: High
 category: bug
 tags: [sequencer, get_binding_transform, rotation, frotator, silent-wrong-data, readback, verification-verb, camera, transform-track]
-encounters: 2
-lastSeen: 2026-08-27T20:50:00+05:00
+encounters: 4
+lastSeen: 2026-08-27T21:05:00+05:00
 ---
 
 # The rotation readback is shifted by one field
@@ -173,3 +173,28 @@ UE 5.8, `EAContentExamples58`, `/Game/Maps/Atlantis`, 2026-08-27. Sequence
   its own key at a non-key frame; pre-fix all three assertions fail. Not compiled or run (orchestrator
   owns builds). Untouched: `list_sections`' unlabelled channel array (ticket suggestion 3) — separate
   ticket.
+
+- `#4-still-live-in-the-running-build` `IN-REVIEW` reporter — 2026-08-27T21:05+05:00, UE 5.8,
+  `EAContentExamples58`, editor pid 76108. The #3 fix is authored but **not compiled into the editor
+  this project is running**, so the defect is still live for every agent on this host. Hit during the
+  final acceptance review of `/Game/Maps/Atlantis` while transcribing the as-built camera path into
+  `Docs/map/atlantis-spec.md`: `get_binding_transform` at frame 0 returns
+  `{roll: -22, pitch: 0, yaw: 0}` and at frame 1200 `{roll: -22, pitch: 360, yaw: 0}` — the same
+  left-rotated triple #1 recorded.
+
+  New this encounter, an oracle that costs one call and settles it without geometry:
+  `sequencer.list_sections {path, includeKeys: true}` returns the transform section's channels in
+  engine order, and channels 3/4/5 are unambiguous on this asset — channel 3 is 0 at all 23 keys
+  (roll), channel 4 runs `-22 … +2 … +28 … -22` (pitch), channel 5 runs `0 → 360` monotonically
+  (yaw). Every value `get_binding_transform` reports under `roll` is channel 4, and every value it
+  reports under `pitch` is channel 5. Two independent oracles — authored keys and world bearings —
+  now agree on the same permutation, which is worth stating because #3's diagnosis rests on the
+  engine's `FIntermediate3DTransform` argument order and a reviewer will want a cheap way to confirm
+  the fix once it is built: re-run this pair on this asset and require the two to agree field for
+  field.
+
+  Also worth carrying into the fix's wiki pass: `get_binding_transform`'s page does not mention that
+  `list_sections {includeKeys:true}` exists as the authored-key cross-check, and the page's framing
+  ("unlike list_tracks/list_sections, which return the authored keys") reads as if `list_sections`
+  cannot answer key-level questions. It can, and it is the verb that would have caught this on day
+  one. A one-line cross-reference on both pages is cheaper than the ticket.
