@@ -1,7 +1,7 @@
 ---
 id: B-ground-actors-prefix-captures-foreign-actors
 title: "`spatial.ground_actors` selected by name prefix silently moved six actors belonging to another agent, and because they succeeded no `previousTransform` was echoed — the unintended move is unrecoverable"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: bug
 tags: [spatial, ground_actors, placement, shared-state, concurrency, multi-agent, undo, data-loss, silent-mutation]
@@ -121,3 +121,25 @@ recoverable without inference, and it remains the highest-value change for a sha
   three checks above; 564 instances intact and bedded. Adds the `HOLDER_NOT_SEATABLE` refusal as the
   root-cause fix, since every selector-scoping remedy leaves the underlying "a HISM holder has no
   seatable footprint" defect in place. Status left `OPEN` — reporter, not fixer.
+- `#3-scope-guard-and-undo-record` `IN-REVIEW` developer — Both defects in the ticket title fixed in
+  `Source/PinWright/Private/Handlers/Spatial/GroundPlacementHandler.cpp` (`spatial.ground_actors`
+  only; `verify_grounding` untouched). (1) Selector scope: a pattern selector (`prefix` / `filter`)
+  on the mutating verb now requires a new `expectedMatches` param; without it the call is refused
+  `MISSING_REQUIRED_PARAM` naming the count it would have matched, and when the stated count
+  disagrees with the level it is refused `MATCH_COUNT_MISMATCH` *before the first move*, carrying
+  `matchedActors[]` (capped at 64) so the caller can see which actors are not theirs. `actors` /
+  `selection` are exempt (they already enumerate what the caller named) but honour the value when
+  given; `verify_grounding` stays free of it and is the sanctioned pre-flight. The guard runs after
+  actor resolution, so a typo'd pattern still reads `NO_ACTORS_MATCHED`. (2) Undo: `previousTransform`
+  is now echoed for **every** actor with a captured pre-move transform, successes included (was
+  gated on `!IsSeated()`), and a new `movedActors[]` array — one `{actor, path, previousTransform}`
+  entry per actor actually moved — is emitted at **every** `detail` level including `summary`,
+  because it is the receipt for a mutation rather than a diagnostic. Reverted actors are excluded
+  (`WasMoved()` is false and they are already back). Regression tests added to
+  `Source/PinWright/Private/Tests/Spatial/TestGroundPlacement.cpp`:
+  `PinWright.spatial.ground_actors.PatternSelectorNeedsExpectedMatches` and
+  `PinWright.spatial.ground_actors.MovedActorsEchoPreviousTransform`. Needs one new error code
+  `ERR_MATCH_COUNT_MISMATCH = "MATCH_COUNT_MISMATCH"` in `Handlers/ErrorCodes.h` (owned by the
+  orchestrator) or the emit-registration test fails. **Not addressed here:** encounter 2's
+  `HOLDER_NOT_SEATABLE` refusal for ISM/HISM holders — it belongs on both verbs, and
+  `verify_grounding` is another agent's file scope this wave.
