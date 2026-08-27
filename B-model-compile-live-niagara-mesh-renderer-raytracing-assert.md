@@ -1,7 +1,7 @@
 ---
 id: B-model-compile-live-niagara-mesh-renderer-raytracing-assert
 title: "model.compile on a static mesh a live Niagara mesh renderer is drawing kills the editor in the ray-tracing gather"
-status: OPEN
+status: IN-REVIEW
 severity: Critical
 category: bug
 tags: [model, static-mesh, niagara, mesh-renderer, ray-tracing, editor-crash, render-thread, stale-reference, missing-guard, shared-editor]
@@ -219,3 +219,40 @@ The assert is in engine code, so PinWright cannot fix it directly, but it can st
   returned a dropped stream with no diagnosis. Not reproduced deliberately. Timeline and callstack
   read from `Saved/Logs/EAContentExamples58-backup-2026.08.27-14.29.41.log`; ray tracing confirmed
   active in the editor viewport.
+
+- `#4-quiesce-render-consumers-around-in-place-rebuild` `IN-REVIEW` developer — `model.compile` no
+  longer rebuilds a loaded mesh underneath a scene proxy that cached its render data. New
+  header `Plugins/PinWright/Source/PinWrightGeometry/Private/Handlers/Model/MeshRebuildRenderGuard.h`
+  carries the whole guard: a table of the component classes the engine does NOT reregister around a
+  `UStaticMesh` build (`/Script/Niagara.NiagaraComponent`, resolved by CLASS PATH so
+  `PinWrightGeometry` gains no link dependency on Niagara and a Niagara-less host simply finds no
+  candidates), a `TObjectIterator` scan over every world — not just the editor world, since an
+  asset-editor preview scene gathers ray-tracing instances too — for registered instances that hold
+  render state, and an RAII `FQuiesceScope` that flushes, destroys their render state, flushes again
+  (`DestroyRenderState_Concurrent` only ENQUEUES the teardown, so the second flush is what stops the
+  rebuild landing while the render thread is still gathering), and recreates it on scope exit.
+  `Source/PinWrightGeometry/Private/Handlers/Model/ModelCompileHandler.cpp` wraps the
+  `FPwModelCompiler::Compile` call in that scope so the render state stays down across BOTH the build
+  and the save, and arms it only when `FindObject` shows the output path already loaded — only a
+  rebuild IN PLACE can strand a proxy, so a first-time compile scans nothing and pays nothing.
+  The scope MEASURES its own result rather than assuming it: every component is read back after the
+  attempt, and if any still holds render state (or was unreachable and could not be touched at all)
+  the handler refuses with the new `ERR_MESH_REBUILD_CONSUMER_NOT_QUIESCABLE`, naming the components
+  and building nothing — per `## Suggested fix`, a refusal that names the blockers beats an editor
+  kill. The `overwrite` doc string's "being referenced is never a reason a compile is refused" now
+  states that one exception instead of being quietly false. Regression tests
+  `PinWright.Model.RebuildRenderGuard.QuiescedConsumersLoseAndRegainRenderState` and
+  `PinWright.Model.RebuildRenderGuard.NiagaraMeshRendererIsAScannedCandidateClass` in
+  `Source/PinWrightGeometry/Private/Tests/Model/TestModelRebuildRenderGuard.cpp` — the crash itself
+  cannot be reproduced from automation (an `appError` on the render thread kills the suite host), so
+  they assert the guard: that the scan finds a live proxy-holding component of a candidate class,
+  that the scope strips its render state for the duration and restores it on exit with nothing left
+  unquiesced, and that the shipped class table names `UNiagaraComponent` while excluding
+  `UStaticMeshComponent` (which `UStaticMesh::PostEditChange` already reregisters — the reason a
+  placed static-mesh actor survived the rebuild and the Niagara renderer did not).
+  **`B-static-mesh-rebuild-crashes-live-niagara-mesh-renderer` is the same defect and this single
+  change fixes both.** That ticket was assigned to this fix as a second file to flip, but a
+  concurrent duplicate-consolidation pass merged it into this one and deleted its file (see `#3` and
+  `## Merged from ...`) while this fix was in flight; its file was NOT recreated, so this bullet is
+  the IN-REVIEW record for both. Not compiled or run here — the orchestrator owns builds — and
+  `ERR_MESH_REBUILD_CONSUMER_NOT_QUIESCABLE` must be appended to `ErrorCodes.h` before this compiles.
