@@ -4,9 +4,9 @@ title: "An emitter assembled entirely with niagara.add_module produces no usable
 status: OPEN
 severity: High
 category: bug
-tags: [niagara, add_module, forces, solve-forces-and-velocity, simulation, false-success, inert-emitter, mesh-renderer, cause-unknown]
-encounters: 1
-lastSeen: 2026-08-27T18:56:59+05:00
+tags: [niagara, add_emitter, add_module, forces, solve-forces-and-velocity, simulation, false-success, silent-noop, inert-emitter, mesh-renderer, system-graph, emitter-node, root-cause-found]
+encounters: 2
+lastSeen: 2026-08-27T19:30:00+05:00
 ---
 
 # Emitters built module-by-module through this API do not simulate, and every published signal says they are fine
@@ -211,5 +211,215 @@ sharing the editor.
 
 severity rationale: impact=silent false-success on the central authoring path — a fully-authored emitter is inert while compile, `validate level:strict`, the engine log and every write echo report it healthy, so the caller trusts a result that is a lie and ships it x reach=`add_module` stack assembly is *the* way effects are authored through this plugin, reproduced on two systems with two renderer types, with at least four probable prior unrecorded instances on the board -> High. Not Critical: nothing crashes and no asset data is corrupted — the asset is merely wrong.
 
+---
+
+# ROOT CAUSE FOUND (encounter 2, 2026-08-27) - `niagara.add_emitter` never wires the emitter into the system graph
+
+**The emitter is not inert. It is never called.** `niagara.add_emitter` adds an
+`FNiagaraEmitterHandle` to the system and stops there. It never creates the pair of
+`UNiagaraNodeEmitter` nodes that the system's SystemSpawn / SystemUpdate graph needs in
+order to *invoke* that emitter's spawn and update scripts. A system built with
+`niagara.create_system` + `niagara.add_emitter` therefore has an emitter that compiles,
+validates, has a renderer and is listed everywhere - and is never executed, so it never
+spawns a single particle.
+
+This supersedes the "cause not identified" framing above. It is not force-specific, not
+`add_module`-specific and not renderer-specific, which is exactly what encounter 1
+observed but could not explain.
+
+## Guilty source lines
+
+`Plugins/PinWright/Source/PinWright/Private/Handlers/Niagara/NiagaraHandler.cpp:87-91`:
+
+```cpp
+    const FScopedTransaction Transaction(NSLOCTEXT("PinWright", "NiagaraAddEmitter", "Add Niagara Emitter"));
+    System->Modify();
+    NewHandle = System->AddEmitterHandle(*Emitter, HandleName, EmitterVersion);
+    System->MarkPackageDirty();
+```
+
+followed by `System->RequestCompile(true)` at `:97`. The engine's own equivalent is
+`FNiagaraEditorUtilities::AddEmitterToSystem` (NiagaraEditorUtilities.cpp), which after
+`AddEmitterHandle` also calls **`FNiagaraStackGraphUtilities::RebuildEmitterNodes(InSystem)`**
+plus `SynchronizeOverviewGraphWithSystem`. `RebuildEmitterNodes` is what creates the
+`UNiagaraNodeEmitter` for each handle and links it into the SystemSpawn/SystemUpdate
+output chain. The plugin never calls it: a grep for `RebuildEmitterNodes` and for
+`NiagaraNodeEmitter` across the whole of `Source/PinWright/Private` returns exactly one
+hit, and it is a comment saying the branch was deliberately left out -
+`Handlers/Niagara/NiagaraGraphResetUtils.cpp:106-109`:
+
+```
+// Vendored verbatim from FNiagaraStackGraphUtilities::ResetGraphForOutput (UE 5.6,
+// NiagaraStackGraphUtilities.cpp). The engine version lacks NIAGARAEDITOR_API and
+// cannot be linked. The SystemSpawn/SystemUpdate RebuildEmitterNodes branch is
+// intentionally omitted - callers in this plugin only invoke for ParticleEvent /
+// ParticleSimulationStage usages, never the system-graph cases.
+```
+
+So the plugin has no code path anywhere that can produce a `UNiagaraNodeEmitter`. The
+same non-export problem applies to `RebuildEmitterNodes` itself, so a fix probably has
+to be vendored the way `ResetGraphForOutput` already was.
+
+## Evidence - the NIR system graph, working vs dead
+
+`asset.dump` -> `nir.txt`, `graph SystemUpdate` block, same session, same editor.
+
+**Works** - `/Game/PinWrightScratch/NS_DefProbe`, an `asset.duplicate` copy of
+`/Niagara/DefaultAssets/DefaultSystem`:
+
+```
+node `System State` : NiagaraNodeFunctionCall  @(-800, 150)
+node `Emitter Fountain Spawn` : NiagaraNodeEmitter  @(-400, 0)
+node `Emitter Fountain Update` : NiagaraNodeEmitter  @(-400, 150)
+...
+link `Emitter Fountain Spawn`.OutputMap  -> `Output System Spawn`.Out
+link `Emitter Fountain Update`.OutputMap -> `Output System Update`.Out
+link `System State`.OutputMap            -> `Emitter Fountain Update`.InputMap
+link InputMap.Input                      -> `Emitter Fountain Spawn`.InputMap
+```
+
+**Dead** - `/Game/Atlantis/VFX/NS_FishSchool`, built with `create_system` +
+`add_emitter`:
+
+```
+node `System State` : NiagaraNodeFunctionCall  @(-400, 150)
+...
+link `System State`.OutputMap -> `Output System Update`.Out
+link InputMap.Input           -> `Output System Spawn`.Out
+```
+
+No `NiagaraNodeEmitter`. `Output System Spawn` is fed straight from `InputMap`. The
+emitter handle `FishA` exists with `bIsEnabled: true`, its `SpawnScript` and
+`UpdateScript` are `NCS_UpToDate`, its renderer has a mesh and a material - and nothing
+calls it.
+
+`/Game/Atlantis/VFX/NS_Bubbles_Stream` (encounter 1's System A) has the **same empty
+system graph**, and so does `/Game/Atlantis/VFX/NS_Plankton_Drift`, a third system by a
+third author. Every system on this project built through `create_system` +
+`add_emitter` has it.
+
+## A/B inside ONE system - the tightest repro
+
+Two emitters in the same system, one wired, one not:
+
+```
+asset.duplicate   {sourcePath: "/Niagara/DefaultAssets/DefaultSystem",
+                   destinationPath: "/Game/PinWrightScratch/NS_DefProbe"}
+niagara.compile   {assetPath: "/Game/PinWrightScratch/NS_DefProbe", force: true, wait: true}
+niagara.spawn_actor {systemPath: "/Game/PinWrightScratch/NS_DefProbe",
+                     location: {x:19500, y:-5200, z:1900}, name: "PWFISH_DefProbe"}
+effect.activate_niagara {systemName: "PWFISH_DefProbe", reset: true}
+actor.get_bounding_box  {actorName: "PWFISH_DefProbe"}
+  -> origin [19585.86, -5187.46, 1743.10], extent [274.14, 140.54, 418.94]   # real particles
+
+niagara.add_emitter {systemPath: "/Game/PinWrightScratch/NS_DefProbe",
+                     emitterPath: "/Niagara/DefaultAssets/Templates/Emitters/UpwardMeshBurst.UpwardMeshBurst",
+                     name: "Tpl2", compile: true, save: true}   -> success, emitterCount: 2, compiled: true
+niagara.compile   {assetPath: "/Game/PinWrightScratch/NS_DefProbe", force: true, wait: true}
+effect.activate_niagara {systemName: "PWFISH_DefProbe", reset: true}
+render.capture_open_level {location:{x:17700,y:-5200,z:1960}, rotation:{pitch:-2,yaw:0,roll:0},
+                           fov:60, width:768, height:768,
+                           exposure:{mode:"fixed", ev100:0}, hideEditorSprites:true}
+```
+
+`Saved/Screenshots/OpenLevel/fish_diag4.png`: the `Fountain` emitter's sprites are
+there, the `Tpl2` mesh particles are not - one system, one compile, one frame. The
+system graph after the add has emitter nodes for `Fountain` only.
+
+## New, cheap discriminator: the component refuses to activate
+
+`UNiagaraComponent::IsActive()` is the signal encounter 1 was missing. It is reachable
+without opening any asset editor:
+
+```
+object.call_function {objectPath: "/Game/Maps/Atlantis.Atlantis:PersistentLevel.NiagaraActor_4.NiagaraComponent0",
+                      function: "IsActive", args: {}}
+```
+
+Measured on six `ANiagaraActor`s in one `python.execute` sweep, reading `IsActive()`
+immediately after `comp.activate(True)` in the same script, so there is no real-time
+race:
+
+| actor | system | `IsActive()` after `activate(True)` |
+|---|---|---|
+| `PWFISH_DefProbe` | duplicate of stock `DefaultSystem` | **true** |
+| `PWFISH_Control` | stock `/Niagara/DefaultAssets/DefaultSystem` | **true** |
+| `PWFISH_Probe` | `NS_FishSchool` (create_system + add_emitter) | **false** |
+| `PWFISH_TplProbe` | `NS_TplProbe` (create_system + add_emitter) | **false** |
+| `VFX_BubbleVent_A` | `NS_Bubbles_Stream` | **false** |
+| `PWTEST_Plankton` | `NS_Plankton_Drift` | **false** |
+
+`effect.activate_niagara` returns `{"active": true}` on every one of those, including
+the four that read false a millisecond later - it echoes the request, not the
+component. That is a second, separable reporting defect on the same path.
+
+## Two corrections to encounter 1
+
+1. **"Particles sit in a cluster ~45 uu wide" (System A) cannot be what it was read
+   as.** `NS_Bubbles_Stream`'s system graph has no emitter node either, so that emitter
+   has never executed a tick. Whatever is in `bubbles_final_*.png` is not this emitter
+   simulating and failing to move; it is not simulating at all.
+2. **`OverrideMaterials` is not ungrowable.** Encounter 1 records `OverrideMaterials[0]`
+   -> `PROPERTY_NOT_FOUND: Array index 0 out of range (length 0)` "and `set_property`
+   cannot grow the array". Assigning the **whole array** works:
+
+   ```
+   niagara.set_property {assetPath: "/Game/Atlantis/VFX/NS_FishSchool",
+                         target: {kind:"renderer", emitter:"FishA", index:0},
+                         propertyPath: "Meshes",
+                         value: [{"Mesh": "/Game/Atlantis/Meshes/SM_Fish_A.SM_Fish_A", "Scale":[1,1,1]},
+                                 {"Mesh": "/Game/Atlantis/Meshes/SM_Fish_B.SM_Fish_B", "Scale":[1,1,1]},
+                                 {"Mesh": "/Game/Atlantis/Meshes/SM_Fish_A.SM_Fish_A", "Scale":[1,1,1]}]}
+   ```
+
+   read back through `niagara.inspect` as 3 entries with the right meshes. Only the
+   indexed path `Meshes[i]` / `OverrideMaterials[i]` is bounded by the current length.
+
+## Answering the open question this ticket left: does duplicating a stock template help?
+
+The host project raised a ruling permitting stock-template duplication specifically to
+work around this ticket. Both halves measured:
+
+- **Duplicating a stock template EMITTER does not help.**
+  `asset.duplicate /Niagara/DefaultAssets/Templates/Emitters/UpwardMeshBurst` ->
+  `/Game/Atlantis/VFX/NE_Fish_A`, then `niagara.add_emitter` into a system: still no
+  emitter node, still zero particles, unedited. The emitter was never the problem.
+- **Duplicating a stock SYSTEM does work**, because the copy carries the system graph
+  and its emitter nodes. It needed one `niagara.compile {force: true}` after the
+  duplicate before the component would activate (`IsActive()` false -> true, bbox extent
+  `(244,128,128)` ArrowComponent -> `(274,141,419)` with a drifted origin).
+
+## Workaround
+
+Do not build a system with `niagara.create_system` + `niagara.add_emitter` until this is
+fixed - the result cannot run. Instead `asset.duplicate` a complete stock system that
+already has one emitter-node pair (`/Niagara/DefaultAssets/DefaultSystem`), run
+`niagara.compile {force: true, wait: true}` once, and rewrite that emitter in place:
+`niagara.add_renderer` / `niagara.remove_renderer`, `niagara.add_module`,
+`niagara.set_module_input`, `niagara.set_static_switch` and `niagara.set_property` all
+operate below the system graph and are unaffected. The cost is exactly one emitter per
+system, because there is no way to add a second wired one.
+
+Verify with `IsActive()` (table above) plus a capture, never with compile/validate/save.
+
+## Suggested fix
+
+After `System->AddEmitterHandle(...)` in `niagara.add_emitter` (and symmetrically after
+the removal in `niagara.remove_emitter`), rebuild the system graph's emitter nodes.
+`FNiagaraStackGraphUtilities::RebuildEmitterNodes` is not `NIAGARAEDITOR_API`-exported,
+so it likely has to be inline-vendored the way `ResetGraphForOutput` already is in
+`NiagaraGraphResetUtils.cpp` - the same "Engine-helper non-export gotcha" the
+`niagara.authoring` wiki page documents. A regression test should assert that after
+`add_emitter` the system's `SystemSpawnScript` graph contains a `UNiagaraNodeEmitter`
+whose `EmitterHandleId` matches the new handle and whose output pin reaches the
+`UNiagaraNodeOutput` for `SystemSpawnScript`; that test fails against current HEAD.
+
+Independently: `effect.activate_niagara` should report the component's measured
+`IsActive()` after the call rather than a constant `true`, and `niagara.validate` should
+flag an emitter handle that has no `UNiagaraNodeEmitter` in the system graph. Either one
+alone would have collapsed both encounters of this ticket into a single call.
+
+
 ## History
 - `#1-initial-repro` `OPEN` reporter — Found building the Atlantis level (map as forcing function; host `CLAUDE.md` § "What this project is for"), 2026-08-27, UE 5.8, PinWright at `8e76cad5` in this checkout. `/Game/Atlantis/VFX/NS_Bubbles_Stream` emitter `Bubbles`: full ParticleUpdate force stack (`AccelerationForce`, `CurlNoiseForce`, `DragForce`, `SolveForcesAndVelocity`) present, enabled and correctly chained per `decompile_nir`, and particles never leave the ~45 uu spawn cylinder after `effect.advance_simulation {deltaTime:0.0333, steps:300}`. Five controlled negatives each with its own capture (acceleration Z 35→260; lifetime-kill switch off; `Mass` 1.0; `Write Mass` true; fresh re-spawned actor) all identical. Same-level same-session control `/Niagara/DefaultAssets/DefaultSystem` 600 uu away renders a correct moving fountain with bbox growing to extent `(305,135,389)` and a drifted origin, so the editor ticks, renders and captures Niagara correctly — only the API-authored emitter is inert. `niagara.validate level:strict` → `valid:true`, zero errors AND zero warnings; no Niagara compile error in `Saved/Logs/EAContentExamples58.log`. Generalises to a second, independently built system: `/Game/Atlantis/VFX/NS_FishSchool` (mesh renderer, seven `add_module` calls) renders nothing at all, with mesh assignment, material assignment, Mesh Scale and frustum culling/bounds each individually ruled out (`fish_test_{A1,B1,C1}.png`). **Cause NOT identified — filed as a verified symptom, not a diagnosis.** The obvious force÷mass theory is explicitly DISPROVED by the `Mass`/`Write Mass` negatives; the two remaining probes (`SolveForcesAndVelocity` static-switch combination out of `add_module`; whether `Particles.PhysicsForce` is written at all) are recorded as untested hypotheses only. Reusable trap recorded: `actor.get_bounding_box` on an `ANiagaraActor` returns the editor `ArrowComponent`'s `origin (x+116,y,z), extent (244,128,128), radius 303.8157` when particle bounds are empty and goes stale across `bFixedBounds` toggles, so a non-zero box is not proof of live particles. `valid:true` from strict validate confirmed EXPECTED via `E-niagara-validate-strict-empty-system-undocumented` (strict escalates only `NO_EMITTERS`/`DISABLED_EMITTER`/`NO_RENDERERS`), so validate is not at fault. Prior-encounter argument: `E-niagara-standard-stack-recipe-undocumented` History `#1`/`#3`/`#5`/`#6` record at least four fuzz tasks that built this same stack shape and declared success on compile + strict validate + save alone without ever simulating or looking — probably four unrecorded instances of this defect. All evidence carried over from the session log; nothing in this ticket was re-verified against plugin source, because the fault is in runtime evaluation and no source line has been implicated.
+- `#2-root-cause-add-emitter-no-system-graph-node` `OPEN` reporter - 2026-08-27, UE 5.8, same Atlantis build and editor as #1. Root cause identified and sourced: `niagara.add_emitter` calls only `System->AddEmitterHandle(...)` (`Handlers/Niagara/NiagaraHandler.cpp:89`) and never `FNiagaraStackGraphUtilities::RebuildEmitterNodes`, so no `UNiagaraNodeEmitter` pair is created in the system SystemSpawn/SystemUpdate graph and the emitter is never invoked - it does not simulate at all, which is why forces, renderer type and `add_module` were all red herrings in #1. Grep for `RebuildEmitterNodes`/`NiagaraNodeEmitter` over `Source/PinWright/Private` returns one hit, the comment at `NiagaraGraphResetUtils.cpp:106-109` saying the branch was deliberately omitted, so no code path in the plugin can create the node. Proven by NIR `graph SystemUpdate` diff (stock-duplicate `NS_DefProbe` has `Emitter Fountain Spawn`/`Update` `NiagaraNodeEmitter` nodes linked to both `Output System *` nodes; `NS_FishSchool`, `NS_Bubbles_Stream` and `NS_Plankton_Drift` have none) and by an A/B inside one system (added `Tpl2` to the working `NS_DefProbe`: `Fountain` still renders, `Tpl2` never spawns, emitter nodes exist for `Fountain` only - `Saved/Screenshots/OpenLevel/fish_diag4.png`). New cheap discriminator: `UNiagaraComponent::IsActive()` via `object.call_function`, false on all four create_system+add_emitter systems and true on both stock-derived ones, measured in one `python.execute` sweep straight after `comp.activate(True)`; `effect.activate_niagara` returns `active:true` on all of them regardless. Corrects two claims in #1: System A's "static clump" cannot have been this emitter simulating (its system graph is empty too), and `OverrideMaterials`/`Meshes` CAN be grown by assigning the whole array through `niagara.set_property` (only the indexed `[i]` path is length-bounded). Answers the ticket's untried workaround: duplicating a stock template EMITTER does not help (still no node, zero particles, unedited); duplicating a stock SYSTEM does, after one `niagara.compile {force:true}`. Status left OPEN - reporter, not fixer.
