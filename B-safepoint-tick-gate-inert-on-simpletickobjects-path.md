@@ -1,7 +1,7 @@
 ---
 id: B-safepoint-tick-gate-inert-on-simpletickobjects-path
 title: "The tick-unsafe SafePoint gate never fires when a third-party editor tickable pumps the named-thread queue: `IsSafeNow()` tests `UWorld::bInTick`, which is false during `SimpleTickObjects`, so all 34 listed verbs run inline mid-frame anyway"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: bug
 tags: [safepoint, dispatch, tick-gate, rpc-dispatcher, mass-entity, crash-adjacent, guard-inefficacy, multi-agent, shared-editor]
@@ -189,3 +189,34 @@ severity rationale: impact=the plugin's only guard for 34 verbs that are documen
   with causation explicitly disclaimed — an earlier attribution in this same
   session ("Slate stack exhaustion") was wrong and was only caught on re-check, so
   the claim here is kept to what the logs actually show.
+- `#2-widen-gate-to-named-thread-pump` `IN-REVIEW` developer — took option 1, but keyed
+  on the pump rather than on a frame-depth flag. `PinWrightSafePoint::IsSafeNow()` now
+  also reports unsafe while the game thread is draining one of its own task-graph
+  named-thread queues, via a new `IsInsideNamedThreadPump()` reading
+  `FTaskGraphInterface::IsThreadProcessingTasks` on `GameThread` and `GameThread_Local`
+  (the engine's own `RecursionGuard`, TaskGraph.cpp:690/:705/:872-875/:1423-1429). That
+  is exactly the `SimpleTickObjects -> WaitWithNamedThreadsSupport ->
+  ProcessTasksUntilQuit` stack in this ticket, and it needs no new global state, no
+  delegate and no ordering assumption. It cannot ping-pong: `FEngineLoop::Tick` calls
+  `FTSTicker::GetCoreTicker().Tick()` directly (LaunchEngineLoop.cpp:6103), not through
+  a task, so the drain in `UPinWrightSubsystem::Tick` always sees a safe point and the
+  hop terminates after one pass. Files: `Dispatch/SafePoint.h` (include, new predicate,
+  `IsSafeNow()`, header doc), `Dispatch/SafePoint.cpp` (the `model.compile` KNOWN GAP
+  note rewritten as closed, with the behaviour change stated once for all families).
+  Behaviour change: every one of the 35 table entries now always takes the one-hop
+  (<= 0.1s) deferral when the request arrived over the transport, because such requests
+  always execute from a named-thread pump; direct in-editor callers (automation stacks,
+  the core-ticker drain, cross-dispatch) are not in a pump and still run inline, so the
+  committed inline-path assertions keep their meaning. Tests added in
+  `Tests/World/TestSafePointGate.cpp`, both driving a REAL nested pump rather than
+  `SetForcedUnsafeForTests`: `PinWright.core.safe_point.NestedNamedThreadPumpIsUnsafe`
+  (observes `IsAnyWorldTicking()==false` and `IsSafeNow()==false` on that stack — the
+  first half is the evidence bInTick is blind there, the second is the counterfactual)
+  and `PinWright.core.safe_point.DispatcherDefersFromNestedNamedThreadPump` (real
+  `FRpcDispatcher::ProcessRequest` against the `_test.beta` fixture: no handler reached
+  inside the pump, runs on the next `ProcessPendingRequests`). Not done: option 3
+  (logging the pass-through case) needs a `RpcDispatcher.cpp` edit, which this agent did
+  not own; the exact diff is in the hand-off report. Two stale comments describing the
+  old two-term `IsSafeNow()` are left for their owners: `Tests/Infra/
+  TestContractConsistency.cpp:283-284` and `Handlers/Render/CaptureSubject.h:543`
+  (assertions in both still hold). Not compiled or run — the orchestrator owns builds.
