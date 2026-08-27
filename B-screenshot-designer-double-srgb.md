@@ -1,7 +1,7 @@
 ---
 id: B-screenshot-designer-double-srgb
 title: "`widget.screenshot_designer` preview PNGs are sRGB-encoded twice; every colour reads wrong"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: bug
 tags: [render, capture, gamma, wrong-data-that-looks-correct]
@@ -96,3 +96,4 @@ including the `widget.screenshot_designer` wiki section (`wiki-src/widget.md:506
 ## History
 
 - `#1-reported-with-live-repro` `OPEN` reporter — Confirmed at runtime on `d195a55d` / UE 5.8 with an independently computed linear tint; sampled `(106,149,170)` against an expected `(37,77,103)`, matching `sRGB_encode` applied twice. Both flags and the full engine encode chain verified in source.
+- `#2-single-srgb-encode-on-preview-path` `IN-REVIEW` developer — Removed the shader-side encode and kept the hardware one: the renderer/render-target pair moved out of `CapturePreviewToPng` into a new `WidgetDesignerCaptureUtil::RenderSlateWidgetToSrgbColors` (the only widget→pixels route in that TU), which now builds `FWidgetRenderer(/*bUseGammaCorrection=*/false)` over the unchanged `CreateTargetFor(..., true)` hardware-sRGB target — the same pairing `UWidgetComponent` and `OrthoTileCaptureUtils` use. No inverse curve, no linear-bytes flip; `NoGamma` batches now land in the same output space as the rest of the frame. Files: `Handlers/UI/WidgetDesignerCaptureUtil.h/.cpp`; `Handlers/Asset/AssetDumpCache.cpp` (`preview.png` aspect 2→3, every dumped preview's bytes changed) and its pinned literal in `Tests/Utility/TestAssetDumpPreviewAspectVersion.cpp`. Tests added in `Tests/Widget/TestWidgetDesignerCaptureGamma.cpp`: `PinWright.widget.screenshot_designer.PreviewEncodesSrgbExactlyOnce` renders three known linear tints through the shipped helper and asserts the read-back bytes match `ToFColor(bSRGB=true)` within 3 counts and that zero pixels carry the double-encoded value (the two references are asserted separable first, and coverage asserted, so neither can pass vacuously); `PinWright.widget.screenshot_designer.RenderRejectsZeroDrawSize` pins the degenerate-size refusal that `InitCustomFormat`'s `check()` would otherwise turn into a suite-host crash. Not compiled or run — orchestrator owns the build.
