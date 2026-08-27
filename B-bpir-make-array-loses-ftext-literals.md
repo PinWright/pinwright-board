@@ -1,7 +1,7 @@
 ---
 id: B-bpir-make-array-loses-ftext-literals
 title: "BPIR make_array writes literal FText elements into DefaultValue instead of DefaultTextValue, so they compile to empty text -- the same defect just fixed on select"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: bug
 tags: [bpir, k2node-makearray, ftext, wrong-data-that-looks-correct, DefaultTextValue]
@@ -31,3 +31,16 @@ Bounded: `make_set` and `make_map` are not emitted at all (documented gaps), so 
 - `#1-named-by-the-select-fix` `OPEN` reporter -- Named by the agent fixing
   `B-bpir-select-literal-text-lost`, which swept for other node kinds reaching the same wildcard
   escape hatch. Source-level claim; not reproduced.
+- `#2-pre-type-make-array-pins` `IN-REVIEW` developer -- Confirmed by source reading and fixed the
+  same shape as the select fix. `BpirCompiler.cpp` gains `ResolveMakeArrayOutputPinType` /
+  `PreTypeMakeArrayPins`, called from the `EBpirOpcode::MakeArray` emit case before pass 3a applies
+  element literals; the type comes from the `%name: array<T> =` annotation the decompiler already
+  emits for every make_array, else from an element literal that parses as an FText with a real
+  localization identity. The output `Array` pin is stamped too, which is load-bearing: it stops the
+  engine re-propagating (and re-defaulting) the element pins when a later instruction wires the array
+  away. `CodePinResolver.cpp` unchanged -- its PC_Text branch was already correct and simply never
+  reached. New test `PinWright.bpir.round_trip.MakeArrayTextElementLiteral`
+  (`Tests/Bpir/TestBpirMakeArrayTextElementLiteral.cpp`) asserts DefaultTextValue carries the display
+  string, namespace and key with DefaultValue empty, on both the inference and the annotation path,
+  plus a negative leg that a bare quoted element is not mistyped as text. `Docs/bpir-test-matrix.md`
+  rows updated and gap 24 appended. Not compiled or run -- the orchestrator owns builds.
