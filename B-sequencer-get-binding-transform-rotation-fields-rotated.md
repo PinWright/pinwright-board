@@ -5,8 +5,8 @@ status: IN-REVIEW
 severity: High
 category: bug
 tags: [sequencer, get_binding_transform, rotation, frotator, silent-wrong-data, readback, verification-verb, camera, transform-track]
-encounters: 4
-lastSeen: 2026-08-27T21:05:00+05:00
+encounters: 5
+lastSeen: 2026-08-27T23:01:00+05:00
 ---
 
 # The rotation readback is shifted by one field
@@ -198,3 +198,32 @@ UE 5.8, `EAContentExamples58`, `/Game/Maps/Atlantis`, 2026-08-27. Sequence
   ("unlike list_tracks/list_sections, which return the authored keys") reads as if `list_sections`
   cannot answer key-level questions. It can, and it is the verb that would have caught this on day
   one. A one-line cross-reference on both pages is cheaper than the ticket.
+
+- `#5-permutation-inverted-as-a-deliberate-workaround` `IN-REVIEW` reporter —
+  2026-08-27T23:01+05:00, UE 5.8, `EAContentExamples58`, same asset. Still live in the running
+  build, as #4 records. New here is that the permutation was **inverted on purpose and driven
+  end-to-end**, which upgrades the evidence from "the labels are wrong" to "the labels are wrong by
+  exactly a 1-slot left rotation and nothing else is wrong".
+
+  Method, offered as the cheap recipe for anyone who has to work around this before the #3 fix is
+  compiled: read the ground truth once with `list_sections {includeKeys:true}` at a **key** frame
+  where the three components are distinguishable, call `get_binding_transform` at that same frame,
+  and confirm the mapping field-for-field. Here frame 780 stores `{roll 0, pitch 11, yaw 38.3}` and
+  the verb returns `{roll: 11, pitch: 38.3, yaw: 0}` — one call, permutation pinned. Only then
+  invert it (`pitch := reported.roll`, `yaw := reported.pitch`, `roll := reported.yaw`) for the
+  non-key frames, which is the only thing `list_sections` cannot give you.
+
+  That inverse was then used to pose 16 viewport captures spanning the whole sequence, 9 of them at
+  non-key frames (120, 240, 360, 480, 600, 720, 840, 960, 1080), and the rendered frames are
+  geometrically correct throughout: the approach frames keep the temple centred as the camera closes
+  on it, the orbit sweeps continuously with no discontinuity at any sampled bearing, and frames 0 and
+  1200 — which the sequence pins to the same pose — render identically (mean luminance 0.10670 vs
+  0.10643, a 0.24% delta attributable to VFX simulation state, not to camera mismatch).
+
+  Why that is worth recording for the fix review: it is a whole-sequence check that the defect is a
+  **pure relabelling with no numeric corruption**. The values themselves are correct at every frame,
+  key and interpolated alike, and only their field names are rotated. That is consistent with #3's
+  diagnosis and, more usefully, it means the proposed fix is expected to be a straight re-read that
+  changes which key each number is printed under and changes no number. If a post-fix run produces a
+  value that differs numerically from what the inverse of this permutation predicts, the fix has
+  overshot and reintroduced a shuffle.
