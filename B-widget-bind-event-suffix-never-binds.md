@@ -1,7 +1,7 @@
 ---
 id: B-widget-bind-event-suffix-never-binds
 title: "`widget.bind` cannot bind any real UMG delegate; the only name it accepts is the one that never resolves"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: bug
 tags: [umg, widget-bind, silent-false-success]
@@ -68,3 +68,4 @@ documents only the different, verify-only `widget.bind_event`.
 ## History
 
 - `#1-reported-with-live-repro` `OPEN` reporter — Confirmed at runtime on `d195a55d` / UE 5.8: real property name rejected, suffix-stripped name accepted and persisted, `export_xml` renders it as genuine. Engine lookup order and silent-drop path verified in engine source.
+- `#2-resolve-names-the-way-umg-does` `IN-REVIEW` developer — `widget.bind` now resolves `propertyName` through UMG's own two lookups (`<Name>Delegate`, then the name verbatim when it is a bindable event per `IsBindableEvent`) instead of `bIsEvent = !FindPropertyByName`; the handler function graph is generated from the delegate's `SignatureFunction` (and flagged `FUNC_BlueprintPure` for property bindings), the record is written with `Kind=Function` plus a member guid, and the write is gated on the engine's own `FDelegateEditorBinding::IsBindingValid` so no dead binding is persisted. Unresolvable names are refused with `WIDGET_BINDING_NAME_UNRESOLVED` (payload carries `bindableProperties` / `bindableEvents`, message names the near-miss spelling) and multicast events with `WIDGET_BINDING_IS_MULTICAST_EVENT` steering to `blueprint.compile_bpir`. Files: `Handlers/UI/WidgetBindHandler.cpp`, `Handlers/UI/WidgetBindingUtils.{h,cpp}`. Tests added: `PinWright.widget.bind.BindableNamesResolve`, `PinWright.widget.bind.UnresolvableNamesRejected` (`Tests/Widget/TestWidgetBindResolution.cpp`).
