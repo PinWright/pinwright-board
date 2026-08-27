@@ -1,7 +1,7 @@
 ---
 id: B-material-expression-missing-back-pointer
 title: "PinWright-created material expressions have a null `Material` back-pointer, so expression-level `property.set` cannot invalidate the material"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: bug
 tags: [material, property-set, silent-no-effect]
@@ -83,3 +83,4 @@ which is a one-line assertion that would have caught this at every create site.
 ## History
 
 - `#1-reported-with-live-repro` `OPEN` reporter — Confirmed at runtime on `d195a55d` / UE 5.8: `property.get` on a freshly created `MaterialExpressionCustom` returns `Material: null`. Engine gate and the engine's own assigning call sites verified in source. The stale-shader half of the original report was checked and does not hold; recorded above so it is not re-filed.
+- `#2-back-pointer-set-at-every-create-site` `IN-REVIEW` developer — Every production expression-create site now assigns the owning back-pointer. `Material/MaterialExpressionFactory.cpp` (the shared path behind ~30 typed `add_*` verbs, `material.graph.*` and the MGIR emitter): `NewExpr->Material = Material` in the `UMaterial` overload, `NewExpr->Function = Function` in the `UMaterialFunction` overload (Material stays null there — that is the pair `UMaterialExpression::PostEditChangeProperty`'s `else if (Function)` branch needs, and the pair the material editor writes back when it saves a function graph). `Handlers/Material/MaterialAuthoringHandler.cpp`: `add_custom_expression` (the ticket's repro), `add_function_input`, `add_function_output`, and the `FINALIZE_EXPR_AND_RESPOND` macro used by `use_material_function`. Also the two same-defect sites outside the ticket's citations: `Handlers/Material/MaterialGraphHandler.cpp` (`material.graph.add_texture_sample`) and the `MPC_FINALIZE_EXPR_AND_RESPOND` macro in `Handlers/Material/MaterialParameterCollectionHandler.cpp`. New test file `Tests/Material/TestMaterialExpressionOwnerBackPointer.cpp` adds `PinWright.material.authoring.expression_back_pointer.CreatedExpressionsResolveOwningMaterial` (drives four distinct creation paths against an empty fixture material, then sweeps the whole expression collection for orphans) and `...CreatedExpressionsResolveOwningFunction` (function graph: `Function` set, `Material` null). No repair-on-read migration was added — see report; it is a loop, not a one-liner, and the natural place for it is `property.set`'s object resolution, not the material namespace.
