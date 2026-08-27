@@ -1,7 +1,7 @@
 ---
 id: B-blueprint-search-wedges-game-thread
 title: "`blueprint.search` monopolises the game thread for the whole Find-in-Blueprints index and killed the editor on a large project"
-status: OPEN
+status: IN-REVIEW
 severity: Critical
 category: bug
 tags: [blueprint-search, find-in-blueprints, tick-safety, editor-crash]
@@ -82,3 +82,4 @@ retrying was harmless. Keep that behaviour.
 ## History
 
 - `#1-reported-with-live-repro` `OPEN` reporter — Confirmed at runtime on `d195a55d` / UE 5.8: one first-of-session `blueprint.search` wedged the game thread for 136 s+, dropped its own MCP stream at 120 s, and killed the editor at ~7 min with a VirtualTextureProducer assert. Zero `RecursionGuard` hits, so the previously reported task-graph crash is separately confirmed fixed.
+- `#2-run-driven-from-core-ticker` `IN-REVIEW` developer — `blueprint.search` no longer does any waiting on the RPC stack. All three blocking sites removed in `Handlers/Blueprint/BlueprintIndexHandler.cpp`: the `IsCacheInProgress()` pump loop is gone (FiB is an `FTickableEditorObject`, so one `Tick(0.0f)` kick starts the caching op and the editor advances it — the handler only observes it); the `IsComplete()` spin is gone; and `GetParentBlueprint()` — a `LoadObject` per matched root, unbounded by `limit`, the actual cause of the mass asset loading and the VT assert — is replaced by two AssetRegistry hash lookups on the root result's object path. The run is a core-ticker state machine answering through `FAsyncResponseToken`, with no job ticket so the wire shape is unchanged. `timeoutSeconds` now bounds index-wait + search together (the hard-coded `PumpFiBIndexing(60.0)` is gone), default lowered 120 → 100 for headroom under the transport's 120 s response deadline, and it is enforceable because elapsed time is sampled once per frame instead of around calls that can load a level. `StopAndJoinStreamSearch` (`BlueprintIndexHandler.h/.cpp`) is now bounded (default 5 s) and falls back to `DetachStreamSearchToCoreTicker`, closing the unbounded `BlockSearchQueryIfPaused` spin. New disclosure fields: `indexInProgress`, `indexProgress`, `indexWaitSeconds`, `indexTimedOut`, `searchRan`. New tests in `Tests/Blueprint/TestBlueprintSearchGameThreadLiveness.cpp`: `PinWright.blueprint.search.AnswersOffTheRpcStack` (the handler must return WITHOUT having answered) and `PinWright.blueprint.search.EmptyScopeSkipsIndexWork` (an empty scope is decided before any FiB work). Not compiled or run — orchestrator builds.
