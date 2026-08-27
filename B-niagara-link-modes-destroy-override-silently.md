@@ -1,7 +1,7 @@
 ---
 id: B-niagara-link-modes-destroy-override-silently
 title: "set_module_input's link and dynamicInput value modes destroy a pre-existing override with no opt-in and nothing in the response saying what they displaced"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: bug
 tags: [niagara, set_module_input, dynamic-input, linked-parameter, override-pin, silent-mutation, no-opt-in]
@@ -34,3 +34,16 @@ new dynamic input over an old one is plausibly intended most of the time.
   `B-niagara-literal-over-linked-override-pin`, which scoped itself to the literal branch because the
   other two sit in code other agents were editing at the time. Source-level claim against the two
   `ClearModuleInputOverride` call sites.
+- `#2-disclose-on-all-three-modes-ungated` `IN-REVIEW` developer -- Both call sites now route through a
+  new `ClearOverrideAndRecordReplacement` helper that classifies the override pin with
+  `NiagaraEdit::ClassifyModuleInputBindings` (the same walk feeding the `valueMode` readback) before
+  clearing it, and the handler emits `replacedOverride {valueMode, source, value}` for all three value
+  modes from one shared record (`FNiagaraLiteralOverrideReplacement` renamed to
+  `FNiagaraOverrideReplacement`, gained a `Value` field for a displaced literal, which has no source to
+  name). Deliberately NOT gated behind `breakExistingLink`: a link/dynamicInput write takes effect as
+  asked, so gating would refuse the ordinary re-bind and the idempotent retry of a verb named "set" --
+  argued in the branch comments and in the `value` param doc. Files:
+  `Source/PinWright/Private/Handlers/Niagara/NiagaraEditHandler.cpp`,
+  `Source/PinWright/Private/Tests/Niagara/TestNiagaraSetModuleInputReplacedOverride.cpp` (new). Tests:
+  `PinWright.niagara.set_module_input.LinkReportsReplacedOverride`,
+  `PinWright.niagara.set_module_input.DynamicInputReportsReplacedOverride`.
