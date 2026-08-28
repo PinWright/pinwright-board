@@ -2,11 +2,11 @@
 id: F-sequencer-explicit-tangent-values-for-looping-cinematics
 title: "No way to set tangent VALUES (only tangentMode), so a seamless looping camera move needs decoy keys near both endpoints — RCTM_Auto forces LeaveTangent=0 on the first key and ArriveTangent=0 on the last, which makes every RPC-authored loop stop dead at the seam"
 status: OPEN
-severity: Medium
+severity: High
 category: feature
 tags: [sequencer, keyframes, tangents, curves, looping, cinematics, camera-path, workaround-required]
-encounters: 2
-lastSeen: 2026-08-27T22:45:00+05:00
+encounters: 3
+lastSeen: 2026-08-28T09:40:00+05:00
 ---
 
 # A looping camera move cannot be closed properly through this API
@@ -73,9 +73,11 @@ cinematic through this API will hit the same wall, and most will not diagnose it
 
 ## Impact
 
-Medium. Achievable today, but only by an author who already knows the engine's endpoint-tangent
-rule, and only with two keys that exist purely to work around the API. A looping flythrough is one
-of the most common things anyone builds with a level sequence.
+High (raised from Medium at `#3`). NOT achievable today: the decoy-key technique this section
+used to rest on is retracted (`#2`, `#3`), and `AutoSetTangents` zeroes the first and last key of
+every cubic/auto channel regardless of how the bug ticket is fixed — so a non-zero loop-seam
+velocity cannot be authored through the RPC surface at all, only through `python.execute`. A looping
+flythrough is one of the most common things anyone builds with a level sequence.
 
 ## Distinct from
 
@@ -111,3 +113,88 @@ of the most common things anyone builds with a level sequence.
   either. **This feature stays worth doing** — explicit tangent values are still the only way to
   author a non-zero seam velocity once the bug is fixed — but it should be sequenced after it, and
   the `#1` workaround should not be recommended to anyone in the meantime.
+- `#3-python-route-works-feature-still-required` `OPEN` reporter — Two findings: the gap is in the
+  **RPC surface only**, and this feature is **not optional** for looping content even after
+  `B-sequence-add-keyframe-transform-keys-never-auto-set-tangents` lands.
+
+  **UE's Python scripting channel sets tangent values, and it works.** So this ticket has a
+  known-good implementation to mirror rather than design. Exact calls, on
+  `UMovieSceneScriptingDoubleKey` objects from `section.get_all_channels()[i].get_keys()`:
+
+  ```python
+  k.set_interpolation_mode(unreal.RichCurveInterpMode.RCIM_CUBIC)
+  k.set_tangent_weight_mode(unreal.RichCurveTangentWeightMode.RCTWM_WEIGHTED_NONE)
+  k.set_arrive_tangent(t)          # float, see units below
+  k.set_leave_tangent(t)
+  k.set_tangent_mode(unreal.RichCurveTangentMode.RCTM_USER)
+  ```
+
+  Each setter is a read-modify-write of the whole `FMovieSceneDoubleValue` through
+  `SetValueInChannel` (`MovieSceneScriptingChannel.h:515`), so they compose in any order, and none of
+  them recomputes anything. Verified end to end on
+  `/Game/Atlantis/Cine/LS_Atlantis_Flythrough`: key count, key times and key values all unchanged,
+  values present in the saved `.uasset` bytes.
+
+  **Three implementation notes for whoever adds the RPC parameter — each one is a trap:**
+
+  1. **Units are value per TICK, not per second and not per display frame.** `AutoSetTangents`
+     divides by `Times[].Value` deltas, which are tick-resolution frame numbers
+     (`MovieSceneCurveChannelImpl.cpp:695`), and evaluation builds the Bezier as
+     `P1 = P0 + Tangent * DX / 3` with `DX` in ticks (`MovieSceneInterpolation.cpp:753-763`). On this
+     asset (tick resolution 24000, display rate 60) a tangent of 1 unit/second is stored as
+     `1/24000`, and one display frame is 400 ticks. Confirmed against the engine's own output: after
+     `AutoSetTangents`, `Location.X` at frame 40 reads `0.025`, which is exactly its
+     10.0 uu/display-frame slope divided by 400. A parameter that takes uu/s and forgets the divide
+     is wrong by 24000x and will look like a hard crash of the curve.
+  2. **`RCTM_User` is what makes an explicit tangent stick.** `AutoSetTangents` only touches keys
+     whose mode is `RCTM_Auto` / `RCTM_SmartAuto` (`MovieSceneCurveChannelImpl.cpp:698, 731, 752`),
+     so a value written under `RCTM_Auto` is silently discarded on the next recompute — including
+     `PostEditChange` on load (`MovieSceneDoubleChannel.cpp:260-263`). The verb must set the mode
+     alongside the values.
+  3. **`remove_key` is an undocumented lever for recomputation.** `RemoveKeyFromChannel` calls
+     `Channel->DeleteKeys` (`MovieSceneScriptingChannel.h:138`), which calls `AutoSetTangents()`
+     (`MovieSceneDoubleChannel.cpp:226-230`). That is currently the only way to make the engine solve
+     a whole channel's auto tangents from script. A `sequencer.auto_set_tangents {path, bindingId}`
+     verb would be a small, obviously-useful addition and is the missing half of this request.
+
+  **The endpoint rule survives the bug fix, so this feature is still required.** `#2` sequenced this
+  after the bug on the assumption that auto tangents would then behave "as designed". They do — and
+  the design is the problem: `AutoSetTangents` unconditionally forces `LeaveTangent = ArriveTangent =
+  0` on the **first** and **last** key of every cubic/auto channel
+  (`MovieSceneCurveChannelImpl.cpp:689-720`). A loop seam is exactly those two keys. So once the bug
+  is fixed the other 21 keys move correctly and the seam **still** stops dead. Explicit tangent
+  values are the only fix for the seam, on any build.
+
+  **Retract the `#1` decoy-key technique outright — it is now actively harmful.** Under real
+  tangents the frame-1160 decoy is worse than useless: its value `(-17976, 152, 10362)` lies outside
+  the interval bracketed by its neighbours, so mode-2 auto-tangent flattens it to zero
+  (`MovieSceneCurveChannelImpl.cpp:770-774`), reinstating a full stop 40 frames before the seam — and
+  reaching it needs 10,377 uu in 44 frames, a 14,150 uu/s lurch into a standstill. The decoy does not
+  merely fail to help; it converts a smooth pull-back into a dash-and-stop.
+
+  What the decoy actually was, in hindsight, is a **hand-built Bezier control point**. Removing it
+  and setting the seam tangent to 1.5x the `f0 -> f40` chord slope puts the engine's own control
+  point at `P2 = P(1200) - T*DX/3 = (-17999.8, 159.6, 10400.1)` — within 24 uu of where the decoy key
+  was placed. The technique had the geometry right and the mechanism wrong.
+
+  Measured outcome of doing it properly on the same asset (600 Hz sampling, central differences):
+
+  | | decoy keys, zero tangents | decoy removed, explicit seam tangents |
+  |---|---|---|
+  | speed at keys | 2.5 - 86 uu/s | 1008 - 6393 uu/s |
+  | global minimum | 0.0 uu/s (at the seam) | 577 uu/s (frame 1196, not a key) |
+  | global maximum | 25,560 uu/s | 11,951 uu/s |
+  | leaving frame 0 | 10.2 uu/s | 2050.2 uu/s |
+  | arriving frame 1200 | 0.0 uu/s | 2050.2 uu/s |
+
+  Seam continuity proved instantaneously rather than by the 10-frame average `#2` disproved: one-sided
+  differences either side of the seam converge on the identical vector as the interval shrinks —
+  `1/10` frame gives 25.4 uu/s apart, `1/50` gives 4.88, `1/200` gives 0.618, against the analytic
+  `tangent * 24000 = (1071.0, -342.0, -1714.5)` stored identically on both keys. Quadratic
+  convergence to zero difference is what C1 continuity looks like; a 10-frame average cannot
+  distinguish it from a smoothstep, which is the whole lesson of `#2`.
+
+  Severity raised **Medium -> High** and the `## Impact` paragraph corrected: it claimed the
+  capability was "achievable today" on the strength of the `#1` decoy technique, which `#2` and this
+  entry retract. With that gone, and with the endpoint zeroing surviving the bug fix, there is no
+  route to a moving loop seam through the RPC surface at all — only through `python.execute`.
