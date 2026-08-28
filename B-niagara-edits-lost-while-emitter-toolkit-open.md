@@ -1,7 +1,7 @@
 ---
 id: B-niagara-edits-lost-while-emitter-toolkit-open
 title: "Every niagara.* write against an emitter asset is silently discarded if its toolkit is open, because the toolkit edits a duplicate and overwrites the original on Apply"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: bug
 tags: [niagara, emitter, asset-editor, silent-data-loss, shared-editor, toolkit, multi-agent]
@@ -31,7 +31,27 @@ So it wants a guard at the resolve step, not per verb.
 **Not reproduced** — read from toolkit source while classifying the per-verb guard. Confirm the Apply
 path actually clobbers before choosing the fix; if it merges rather than overwrites, the severity drops.
 
+**Confirmed: Apply clobbers, it does not merge.** UE 5.8
+`NiagaraSystemToolkit.cpp::UpdateOriginalEmitter` does
+`Source = StaticDuplicateObject(EditableEmitter.Emitter, Source->GetOuter(), Source->GetFName(), RF_AllFlags, Source->GetClass())`
+under the engine's own comment *"overwrite the original script in place by constructing a new one with
+the same name"* — there is no merge step anywhere on that path. `InitializeWithEmitter` confirms the
+duplicate half (`NewObject<UNiagaraSystem>(GetTransientPackage(), …, RF_Transient)` +
+`SystemViewModel->AddEmitter(VersionedEmitter)`, commented *"Adding the emitter to the system has made
+a copy of it"*), and `InitializeInternal` registers the ORIGINAL emitter as the toolkit's asset
+(`ToolkitObject = … Emitter` → `InitAssetEditor`), so `FindEditorForAsset(original)` sees the toolkit.
+Severity stands.
+
 ## History
 - `#1-found-while-classifying-the-guard` `OPEN` reporter — Found by the agent that classified all 32
   Niagara mutators for `B-niagara-editor-open-guard-missing-on-mutators`, which scoped itself to
   per-verb hazards and flagged this as the broader asset-kind case.
+- `#2-asset-kind-guard-at-resolve` `IN-REVIEW` developer — "Added
+  `RefuseEmitterAssetEditWhileToolkitOpen` to `NiagaraEditorOpenGuard.h` and called it from
+  `NiagaraEdit::ResolveTarget` in `NiagaraEditTypes.cpp`, so every `niagara.*` write whose resolved
+  asset is a `UNiagaraEmitter` held open by an asset editor is refused with `EDITOR_OPEN` naming the
+  duplicate/Apply mechanism. One check at the resolve step covers all 20+ mutating verbs (every
+  `ResolveTarget` caller is a mutator; `niagara.compile` builds its own target and is untouched).
+  Systems are excluded by asset kind. Regression test
+  `PinWright.niagara.editor_open_guard.EmitterAssetWritesRefuseWhileToolkitOpen` in
+  `Tests/Niagara/TestNiagaraEditorOpenGuard.cpp`."
