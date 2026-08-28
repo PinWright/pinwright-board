@@ -254,3 +254,17 @@ invisible.
   changed. **Not compiled and not run** — the wave orchestrator builds and runs the suite; the 8
   baseline entries and every fix were derived from an offline replica of the widened scanner, so
   the first live run is what confirms the replica agreed with the registry.
+- `#3-add-macro-name-alias` `IN-REVIEW` developer — First live run of the widened scanner reported one
+  pair the offline replica had missed: `blueprint.add_macro:name`
+  (`Handlers/Blueprint/BlueprintFunctionHandler.cpp`). Declared, not deleted — the param's own
+  description (`"Macro graph name (also accepted as 'name')."`) and the `blueprint.md` overlay
+  ("Aliases: `blueprintPath` for `path`, and `name` for `macroName`") both already promised the
+  spelling, so `RPC_PARAM_REQ("macroName", …)` became
+  `RPC_PARAM_REQ_ALIAS("macroName", …, "name")`. Why the replica missed it and why the sibling verbs
+  were already clean: `add_function` / `set_function_settings` / `remove_function` read `name` too,
+  but their `path` slot uses the default `EBlueprintPathParamAliasSet::ResolveBlueprintPath`, whose
+  alias list *contains* `name` (`BlueprintHandlerUtils.h`, order 3), so the key was already accepted
+  and the pair never surfaced. `add_macro` deliberately uses `ResolveExplicitBlueprintPath` — which
+  drops `name` precisely so a macro name is never resolved as the Blueprint path — leaving `name`
+  with no declaring slot at all. The alias now lives on the slot it actually feeds; the two alias
+  sets stay disjoint, so no key is accepted by two params.
