@@ -1,7 +1,7 @@
 ---
 id: B-niagara-mutation-scope-blanks-open-preview
 title: "BeginEmitterMutationScope kills system instances including the open toolkit's preview, and no response mentions it"
-status: OPEN
+status: IN-REVIEW
 severity: Medium
 category: bug
 tags: [niagara, BeginEmitterMutationScope, kill-system-instances, shared-editor, preview, undisclosed]
@@ -29,3 +29,10 @@ the shared-editor side rather than the response-honesty side. Worth resolving th
 ## History
 - `#1-found-while-classifying-the-guard` `OPEN` reporter — Found by the agent classifying Niagara
   mutators for the editor-open guard. Source reading, not reproduced.
+- `#2-disclosed-via-quiesced-count` `IN-REVIEW` developer — "Changed the kill helpers in
+  NiagaraInstanceUtils.cpp to return how many running instances they stopped, accumulated that into
+  a new FNiagaraResolvedTarget::QuiescedInstances from BeginEmitterMutationScope
+  (NiagaraJsonHelpers.cpp) and RequestNiagaraCompile (NiagaraEditTypes.cpp) plus the four
+  compile-independent kills in NiagaraEditHandler.cpp / NiagaraAdvancedEditHandler.cpp, and made
+  MakeMutationResult report it as `quiescedInstances`. Kill behaviour unchanged. Resolves
+  `E-niagara-mutation-result-no-quiesced-count` with the same field."
