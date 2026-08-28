@@ -1,7 +1,7 @@
 ---
 id: B-niagara-finalize-edit-no-di-gate
 title: "The whole 30-verb Niagara edit family saves through FinalizeNiagaraEdit with no data-interface check, so a system in the VectorVM-assert state is persisted and reported saved:true"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: bug
 tags: [niagara, data-interface, vectorvm, finalize-edit, write-path, silent-false-success, missing-gate, latent-corruption]
@@ -173,3 +173,39 @@ verbs without it is an inconsistency inside one namespace, not a design.
   `Target.QuiescedInstances` precedent, whose header comment gives this exact rationale, carries the
   verdict to `MakeMutationResult` with no signature change and no call-site edits. Not fixed, not
   compiled, not run.
+- `#2-stage-1-landed-stage-2-deferred` `IN-REVIEW` developer — **Stage 1 landed; Stage 2 deliberately
+  not done.** `FNiagaraResolvedTarget` gained `DataInterfaceVerdict` (default `Unverified`) and
+  `DataInterfaceMismatches`; `FinalizeNiagaraEdit` runs `CheckDataInterfaceCounts` after the
+  compile-wait block and before the write when `Target.System` is set, and the save guard gained a
+  fourth conjunct through a new `NiagaraEdit::MayPersistAfterDataInterfaceCheck(Verdict)` predicate
+  (only `Mismatched` refuses) plus a `LogPinWrightSubsystem` Warning naming the asset, both counts
+  and the remedy verbs. `MakeMutationResult` emits `dataInterfaceCheck` on **every** response and
+  `mismatchedScripts` when non-empty, in the same per-script shape
+  `NiagaraHandler.cpp:RejectOnDataInterfaceMismatch` uses. Zero call-site edits, as predicted; the
+  cost was two struct fields plus ~55 lines across `NiagaraEditTypes.h`/`.cpp`. The predicate is one
+  addition the Fix did not list — it exists so the refusal is testable the way
+  `PinWrightNiagara::MayPersistAfterCompileWait` already is, and it pins the direction that matters
+  most: `Unverified` must NOT block a write. **Correction to the Fix's claim that "all 30 verbs then
+  get both the gate and a stated cause":** `niagara.rename_parameter` and `niagara.graph.create_node`
+  do not call `MakeMutationResult` — they build their own envelopes (already documented in
+  `Docs/wiki-src/niagara.md` as verbs that do not carry `quiescedInstances` either). Both get the
+  gate; neither gets the field, so a refusal there reads as `saved: false` with the cause only in the
+  log. Left as-is rather than editing two more files under heavy concurrent editing; noted in the
+  wiki. **Stage 2 remains deferred** for the reason the ticket gives — the in-memory mutation has
+  already landed by the time finalize runs, so a hard `NIAGARA_DATA_INTERFACE_MISMATCH` from these 24
+  sites would misreport a partial success; `success:true, saved:false, dataInterfaceCheck:"mismatched"`
+  is the truer contract. Documented constraint preserved: `ResolveTarget` sets `Target.System` only
+  for `UNiagaraSystem` assets, so standalone-emitter edits report `"unverified"` and no verdict is
+  fabricated — stated in `Docs/wiki-src/niagara.md` under a new `## Every edit verb gates the save on
+  a data-interface check, and says so`, and the stale "`add_emitter` / `remove_emitter` refuse"
+  sentence in the `niagara.validate` section corrected. Regression test:
+  `Source/PinWright/Private/Tests/Niagara/TestNiagaraFinalizeEditDataInterfaceGate.cpp`,
+  `PinWright.niagara.finalize_edit.DataInterfaceGateOnEveryMutationVerb` — asserts the predicate's
+  three verdicts, that `niagara.add_data_interface`'s envelope carries `dataInterfaceCheck` equal to
+  `CheckDataInterfaceCounts` run against the same object (the assertion that fails on a revert, since
+  the field did not exist), that finalize is what records the verdict on the target, and that a
+  seeded `Mismatched` target refuses a real write while the same asset with a non-mismatched verdict
+  writes (positive control, so the refusal is not just an unsavable fixture). The refusal is driven
+  through a seeded verdict on a target with no `System` because a genuinely mismatched system is not
+  portable across hosts and building one would arm the editor-killing assert. **Not compiled, not
+  run** — the working tree is under concurrent edit by many agents and building was out of scope.
