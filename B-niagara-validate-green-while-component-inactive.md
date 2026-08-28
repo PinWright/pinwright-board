@@ -1,7 +1,7 @@
 ---
 id: B-niagara-validate-green-while-component-inactive
 title: "niagara.validate returns valid:true for a system no placed component is running, and no verb reports component activation"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: bug
 tags: [niagara, validate, inspect, false-success, silent-noop, bAutoActivate, component-activation, level-actor, placed-effect, survives-reload, no-readback]
@@ -111,3 +111,39 @@ preview) was not the one observed here.
   507-552 uu over 30 ticks with a zero-displacement fraction of 0.000, and the schools render in
   captures from the poses that were previously empty. **Not reproduced from a clean start** — this
   is a post-hoc reconstruction from logs, LFS blobs and live reads, not a deliberate repro.
+- `#2-validate-surveys-placed-components` `IN-REVIEW` developer — "Suggested fix 1 only; 2/3/4 are
+  untouched and this ticket should not be closed on them. Pre-existing hole, not a gap in today's
+  data-interface work: `dataInterfaceCheck` compares compiled vs resolved DI counts and never
+  looked at a component. New `Handlers/Niagara/NiagaraComponentActivation.{h,cpp}` —
+  `SurveyPlacedComponents(System, OutComponents)` walks `TActorIterator` over
+  `GEditor->GetEditorWorldContext().World()` (editor world only; never PIE, never the asset
+  editor's preview world) collecting every `UNiagaraComponent` whose `GetAsset()` is the system,
+  with its measured `IsActive()` and `bAutoActivate`, and returns `active` / `none_active` /
+  `no_components` / `unverified`. `niagara.validate` calls it on Niagara Systems after the DI check
+  and publishes `componentActivation` on every system verdict, plus `componentCount` and a
+  `components` array of `{actor, component, componentPath, isActive, autoActivate}` capped at 16
+  entries for the three measured verdicts. `none_active` raises `NIAGARA_NO_ACTIVE_COMPONENT` —
+  warning at `basic`, error at `strict` via the existing `NormalizeValidationSeverity` escalation
+  set, the layering this ticket proposed; not an every-level error like
+  `EMITTER_NOT_IN_SYSTEM_GRAPH`, because a system gameplay spawns or activates legitimately has no
+  active placed component and erroring at `basic` would fail validate on sound content.
+  `unverified` (no editor world) raises `NIAGARA_COMPONENT_ACTIVATION_UNVERIFIED` as a warning at
+  both levels and deliberately publishes **no** count or array — a zero there would read as 'the
+  level places none', which is the fabricated pass this check exists to stop. `no_components`
+  raises nothing: the survey reaches only the loaded actors of the open level, so an unloaded World
+  Partition cell and a level that is simply not open are indistinguishable from there genuinely
+  being none, and warning would fire on nearly every call. Codes are raw literals at the call site,
+  matching the other validate issue codes (`NO_EMITTERS`, `EMITTER_NOT_IN_SYSTEM_GRAPH`,
+  `NIAGARA_DATA_INTERFACE_UNVERIFIED`) — none is registered in `ErrorCodes.h` because none reaches
+  `SendError`, and the registry scan is anchored on emission, not on issue payloads. Regression
+  test `PinWright.niagara.validate.InactivePlacedComponentIsNotAPass` in
+  `Tests/Niagara/TestNiagaraValidateComponentActivation.cpp`: validates the unplaced fixture first
+  (must report `no_components` and raise nothing — the false-positive direction pinned before the
+  failure), then spawns an actor rooted on a registered `bAutoActivate:false` NiagaraComponent
+  under `FScopedEditorWorldActorGuard`, asserts `IsActive()` is false so the premise holds, and
+  requires `none_active`, `componentCount:1`, the components entry reporting both flags off, a
+  `warning` at `basic` and an `error` at `strict`. Every part-2 assertion fails before the fix —
+  no field, no block, no issue. NOT COMPILED and NOT RUN (both were out of scope for this pass);
+  the test needs a live-editor suite run. Docs: `Docs/wiki-src/niagara.md` gains an *Is anything in
+  the level running it?* subsection under `### niagara.validate`, and the 'no other codes change
+  between levels' sentence is corrected."
