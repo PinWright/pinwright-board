@@ -5,8 +5,8 @@ status: IN-REVIEW
 severity: High
 category: bug
 tags: [property, container, property-write, derived-state, post-edit-change, camouflaged, silent-noop, misleading-success]
-encounters: 2
-lastSeen: 2026-08-27T19:02:11+05:00
+encounters: 3
+lastSeen: 2026-08-28T11:20:00+05:00
 ---
 
 # A notification that is guaranteed to match nothing
@@ -276,3 +276,71 @@ it, both verbs fail and there is no workaround left.
 
 - `#4-runtime-proof-fog-component` `OPEN` reporter — Additional evidence: **first end-to-end RUNTIME measurement on this ticket**, which `#1` and both adversarial reviews record as missing ("Runtime: NOT VERIFIED"). Found on host project EAContentExamples58, level `/Game/Maps/Atlantis`, UE 5.8, target `…PersistentLevel.ExponentialHeightFog_0.HeightFogComponent0`. Six captures at one fixed pose with pinned exposure (`ev100 0`, `adaptedSource "fixedPin"`): `property.set FogDensity=2.0` moved `meanLuminance` 0.338753 -> 0.220004 (landed), then `property.set bEnableVolumetricFog=false` (0.220080) and `property.set FogDensity=0.2` (0.220077) moved nothing while `property.get` returned the new values and the responses said `applied/markedDirty/pendingSave` true — the renderer kept drawing 2.0, a 10x error held indefinitely. A `lighting.setup_volumetric_fog` call then flushed BOTH stale writes at once (0.339024), and a no-call control recapture held at 0.339045, ruling out a one-frame settling delay. Per-capture `viewport.warmup.meanLuminanceDelta` was 4e-6..1.3e-5, so the 0.119 stale/flushed gap is four orders of magnitude above the floor and the 7e-5 non-changes are inside it. Full table, capture filenames and the source trace are in the body section "Encounter 2026-08-27". **Corrected the reporting log's hypothesis against this tree**: it guessed `property.set` calls neither `MarkRenderStateDirty()` nor `PostEditChangeProperty()`; in fact the generic path DOES call `RootObject->PostEditChange()` at `UtilityPropertyHandler.cpp:1129` (registered `:893`, generic path `:1108-1141`) — the bare form this ticket is about, so the log is wrong in letter and the cause is this ticket's own — while `MarkRenderStateDirty` and `PostEditChangeProperty` really are absent from that file (zero grep hits; only `PostEditChangeChainProperty` at `:773`). **Explained the flush workaround**: the plugin already owns the helper it did not use here — `PinWright::MarkComponentRenderStateDirty` at `Handlers/Environment/EnvironmentDirtyUtils.h:81-87`, whose own comment at `:74-76` names `FogComp->bEnableVolumetricFog` / `VolumetricFogDistance` as raw writes that "push nothing and need it" — and `lighting.setup_volumetric_fog` calls it at `Handlers/Environment/LightingHandler.cpp:698`. **New constraint on this ticket's proposed fix**: for this component a correctly-named event is necessary but NOT sufficient. `UExponentialHeightFogComponent::PostEditChangeProperty` (`C:\UE_5.8\…\ExponentialHeightFogComponent.cpp:241-254`) only clamps and calls Super — no `GET_MEMBER_NAME_CHECKED` branch, no `MarkRenderStateDirty` (those live in the `Set*` setters at `:272-281`, `:287-295`). The editor's refresh comes from the `PreEditChange`/`PostEditChange` reregister pair: `UActorComponent::PreEditChange` adds `EditReregisterContexts.Add(this, new FComponentReregisterContext(this))` (`ActorComponent.cpp:1311-1340`) and `ConsolidatedPostEditChange` (`:1432`, reached via `:1493`) destroys it, which is what re-registers the component. `property.set` never calls `PreEditChange` (zero hits), so that branch never runs. Fix must therefore either pair the notification with `PreEditChange`, or call `MarkComponentRenderStateDirty` for `UActorComponent` targets. Recorded as an observation and explicitly NOT a rule: the first write after a refresh appears to land and later ones are swallowed — unexplained by the trace above, so a fixer must not read it as intermittency. Also asked for a measured `renderStateRefreshed` response field in the house style of the capture verbs' `viewport.*` blocks. Status and severity deliberately unchanged; `B-set-component-properties-no-change-notification:84` lists `UExponentialHeightFogComponent` among components it inferred but never measured, so this is the first measured instance of a component that ticket predicted, on the verb it does not cover. Caution: routing around this via `actor.set_component_properties` depends on that sibling's fix, which is IN-REVIEW not DONE — it was live on this host (that ticket's `#4`), but on a build without it both verbs fail.
 - `#5-named-event-and-render-state-push` `IN-REVIEW` developer — Replaced all 13 bare `RootObject->PostEditChange()` calls in `Handlers/Utility/UtilityPropertyHandler.cpp` with a file-local `NotifyReflectedPropertyChanged(RootObject, PropertyName, Property, ChangeType)` that dispatches a properly populated non-chain `FPropertyChangedEvent` through `PinWright::NotifyPropertyChanged`. Extended that helper (`Utils/PropertyChangeNotify.h`) with two defaulted params — `MemberProperty` (applied via `SetActiveMemberProperty` only when it differs from the leaf, so a dotted path names leaf + top-level member and member-matched branches fire) and `ChangeType`; the existing 2-arg `actor.set_component_properties` call site is unchanged. Member resolution is a new `ResolveMemberPropertyForPath` that takes the first path segment (stripping `.` and `[N]`) off `RootObject`'s class — deliberately RootObject-relative, since the notification target is unchanged. Per-verb change types: `property.set` and `container.array.set` ValueSet; `array.append`/`array.insert`/`map.set`/`set.add` ArrayAdd; `array.remove`/`map.remove`/`set.remove` ArrayRemove; `array.clear`/`map.clear`/`set.clear` ArrayClear; `property.reset` ResetToDefault on 5.6+ (ValueSet below, per the file's existing gate — `ResetToDefault` is 1 << 10 and does not exist on 5.5). Addressed the encounter-4 finding that a named event is necessary but not sufficient for renderer-backed components: a new `PushRenderStateForComponentTarget` calls `PinWright::MarkComponentRenderStateDirty` (`Handlers/Environment/EnvironmentDirtyUtils.h:81`) when the resolved target is a `UActorComponent`, guarded by `IsValid` because it runs after the notification. `PreEditChange` deliberately still not called (flush + construction-script rerun; `Utils/PropertyChangeNotify.h`). Removed the reset double-notify flagged by adversarial review B: `ClearExplicitOverrideState` now reports through a `bool& bOutNotified` whether it dispatched its chain event, and the value path skips its own notification when it did — one write, one engine change event. Notification ordering relative to `FinalizeApplied` / the `markDirty=false` restore is unchanged, so `B-property-set-markdirty-false-still-dirties` is not regressed, but a named event runs strictly more overrides so the `markDirty:false` tests must be re-run rather than assumed. Tests added in `Source/PinWright/Private/Tests/Utility/TestPropertyChangeEventShape.cpp` with fixture `TestPropertyChangeEventHost.h` (a UObject that records `Property`/`MemberProperty`/`ChangeType`/notify count from every event it receives — the only way to observe this defect, since the bare call also reaches `PostEditChangeProperty`): `PinWright.property.set.ChangeEventNamesLeafAndMember`, `PinWright.property.reset.ChangeEventNamesProperty`, `PinWright.container.array.ChangeEventNamesPropertyAndOperation`. NOT done: the requested measured `renderStateRefreshed` response field — the response shapes of all 13 verbs are unchanged, and a truthful "measured" field needs a render-state probe this fix does not add. NOT compiled or run (fix-agent rules forbid building); the acceptance test named in the body is a pixel measurement, still owed.
+
+- `#6-named-event-half-measured-fixed-render-half-undecided` `IN-REVIEW` verifier — 2026-08-28, editor
+  running the plugin built at `b79ba53e`. **Status deliberately left at IN-REVIEW.** The defect in the
+  title is measured fixed; the render-state half this ticket acquired at `#4` is not decidable from what
+  I could run, and `#5` itself records its acceptance test as "a pixel measurement, still owed".
+
+  **Measured, and this half is closed.** Probe: a scratch `StaticMeshActor` (`/Engine/BasicShapes/Cube`)
+  spawned at `{400000,400000,200000}`, mesh component set `Movable` first so the cull-distance-volume
+  branch cannot confound the reading, then deleted. The instrument is `CachedMaxDrawDistance`, which
+  `UPrimitiveComponent::PostEditChangeProperty` copies from `LDMaxDrawDistance` *inside*
+  `if (PropertyThatChanged)` (`PrimitiveComponent.cpp:1546-1553`, the copy committed by
+  `SetCachedMaxDrawDistance` at `:1628`) — so it is written only by a **property-bearing** event and is
+  exactly the branch a null-property event skips. Baseline `CachedMaxDrawDistance` 0.
+  - `property.set {propertyName:"LDMaxDrawDistance", value:5678}` on
+    `…PersistentLevel.StaticMeshActor_36.StaticMeshComponent0` -> `CachedMaxDrawDistance` **5678**.
+    The leaf-named `ValueSet` event reaches the name-matched branch.
+  - `property.reset {propertyName:"LDMaxDrawDistance"}` -> `oldValue:5678, defaultValue:0,
+    wasOverridden:true` and `CachedMaxDrawDistance` back to **0**. `#5`'s `ResetToDefault` path fires a
+    named event too, and the double-notify removal did not cost the notification.
+  - **The `MemberProperty` half, which is the harder claim and untested by the leaf case:**
+    `container.array.append {propertyName:"CustomPrimitiveData.Data", value:7.5}` -> the transient
+    `CustomPrimitiveDataInternal` went `{"Data":[]}` -> `{"Data":[7.5]}`. That copy is
+    `ResetCustomPrimitiveData()` (`PrimitiveComponent.cpp:2646-2648`), reached **only** from the
+    `if (FProperty* MemberPropertyThatChanged = PropertyChangedEvent.MemberProperty)` block at `:1583-1592`
+    matching `GET_MEMBER_NAME_CHECKED(UPrimitiveComponent, CustomPrimitiveData)`. So a dotted path really
+    does now carry leaf **and** top-level member, and `#5`'s `ResolveMemberPropertyForPath` works on a
+    container mutator, not just on `property.set`. Three of the thirteen call sites, two event shapes
+    (leaf-matched and member-matched), three change types (`ValueSet`, `ResetToDefault`, `ArrayAdd`).
+
+  Values 0 -> 5678 -> 0 and `[]` -> `[7.5]` are three distinct states tracked across two properties, so
+  neither reading is a coincidental match against a pre-existing value.
+
+  **Not measured, and why this stays open.** `#4` is this ticket's only prior runtime proof and it is not
+  a name-matched-branch failure at all: `#4` established that `UExponentialHeightFogComponent::PostEditChangeProperty`
+  has no `GET_MEMBER_NAME_CHECKED` branch and no `MarkRenderStateDirty`, so for that component a correctly
+  named event is *necessary but not sufficient* — the editor's refresh comes from the
+  `PreEditChange`/`ConsolidatedPostEditChange` reregister pair, and `#5` substituted a
+  `PushRenderStateForComponentTarget` -> `PinWright::MarkComponentRenderStateDirty` for it. **I did not
+  re-run the fog repro.** It requires writing `FogDensity` on the shipping level's `ExponentialHeightFog_0`
+  and taking pinned-exposure captures, and at the time of writing several other agents were running their
+  own pixel measurements against this same open level; perturbing the level's fog for the length of a
+  five-capture sequence would have corrupted their readings, which is a worse outcome than an undecided
+  half-ticket. `MarkRenderStateDirty` sets a bitfield cleared at end-of-frame and is not reflected, so
+  there is no non-visual substitute for the capture.
+
+  **What would settle it**, for whoever picks this up on a quiet editor: `#4`'s own table, rows 2-4 — the
+  diagnostic signature was that the *first* `property.set` after a flush landed and every later one was
+  swallowed until `lighting.setup_volumetric_fog` released them in a batch. Two consecutive
+  `property.set FogDensity` writes each moving `meanLuminance` at one fixed pose, with **no**
+  `setup_volumetric_fog` between them and a no-call control recapture, closes it. Restore the original
+  density afterwards.
+
+  Also unverified here and worth not losing: the ticket's own warning that a real event makes more
+  overrides run and therefore dirty more packages — `#5` says the `markDirty:false` tests "must be re-run
+  rather than assumed", and I did not re-run them (`B-property-set-markdirty-false-still-dirties`).
+  Note in passing that every `property.set`/`container.*` response in this session did report
+  `markedDirty:true`/`pendingSave:true`, which is the default path and says nothing about the
+  `markDirty:false` one.
+
+  Cross-check: the sibling `B-set-component-properties-no-change-notification` was closed DONE by another
+  verifier on the same day; my own independent run of `actor.set_component_properties
+  {LDMaxDrawDistance:1234}` on the same probe returned `applied:["LDMaxDrawDistance"],
+  notified:["LDMaxDrawDistance"]` and moved `CachedMaxDrawDistance` 0 -> 1234, and
+  `{Mobility:"Movable"}` returned `applied:["Mobility"]` with no `notified` entry — the engine-setter
+  exclusion that ticket's `#2` claims. Recorded here only because this ticket warns it must not be closed
+  by association with that one; it is not, and this entry does not close it.
+
+  Footprint: the probe actor was deleted. `/Game/Maps/Atlantis` is left dirty and was NOT saved.
