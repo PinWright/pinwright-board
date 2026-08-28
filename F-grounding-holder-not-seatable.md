@@ -1,7 +1,7 @@
 ---
 id: F-grounding-holder-not-seatable
 title: "Both grounding verbs measure an ISM/HISM holder actor as if it were a single prop, and neither refuses"
-status: OPEN
+status: IN-REVIEW
 severity: Medium
 category: feature
 tags: [spatial, ground_actors, verify_grounding, ism, hism, instanced-static-mesh, refusal, symmetry]
@@ -29,3 +29,16 @@ each owned one side.
   `B-ground-actors-prefix-captures-foreign-actors` and again, independently, by the agent fixing
   `B-verify-grounding-maxgap-false-fail`. Originally recorded as encounter 2 of the ground_actors
   ticket.
+- `#2-symmetric-holder-refusal` `IN-REVIEW` developer — "Added a shared holder detector
+  (`GroundPlacement::FindInstancedHolder` / `DescribeInstancedHolder`) in GroundPlacementUtils.cpp
+  doing one `GetComponents<UInstancedStaticMeshComponent>` sweep, keeping the component with the
+  most instances and refusing only at 2+ instances; registered `HOLDER_NOT_SEATABLE` in
+  ErrorCodes.h; wired it symmetrically so `EvaluateContact` refuses ahead of every other criterion
+  (verify side) and `SeatActor` refuses before the pre-move probe with its own
+  `EGroundSeatStatus::HolderNotSeatable` (seat side), both emitting the same code and the same
+  component-naming text; level.audit still gets its raw numbers because MeasureContact keeps
+  sampling. Regression tests
+  `PinWright.spatial.verify_grounding.InstancedHolderRefused` and
+  `PinWright.spatial.ground_actors.InstancedHolderRefused` in TestGroundPlacement.cpp put a 3-instance
+  HISM holder over a wide floor, so before the fix verify returned ACTOR_NOT_GROUNDED and
+  ground_actors moved the whole scatter. NOT COMPILED OR RUN."
