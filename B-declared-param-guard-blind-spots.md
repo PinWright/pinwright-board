@@ -1,7 +1,7 @@
 ---
 id: B-declared-param-guard-blind-spots
 title: "The declared-param guard matches one read shape out of four, so its now-empty baseline reads as 'class eradicated' while ~140 undeclared (verb, param) pairs remain — including 11 verbs whose own param description promises names_only"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: bug
 tags: [dispatcher, unknown-params, undeclared-parameter, param-spec, unreachable-code, test-coverage, guard-blind-spot, alias, sweep]
@@ -216,3 +216,41 @@ invisible.
   Characterised `ReadSitePattern` (`TestDeclaredParamCoverage.cpp:135-141`) and reproduced its
   results offline: same shape → 0 pairs, matching the live empty baseline, which calibrates the
   three shapes it cannot see at ≥16 / 36 / ~95 pairs plus 53 unknowable sites.
+- `#2-widened-scan-and-cluster-sweep` `IN-REVIEW` developer — Scanner widened from **1 read shape
+  to 4**, and the empty baseline replaced by a **true one of 8**. Offline replica of the widened
+  scanner (declaration side parsed from source, calibrated against the shipped shape: 0 pairs, same
+  as the live empty baseline) measured **77 pairs** the old scan could not see —
+  **22** `ReadFieldProjection` (11 verbs × `field` + `names_only`), **5** `GetJsonValueFirstOf`
+  (`sequencer.set_playhead`'s `frameNumber`/`frame_number`/`seconds`/`timeSeconds`/`time_seconds`),
+  **50** raw-payload. **69 fixed, 8 left**, and the 8 are one verb: `environment.build`, whose
+  forwarded sub-action payload is `B-environment-build-dispatcher-rejects-forwarded-params`' own
+  defect and needs a forwarding contract, not eight `RPC_PARAM_OPT` lines. Both named instances
+  fixed: `actor.set_collision` declares `collision_enabled` and reads it through
+  `Ctx.GetBoolFirstOf` (the raw-payload branch is gone), `behavior_tree.attach_decorator` /
+  `attach_service` now call `BTAssetPathParamReq()` like their five siblings. Other clusters
+  closed: 12 `level.*` fallback spellings, `landscape.create`'s grid (`landscapeName`,
+  `quadsPerSection`, `componentCount`, `sizeX`, `sizeY`, flat `x`/`y`/`z`),
+  `effect.draw_debug_shape`'s 7 per-shape geometry params (the no-workaround cluster),
+  `blueprint.list`'s nested `filter`/`pagination`, `blueprint.*_function:memberName`,
+  `asset.get_dependencies_classified:dependencyMode`/`Role`, `foliage.*:foliageType`/`location`,
+  `effect.*_niagara:actorName`; `system.console_command`'s `params` envelope was DELETED as a dead
+  fallback (`command` is required, so the envelope-only request never reached the body). Scanner
+  now matches: the 20-name `KeyTakingAccessors()` list (was 19, `GetJsonValueFirstOf` added);
+  `Ctx.ReadFieldProjection(...)` contributing its fixed `{fields, field, namesOnly, names_only}`
+  set (its braced argument is column names and is deliberately NOT read as keys); raw-payload reads
+  off a local bound from `Ctx.GetRawPayload()` (one-variable taint, no call graph) plus the unbound
+  `Ctx.GetRawPayload()->…Field(key)` chain, which measured 0 new pairs and is therefore free.
+  Recurrence guard + regression test: new
+  `PinWright.infra.declared_params.ScannerSeesEveryCoveredReadShape` runs `ScanFile` over synthetic
+  source with one case per covered shape, pins the two shapes that must NOT be collected (a nested
+  sub-object read; a non-literal key), and fails when a `const FString& Key` /
+  `const TArray<FString>& Keys` accessor is added to `HandlerContext.h` without being added to
+  `KeyTakingAccessors()` (`Send*`/`Make*` exempt — error codes and request ids, not wire keys).
+  Two shapes stay uncovered and are now stated as such in KNOWN LIMITS: shared `FHandlerContext&`
+  helpers (~60-95 real pairs, fix by sweep — bare-name resolution false-attributed in two
+  independent passes) and non-literal keys (53 sites / 51 verbs, **permanent**, not deferred).
+  New shared macros `RPC_PARAM_REQ_ALIAS` / `RPC_PARAM_OPT_ALIAS` in `Handlers/ParamAliasUtils.h`
+  carry the 37 mechanical alias declarations without re-wrapping their descriptions. 21 files
+  changed. **Not compiled and not run** — the wave orchestrator builds and runs the suite; the 8
+  baseline entries and every fix were derived from an offline replica of the widened scanner, so
+  the first live run is what confirms the replica agreed with the registry.
