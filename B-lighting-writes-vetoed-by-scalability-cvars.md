@@ -1,7 +1,7 @@
 ---
 id: B-lighting-writes-vetoed-by-scalability-cvars
 title: "Three more lighting writes are vetoed or scaled by a scalability cvar they do not read"
-status: OPEN
+status: IN-REVIEW
 severity: Medium
 category: bug
 tags: [lighting, scalability, cvar, measured-vs-requested, silent-noop, audit]
@@ -38,3 +38,4 @@ Same shape outside `lighting.*`, listed so the next sweep starts here rather tha
   `B-light-shaft-flags-decorative-under-scalability` agent ran after fixing its own ticket, which was
   asked to name the rest rather than fix them. Source readings against `BaseScalability.ini` and the
   engine's cvar reads; not reproduced.
+- `#2-measured-vs-requested-for-all-three` `IN-REVIEW` developer — "Changed lighting.spawn_light, lighting.spawn_sky_light and lighting.set_ambient_occlusion in LightingHandler.cpp to measure the scalability cvar they were silently losing to and report it: spawn_light now publishes castShadows / shadowsEnabled / shadowQualityCVar, spawn_sky_light publishes intensity / effectiveIntensity / skylightIntensityMultiplierCVar, and set_ambient_occlusion's `enabled` became (applied intensity > 0 AND r.AmbientOcclusionLevels != 0) alongside a new ambientOcclusionLevelsCVar; each emits a cvarWarning naming the remedy, and none changes the cvar."
