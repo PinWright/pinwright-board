@@ -1,7 +1,7 @@
 ---
 id: B-niagara-validate-green-while-component-inactive
 title: "niagara.validate returns valid:true for a system no placed component is running, and no verb reports component activation"
-status: IN-REVIEW
+status: OPEN
 severity: High
 category: bug
 tags: [niagara, validate, inspect, false-success, silent-noop, bAutoActivate, component-activation, level-actor, placed-effect, survives-reload, no-readback]
@@ -147,3 +147,4 @@ preview) was not the one observed here.
   the test needs a live-editor suite run. Docs: `Docs/wiki-src/niagara.md` gains an *Is anything in
   the level running it?* subsection under `### niagara.validate`, and the 'no other codes change
   between levels' sentence is corrected."
+- `#3-returned-three-of-four-defects-stand` `OPEN` tester — "Returned to OPEN: the previous entry set IN-REVIEW after implementing only defect 1 of the four this ticket lists, and its own report says the ticket should not be closed on it. What landed is real and stays: niagara.validate now surveys placed components and publishes componentActivation, with no_components raising nothing (the survey reaches only loaded actors, so 'found none' is not 'there are none') and unverified omitting componentCount so a zero cannot read as an empty level. Still unfixed: defect 2 (niagara.inspect does not carry the block), defect 3 (effect.activate_niagara sets active:true immediately after Activate() with no readback, and deactivate_niagara hardcodes false the same way - verified in EffectHandler.cpp), and defect 4 (verbs writing bAutoActivate:false do not say so). Defect 3 is a silent false-success in its own right and is being split into its own ticket."
