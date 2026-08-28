@@ -422,3 +422,47 @@ Note the asymmetry worth preserving in any fix: both pages already teach the cal
   second sighting, and bumping either would assert an encounter that did not happen (same reasoning
   as `B-verify-grounding-maxgap-false-fail` `#2`). Tags `face-index`, `provenance` and
   `non-uniform-scale` added so a future dedup sweep on any of the three lands here.
+- `#3-control-was-course-specific` `OPEN` reporter — 2026-08-28. **Correction to `#2` point 6 and to
+  the body's *"Control: the hull is correct almost everywhere, which is exactly why this hid"*
+  section, raised by the agent who supplied the original framing. Both overstate how far the hull can
+  be trusted. The ticket's argument gets STRONGER, not weaker.** Severity unchanged. Verified in
+  `Content/Atlantis/Meshes/SM_Temple_Podium.pwmodel`.
+
+  **The identical `600.000` was a lucky sample, not a property of the mesh.** The three `collision {}`
+  boxes (`:100-102`) give course tops **210 / 399.5 / 600**; the three render `part` base boxes give
+  **210** (`:80`), **405** (`:62`), **600** (`:44`). The control at (0, -1800) landed on **course 3**,
+  the only course that is *both* geometrically coincident with its hull *and* free of `noise_deform`
+  — the file says so itself at `:14`: "THE TOP STEP CARRIES NO noise_deform". There is exactly one
+  surface on this mesh that could have returned a matching number under both traces, and the control
+  hit it.
+
+  **Course 2 diverges on untouched stone, by construction.** `step_mid`'s render box is
+  `size=(4560,4560,215) at=(0,0,297.5)` → top **405**; its hull box is
+  `size=(4560,4560,195) at=(0,0,302)` → top **399.5**. Different size *and* different centre, so the
+  render sits **5.5 uu above its hull before any noise at all**, and measures **2.7-7.3 uu above it
+  everywhere probed**. (It then also carries `noise_deform` 7 and 2.5 at `:71-72`.) Course 1 is
+  coincident at 210 but carries `noise_deform` 9 and 3 (`:89-90`) against a flat hull, so it diverges
+  too — by erosion rather than by authoring.
+
+  **So there are three divergence kinds, not one:** (1) `subtract` breaches, ≥210 uu; (2)
+  `noise_deform` erosion, e.g. the top-course corner at ~404 against a flat hull 600; and (3) **a
+  hull box simply authored to a different height from the geometry it wraps.** **Kind 3 is invisible
+  in the render mesh** — nothing in the geometry hints that the hull disagrees, so no amount of
+  looking at the model finds it. The collision block's own comment at `:98-99` asserts the opposite
+  inside the file: *"One box per step. A stepped block is exactly three boxes, so the cheap primitive
+  and the accurate one are the same answer here."* For the middle course that sentence is false by
+  5.5 uu, and it is the kind of claim a reviewer would accept without measuring.
+
+  **The sharpest way to say it: `399.5` is a height no stone on this podium has.** It is a pure hull
+  number, and it still propagated into the level's design record.
+
+  **This widens the case for surfacing provenance rather than narrowing it.** `#2` and the body both
+  argued "the hull is trustworthy except over authored features, so comparing representations is the
+  only detector". The truth is worse: the hull can differ from the render surface on **ordinary
+  untouched stone**, by a small amount, with nothing in the asset to say which surfaces are safe. A
+  caller cannot partition a map into trust / don't-trust regions by inspection, which is exactly why
+  the response has to carry the provenance and why `#2`'s recast ask — serialize the three fields the
+  probe already computes — is the right entry price. **`#2` point 6's conclusion stands (sampling
+  cannot substitute); its stated reason — "the hull agrees everywhere the mesh is unmodified" — is
+  withdrawn.** The stronger reason replaces it: small, invisible, everywhere-divergence is precisely
+  what more sample points cannot distinguish from a correct reading.
