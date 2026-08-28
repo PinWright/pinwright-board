@@ -5,8 +5,8 @@ status: IN-REVIEW
 severity: Critical
 category: bug
 tags: [niagara, vectorvm, data-interface, compile, presave, autosave, sequencer, set-playhead, editor-kill, game-thread-hang, delayed-fault, shared-editor, latent-corruption]
-encounters: 2
-lastSeen: 2026-08-27T22:03:02+05:00
+encounters: 3
+lastSeen: 2026-08-28T08:45:00+05:00
 ---
 
 # A data-interface count mismatch is logged as a Warning and detonates later as an `appError`
@@ -241,3 +241,5 @@ logs are UTC+0, machine UTC+5). Log: `Saved/Logs/EAContentExamples58.log:4421-44
   or (c) not leave the package dirty when neither compile nor save was requested. (a) is the
   strongest: it is the only one that protects the *other* agents in a shared editor, who never see
   this caller's response.
+
+- `#5-guard-test-is-inert-on-this-host` `IN-REVIEW` verifier — 2026-08-28. Plugin rebuilt at `b79ba53e` and the scoped suite run against it. **The new test that guards this ticket reports success without running a single assertion on this host.** `PinWright.niagara.data_interface_consistency.WritePathReportsVerdict` completed `Result={Success}` and emitted `PINWRIGHT_ASSERTIONS_SKIPPED ... reason=niagara-resolved-di-unavailable -- no resolved data-interface set on '/Niagara/DefaultAssets/Templates/Systems/SimpleExplosion.SimpleExplosion' in this host/engine build`. So the fix for a Critical editor-killing assert is, on this machine, covered by a test that cannot fail. Credit where due: the plugin's own `TestSkipReporting.h` surfaced this honestly rather than letting it pass as a real green — `check_suite_log.py` classified the whole run `COMPLETED_WITH_SKIPS` and named the test. The handler-side change was not otherwise exercised in this pass: the `dataInterfaceCheck` field WAS observed live, returning `"consistent"` from `niagara.add_emitter` on a fresh scratch system, which proves the check runs and reports but not that it refuses a genuine mismatch. Needs a fixture that does not depend on an engine template's resolved DI set — otherwise this ticket's guard is unverifiable here and will stay that way.
