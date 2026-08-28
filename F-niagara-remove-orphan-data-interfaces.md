@@ -1,7 +1,7 @@
 ---
 id: F-niagara-remove-orphan-data-interfaces
 title: "No verb can enumerate or remove the orphan resolved data interfaces that put a system into the VectorVM-assert state"
-status: OPEN
+status: IN-REVIEW
 severity: Medium
 category: feature
 tags: [niagara, data-interface, repair, orphan, template-leftover, recovery]
@@ -28,3 +28,4 @@ sets to produce the count.
 - `#1-recovery-gap-named-by-the-di-fix` `OPEN` reporter -- Listed by the agent that added the
   data-interface gate, as one of the parent ticket's fix directions it could not take from inside one
   handler file.
+- `#2-enumerate-and-remove-orphans` `IN-REVIEW` developer — "Added `FindOrphanResolvedDataInterfaces` / `RemoveOrphanResolvedDataInterfaces` in NiagaraDataInterfaceConsistency.cpp matching each resolved entry's `CompileName` against the script's compiled `DataInterfaceInfo`, and registered `niagara.list_orphan_data_interfaces` / `niagara.remove_orphan_data_interfaces` in NiagaraAdvancedEditHandler.cpp; removal is planned whole-system first and refused with `NIAGARA_ORPHAN_REMOVAL_UNSAFE` (nothing mutated) unless dropping the orphans reconciles every script's two counts, then prunes both the resolved set and the cached defaults it is rebuilt from, remaps the resolved user-DI binding indices, runs `OnCompiledDataInterfaceChanged`, and re-measures the verdict"
