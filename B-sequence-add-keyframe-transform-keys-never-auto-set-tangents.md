@@ -2,11 +2,11 @@
 id: B-sequence-add-keyframe-transform-keys-never-auto-set-tangents
 title: "Transform keys from sequence.add_keyframe are stamped RCIM_Cubic + RCTM_Auto but their tangents are never computed, so every key keeps ArriveTangent/LeaveTangent 0 — the curve degrades to a chain of zero-tangent smoothsteps and the camera stops dead at EVERY key, not just the endpoints"
 status: IN-REVIEW
-severity: High
+severity: Critical
 category: bug
 tags: [sequencer, add_keyframe, transform-track, tangents, curves, cinematics, camera-path, silent-corruption, motion]
-encounters: 1
-lastSeen: 2026-08-27T22:45:00+05:00
+encounters: 2
+lastSeen: 2026-08-28T09:35:00+05:00
 ---
 
 # `RCTM_Auto` without `AutoSetTangents()` is `RCTM_None` with extra steps
@@ -69,7 +69,7 @@ TangentMode)`, which **does** reach `AutoSetTangents()`. The same nominal reques
 a smooth curve on a float property track and a stuttering one on a transform track, purely as a
 function of which handler the dispatcher picked. Neither response says so.
 
-## Why this is High
+## Why this is Critical
 
 - **Silent.** Every published signal is clean: `keyCount` is right, values are right, `interp` reads
   back `cubic`, `tangentMode` reads back `auto`. `list_sections {includeKeys:true}` does not emit
@@ -187,3 +187,48 @@ UE 5.8, `EAContentExamples58`, `/Game/Maps/Atlantis`, 2026-08-27. Sequence
   strictly between its neighbours, so the apex is legitimately 0/0 and the test would pass before
   and after. The test uses a monotonic 0/1000/3000 ramp on `Location.Z` at frames 0/50/100 instead;
   the middle key's tangents are 0 pre-fix and non-zero post-fix."
+- `#3-severity-raised-to-critical` `IN-REVIEW` reporter — Raised **High → Critical**. Not because the
+  mechanism is worse than `#1` describes, but because nothing in a normal, thorough process catches
+  it:
+  - **It is the default path for the API's primary cinematic use case.** Every RPC-authored camera
+    move is a transform track built with `sequence.add_keyframe`. All of them get zero tangents.
+    There is no opt-out, no flag, and no alternative verb that avoids it.
+  - **The output is plausible, not broken.** A crash is loud and halts the pipeline. This produces
+    clean frames, correct poses, correct key counts and a correct-length video — and ships.
+  - **No read verb reveals it.** The keys report exactly what was asked for: `RCTM_Auto`. Detecting
+    the fault requires tangent *values*, which the surface does not expose. This ticket and
+    `F-sequencer-explicit-tangent-values-for-looping-cinematics` therefore conspire — the bug is
+    invisible through the same API that causes it.
+  - **Zero diagnostic.** Nothing warns, logs, or degrades.
+  - **It defeated a complete review pipeline and shipped.** `/Game/Atlantis/Cine/LS_Atlantis_Flythrough`
+    passed two frame-by-frame acceptance passes, a full true-16:9 re-verification, per-frame tone and
+    luminance statistics, and a pixel-diff loop-seam proof. The pulsing camera reached the delivered
+    1080p video anyway, where the user identified it within seconds of watching. Every one of those
+    checks was a per-frame **still**; the defect exists only in the derivative, so none of them could
+    have seen it.
+
+  That last point is the argument. Severity is detectability as well as impact, and a defect that
+  survives that much diligence is not a High.
+
+  **The `#1` speed figures understate it.** Those were 1-display-frame differences, which already
+  average across the trough. Re-measured by sampling all six channels at 600 Hz (10x subframe) via
+  `evaluate_keys` and central-differencing:
+
+  | | `#1` (1-frame diff) | instantaneous (600 Hz) |
+  |---|---|---|
+  | speed at the 23 keys | 24 - 1348 uu/s | **2.5 - 86 uu/s** |
+  | global minimum | ~92 uu/s | **0.0 uu/s** (loop seam) |
+  | global maximum | 24,043 uu/s | 25,560 uu/s (frame 1138) |
+
+  Every one of the 23 keys is a local minimum, and the seam is a literal dead stop. Confirms `#2`'s
+  correction about `Sequencer.AutoTangentInterpolation = 2`: the cvar defaults to 2
+  (`MovieSceneCurveChannelImpl.cpp:21`), and mode 2 flattens any key not strictly between its
+  neighbours, so a 0/100/0 apex is legitimately 0/0 and the monotonic ramp in the shipped test is the
+  right differential.
+
+  **Field-repaired on the asset via the Python route** (this build still has the bug; the `#2` fix is
+  unverified here). Removed the frame-1160 decoy key, which let `FMovieSceneDoubleChannel::DeleteKeys`
+  run `AutoSetTangents()` natively over each channel, then wrote explicit `RCTM_User` tangents on the
+  two seam keys. Result on the same asset: key speeds **1008 - 6393 uu/s**, global minimum
+  **577 uu/s**, peak halved to 11,951 uu/s, and the seam velocity continuous to the stored tangent.
+  Details and the exact calls in `F-sequencer-explicit-tangent-values-for-looping-cinematics` `#3`.
