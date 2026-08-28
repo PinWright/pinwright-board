@@ -1,7 +1,7 @@
 ---
 id: B-error-code-adoption-test-scans-comments
 title: "RegistryAdoptingFilesUseConstantsOnly scans source text without stripping comments, so naming a constant in a comment - even to explain avoiding it - flips a file to adopting and fails the suite"
-status: OPEN
+status: IN-REVIEW
 severity: Medium
 category: bug
 tags: [test-gap, error-codes, registry, RegistryAdoptingFilesUseConstantsOnly, false-positive, comment-scanning]
@@ -46,3 +46,24 @@ for the same blindness at the same time.
   reference to it. `grep -c 'ErrorCodes::ERR_'` on the file returned 1, and the single hit was inside
   a `//` comment. Swept every other handler `.cpp` for the same shape (all `ErrorCodes::ERR_` hits in
   comments only): no other file currently has it, so this is the first and only instance.
+- `#2-neutralize-before-the-adoption-scan` `IN-REVIEW` developer — "Lifted `NeutralizeSourceText`
+  out of `Tests/Infra/TestDeclaredParamCoverage.cpp` into the shared `Tests/TestUtils.h` (now
+  `inline FString NeutralizeSourceText(const FString& In)` at file scope) and routed both of
+  `RegistryAdoptingFilesUseConstantsOnly`'s per-file decisions in `Tests/Core/TestErrorCodeRegistry.cpp`
+  through it via a new `SourceAdoptsErrorCodeRegistry(RawContents, OutScannableContents)`: comment
+  bodies and raw-string bodies are blanked before the adoption check AND before the hand-spelled-code
+  count, so prose can no longer flip a file to adopting or manufacture an offence. Ordinary string
+  literals survive by design — the codes live in those. Added regression test
+  `PinWright.core.error_codes.AdoptionScanIgnoresComments` (same file), which fails against the old
+  raw `Contains()` and asserts both directions plus the offence-count side. Behaviour-neutral on
+  today's tree: no handler file has `ErrorCodes::ERR_` only in comments, and all 22
+  `PartiallyConvertedHandlerFiles` entries keep a non-comment raw site, so no new red and no new
+  stale-baseline warning. Checked the two sibling scans named in the Fix: `AllEmittedCodesAreRegistered`
+  has the SAME blindness and one live instance — `Handlers/Actor/ActorNameParamUtils.h:146` scores
+  `ACTOR_NOT_FOUND` off a commented-out `SendError(TEXT(...))` example line; benign only because that
+  code happens to be registered. Left unfixed on purpose: `B-error-code-registry-blind-to-variable-codes`
+  owns that test, and the lifted helper is now available to it.
+  `infra.wiki_src.SourcePagesFollowRenderingRules` does NOT share it — it lints markdown and its
+  bare `StartsWith("### ")` / `StartsWith("## ")` line matching is byte-for-byte what
+  `Catalog/WikiOverlay.cpp` itself does, fences included, so a heading inside a code fence really
+  does truncate the page and flagging it is correct."
