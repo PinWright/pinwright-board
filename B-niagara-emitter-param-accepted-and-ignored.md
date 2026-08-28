@@ -45,3 +45,16 @@ ignore it -- which is a mitigation, not a fix. Superseded by the refusal in `Res
   `docs/wiki-src/niagara.md` sentence, and added
   `PinWright.niagara.set_parameter.SystemScopeRejectsEmitter` in
   `Tests/Niagara/TestNiagaraSetParameterEmitterScope.cpp`, which fails before the guard."
+- `#3-control-leg-fixture-corrected` `IN-REVIEW` developer -- "The new test's `[user]` CONTROL leg
+  (the same write *without* `emitter`, which must still succeed) failed `PARAMETER_NOT_FOUND` with the
+  store still at the seeded 1.0. Not the guard: it only fires when `EmitterName` is non-empty, and the
+  two rapid-iteration scopes' control legs passed. Fixture defect. `System->GetExposedParameters()` is
+  a `FNiagaraUserRedirectionParameterStore`, whose virtual `AddParameter` rewrites an un-namespaced
+  entry to `User.<Name>` and files the bare name only as a redirect key; the base `SetParameterData(..,
+  bAdd=true)` the fixture seeds through reaches that override. The verb matches on the STORED name
+  (`ApplyParameterMutation` -> `FindParameterByName` -> `GetParameters()`), while the fixture's own
+  read-back goes through the virtual `FindParameterOffset` and follows the redirect -- so the seed
+  looked fine and was invisible to the verb. Gave each probe its own name in
+  `Tests/Niagara/TestNiagaraSetParameterEmitterScope.cpp`: `User.PinWrightSystemScopeProbe` for the
+  user store, the bare name for the two plain rapid-iteration stores. Guard untouched; both legs still
+  mean something -- a guard that refused with an empty `emitter` still fails the control leg."
