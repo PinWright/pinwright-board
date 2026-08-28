@@ -5,8 +5,8 @@ status: IN-REVIEW
 severity: Medium
 category: feature
 tags: [texture, desaturate, invert, adjust_levels, channel_pack, combine_textures, readback, pixel-stats, grayscale, verify, describe, get_texture_info]
-encounters: 1
-lastSeen: 2026-06-25T07:14:35Z
+encounters: 2
+lastSeen: 2026-08-28
 ---
 
 # The pixel-mutating texture verbs have no content readback — you cannot confirm a desaturate actually produced grayscale
@@ -149,3 +149,53 @@ desaturate/invert/adjust_levels did what the user asked.
   channel mean/min/max, `grayscale` true/false, `maxChannelSpread`, distinct
   hashes for distinct images, and that a `TSF_RGBA16F` source is rejected;
   reverting the fix removes the helper so the test fails to compile/link.
+
+- `#3-rgba16f-exclusion-is-now-a-hole-under-a-shipped-hdr-path` `IN-REVIEW` reporter — 2026-08-28,
+  measured on the `b79ba53e` build. **No status change and no edit to the text above; this records
+  that `#2`'s deliberate scope trim has been overtaken by a fix landed elsewhere.** It is not a
+  verdict on `#2`, whose BGRA8 work was used repeatedly in this session and behaved correctly.
+
+  `#2` closes with: *"Scope trim per the adversarial lens: only the verbs' own source formats are
+  read; wider formats (RGBA16/16F/G16) are explicitly rejected, not faked"*, and its test asserts
+  *"that a `TSF_RGBA16F` source is rejected"*. That was a defensible line when nothing in the
+  plugin produced an RGBA16F source. **It no longer holds.**
+  `B-noise-texture-hdr-writes-bgra8` `#2` fixed `texture.create_noise_texture hdr:true` to write
+  genuine half-floats, so `create_noise_texture` — a `texture.*` verb, on its own normal path — now
+  produces exactly the format `get_pixel_stats` refuses. Measured live:
+
+  ```
+  texture.create_noise_texture {name:"T_VerifyHDR", width:256, height:256, scale:5,
+                                octaves:3, seed:42, hdr:true}
+    -> success, "hdr": true
+  texture.get_texture_info    -> format "FloatRGBA", sRGB false, compression "TC_HDR", 9 mips
+  texture.get_pixel_stats     -> [PIXEL_STATS_UNAVAILABLE] Unsupported source format
+                                 TSF_RGBA16F for pixel stats (only TSF_BGRA8 and TSF_G8 are read)
+  ```
+
+  So the `hdr` path has **no pixel readback of any kind from the client side**. That matters beyond
+  tidiness for the reason this ticket was filed in the first place: the HDR fill loop was, until
+  three weeks ago, writing 4-byte BGRA into an 8-byte-per-pixel surface, and the next regression in
+  it would be invisible by exactly the argument in this ticket's body — a bare success string and a
+  plausible `sizeBytes`. The shipped regression test for that fix reads the source mip **from C++**,
+  which no caller can do.
+
+  **Evidence that the gap has a real cost, not a hypothetical one:** verifying
+  `B-noise-texture-hdr-writes-bgra8` behaviourally could not use `get_pixel_stats` at all. The
+  fallback was to render both the HDR and a BGRA8 control through `asset.generate_thumbnail`, decode
+  the two PNGs with a standalone stdlib decoder, and correlate them — **Pearson r = 0.99251,
+  Spearman rho = 0.99785** over 65,536 pixels, means 187.89 (HDR) against 130.97 (BGRA8), i.e. one
+  noise field under two transfer curves. That is a sound result, but it is an indirect, four-step
+  proxy that goes through a renderer and a tonemap, and it can only ever say "the same field, up to
+  a monotone transform". It cannot report a channel mean, a `grayscale` flag, or a hash, which are
+  the three things this ticket exists to provide.
+
+  Narrow ask, consistent with `#2`'s reasoning rather than against it: extend
+  `TexturePixelStats::BuildPixelStatsJson`'s format branch to `TSF_RGBA16F`, reading four `FFloat16`
+  channels in R,G,B,A order (the order the fixed fill loop writes) and reporting the means in the
+  source's own linear 0-1 range rather than rescaling to 0-255, with the range it used named on the
+  response so an HDR mean is not silently compared against an LDR one. `TSF_RGBA16` and `TSF_G16`
+  stay rejected until something in the plugin emits them — the trim was right, it just needs to
+  follow the formats the plugin actually produces. Adjacent and also unreadable for the same reason:
+  `B-texture-create-gradient-hdr-writes-bgra8` covers `create_gradient_texture`'s identical
+  byte-fill-into-RGBA16F mismatch, which will need the same readback to verify when it is fixed.
+  `encounters` 1 -> 2, `lastSeen` refreshed.
