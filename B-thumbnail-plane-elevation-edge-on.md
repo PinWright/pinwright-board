@@ -1,12 +1,12 @@
 ---
 id: B-thumbnail-plane-elevation-edge-on
 title: "`asset.generate_thumbnail` `elevation` on `primitive:\"plane\"` renders the plane EDGE ON — a 2px sliver in an empty frame; the engine force-plane path zeroes orbit pitch for exactly this reason and the caller-requested plane path does not"
-status: IN-REVIEW
+status: DONE
 severity: Medium
 category: bug
 tags: [asset, generate_thumbnail, thumbnail, primitive, plane, elevation, camera, empty-frame, false-evidence, clamp-reports-itself]
 encounters: 1
-lastSeen: 2026-08-27T18:58:26+05:00
+lastSeen: 2026-08-28
 ---
 
 # `elevation` is applied faithfully to a shape that cannot be looked at from above, and the result reads as a broken material
@@ -152,3 +152,24 @@ severity rationale: impact=a documented parameter, correctly applied, produces a
 ## History
 - `#1-initial-repro` `OPEN` reporter — Found building the Atlantis level (map as forcing function; see host `CLAUDE.md` § "What this project is for"), 2026-08-27, UE 5.8, PinWright at this checkout's HEAD. `asset.generate_thumbnail {primitive:"plane", elevation:89, width:768, height:768}` returned success and a ~2px sliver in an otherwise empty 768x768 frame (`scratchpad/seamprobe2.png`); the identical call with `elevation` omitted framed the plane correctly (`scratchpad/seamprobe3.png`). Mechanism traced statically — plugin source at HEAD plus UE 5.8 engine source at `C:/UE_5.8/Engine/Source/`, not run live in this filing pass: (1) `ThumbnailPreviewOverride.cpp:299-316` maps `elevation` to `OrbitPitch = -elevation`, correct for solid primitives; (2) `ThumbnailHelpers.cpp:380-383` gives `TPT_Plane` the constant rotation `FQuat(FRotator(0, -90, 0))` with the engine comment "The plane needs to be rotated 90 degrees to face the camera", so its normal is horizontal and fixed; (3) `ThumbnailHelpers.cpp:443` reads `OutOrbitPitch = bForcePlaneThumbnail ? 0.0f : ThumbnailInfo->OrbitPitch` — the engine zeroes the pitch on the FORCED plane path (UI / particle-sprite / Niagara, `Material.cpp:7272-7281` via `ThumbnailHelpers.cpp:333`) and passes the caller's pitch through unguarded when the plane was REQUESTED. So the engine's own protection against this exact frame exists and does not cover the requested-plane case. `OrbitYaw` (`:444`) is gated on neither path, so `azimuth` has the same structural exposure — not measured this session, recorded so a fixer covers both. Asked for: mirror the engine rule (pitch 0 on a plane) and report it as an applied-false with a reason, or refuse with `INVALID_ARGUMENT` naming the primitives an angle is meaningful on; plus document the plane's fixed attitude, since the `camera.frame_actor` vocabulary the `azimuth` doc invokes does not describe it. `B-capture-preview-ortho-drops-elevation` cited as precedent for the house rule ("a clamp reports itself; a parameter accepted and discarded is worse than one that does not exist") and explicitly NOT as a duplicate — different verb, different mechanism, and there the value is discarded rather than honoured. Worked around by omitting the angle on planes; defect untouched.
 - `#2-plane-drops-camera-angles-and-says-so` `IN-REVIEW` developer — Took the ticket's first option and covered both parameters, not just the one that was hit. `FScopedPreviewOverride` (`Handlers/Asset/ThumbnailPreviewOverride.cpp`) now resolves the effective preview shape before touching the camera — a new file-local `ResolvedShapeIsPlane` reads the ThumbnailInfo's `PrimitiveType` after the request has been applied and covers `TPT_Plane` plus the `TPT_None`-with-unresolvable-`PreviewMesh` fallback the ticket names (`ThumbnailHelpers.cpp:357-362` uses the same mesh and rotation), OR'd with `WillForcePlanePreview` so the engine-forced plane counts too. When that resolves true, the `elevation` and `azimuth` writes are skipped and the asset's own stored angles stand — which is the framing the ticket's control frame (`seamprobe3.png`, elevation omitted) proves correct. Azimuth is suppressed alongside elevation deliberately: `ThumbnailHelpers.cpp:444` gates `OrbitYaw` on neither path, and the plane's normal works out roughly to +Y in world, so `azimuth:0` is edge on for the same reason `elevation:89` is — leaving it would have left a second way to produce the same empty frame. **The drop reports itself**, since there was nothing existing to report into (the response carried only `success` / `assetPath` / `width` / `height` / `primitive` / `outputPath` / `format`, none of which distinguishes the useless frame from the good one): `AssetWorkflowHandler.cpp` now emits `elevationApplied:false` and/or `azimuthApplied:false` for whichever angle was actually passed, plus one `cameraReason` naming the plane's fixed attitude and pointing at the solid primitives an angle is meaningful on — all three only when something was really dropped, so the fields stay a signal rather than boilerplate. The `elevation` and `azimuth` parameter docs now state the plane's fixed attitude, which the `camera.frame_actor` vocabulary the `azimuth` doc invokes does not describe. Test `PinWright.asset.generate_thumbnail.PlaneKeepsFramingUnderElevation` in `Tests/Assets/TestGenerateThumbnail.cpp` renders `/Engine/EngineMaterials/DefaultMaterial` on `primitive:"plane"` twice — control with no angle, probe with `elevation:89` — asserts the probe response carries `elevationApplied:false` and a reason while the control carries no `cameraReason` at all, then measures PIXELS: coverage is the fraction of the frame differing from its own corner pixel, the control must land in a (0.15, 0.98) band or the run skips with the `PINWRIGHT_ASSERTIONS_SKIPPED` marker rather than asserting against a measurement that proved nothing, and the probe must exceed 0.15 and stay within 0.05 of the control. Counterfactual: drop the two `&& !bResolvedShapeIsPlane` conditions and the probe's coverage collapses to the ticket's ~2px sliver (~0.02) while the control keeps its framing. Rejection with `INVALID_ARGUMENT` was considered and not taken: the caller gets a usable picture plus a note, which is strictly more than a refusal. Not measured live in this pass — the assertions are the evidence.
+
+- `#3-verified-behaviourally-on-the-built-binary` `DONE` verifier — 2026-08-28, against the
+  `b79ba53e` build. `#2` closed with *"Not measured live in this pass"*; measured live now, on
+  `/Engine/EngineMaterials/DefaultMaterial` at 320x320, probe against control.
+
+  `primitive:"plane", elevation:89` returns `elevationApplied: false` plus
+  `cameraReason: "The preview shape is the engine's thumbnail plane, a zero-thickness quad pinned to
+  one fixed attitude; any orbit away from it renders the plane edge on. The asset's own stored angles
+  were used instead. Use a solid primitive (cube, cylinder, sphere) when an angle is meaningful."`
+  The control with no angle carries **no** `cameraReason` and no `*Applied` field at all, so the
+  fields are a signal rather than boilerplate. Passing `azimuth:0` alongside brings back
+  `azimuthApplied: false` too, and only then — the suppression the ticket did not ask for but which
+  `#2` added for the same reason.
+
+  **The frame is a picture, not a sliver, and the numbers prove it rather than the prose.** The
+  probe's `imageStats` are *identical to the control's in every digit* — `meanLuminance`
+  0.1269718884804819, `luminanceVariance` 0.018337223577816496, `min` 0.019607843137254898,
+  `max` 0.36922980392156857, `litPixelFraction` **0.975**, `toneLevelsUsed` 25. The PNG was read as
+  an image: a large quad filling most of the frame in perspective, carrying the default material's
+  checker, against the thumbnail background. The ticket's failure was a ~2-pixel sliver in an
+  otherwise empty frame, i.e. a coverage near 0.02; this frame lights 97.5% of the image. Closing.
