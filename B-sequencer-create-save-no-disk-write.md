@@ -1,12 +1,12 @@
 ---
 id: B-sequencer-create-save-no-disk-write
 title: "sequencer.create save never writes the .uasset — McpSafeAssetSave only marks dirty, but existsAfter:true implies persistence (cold-load-confirmed LevelSequence loss)"
-status: IN-REVIEW
+status: DONE
 severity: Critical
 category: bug
 tags: [sequencer, create, level-sequence, save, mcp-safe-asset-save, no-disk-write, cold-load, persistence, silent-failure, false-success]
-encounters: 2
-lastSeen: 2026-08-27T20:09:00+05:00
+encounters: 3
+lastSeen: 2026-08-28T09:10:00+05:00
 ---
 
 # `sequencer.create` reports the LevelSequence created (existsAfter:true) but never writes the .uasset to disk
@@ -106,3 +106,38 @@ severity rationale: impact=corruption/silent-persistence-loss × reach=every-ses
   answer to come off disk. Worth adding to the ticket's guidance, since "verify the bytes grew" is
   otherwise a check that quietly stops working exactly when a session moves from building to
   iterating.
+
+- `#4-verified-fixed-original-defect-was-real` `DONE` verifier — 2026-08-28. Ran the ticket's own
+  repro against the running editor built from `b79ba53e`, verified against the FILE, not the response.
+  `sequencer.create {name:"CIN_PoseBeat", path:"/Game/PinWrightScratch"}` (scratch folder substituted for
+  `/Game` so the probe does not litter the content root; `path` only selects the destination folder, the
+  handler branch is identical) -> `saved:true, existsOnDisk:true, mode:"created"`. `ls` one second later:
+  `CIN_PoseBeat.uasset` **3100 bytes, mtime 2026-08-28 09:06:42** where no file existed beforehand;
+  `grep -a` finds `CIN_PoseBeat` twice and `LevelSequence` once in the bytes. Cold-load equivalent without
+  a restart, since `asset.reload` evicts the package and re-reads it from disk:
+  `add_spawnable_from_class PointLight` -> binding `0EA65840412BC4F5304A1092EA8A2E82`, file unchanged at
+  3100 (the mutator marks dirty only, as `#2` scoped); `asset.save {force:true}` -> `saved:true,
+  sizeBytes:4856` and `ls` agrees (4856 bytes, mtime 09:08:23, `PointLight` now present in the bytes);
+  `asset.reload` -> `reloaded:true`; `get_bindings` after the reload still returns the same GUID and
+  `kind:"spawnable"`. So both the create and everything built on it survive a disk round-trip.
+
+  **The original report described a real defect, and a real change closed it — it was not a
+  mis-observation.** The board's own timestamps settle this: the ticket was filed at 2026-07-11 08:11
+  (`537ccde`, fuzz1) and the fix landed as plugin commit `c955b6c0` at 2026-07-11 08:44, 33 minutes
+  later. `git show c955b6c0` is exactly the one-line reroute `-McpSafeAssetSave(NewObj);` ->
+  `+SaveAssetToDiskReportingPresence(NewObj, /*bForce=*/true)` plus the `saved`/`pendingFlush` fields,
+  and `git show c955b6c0^:Source/PinWright/Private/Utils/AssetUtils.cpp` confirms the pre-fix helper was
+  `MarkPackageDirty()` + `FAssetRegistryModule::AssetCreated()` and nothing else — genuinely no
+  package-save API on the create path, so the reporter's cold-load loss is fully explained by the code
+  as it stood that morning. The reporter did not check the wrong path and did not check too early.
+
+  What made `#3` read as ambiguous is that `lastSeen` in the front matter had been set to the
+  **non**-reproduction (2026-08-27T20:09), not to the original sighting, so the ticket looked like a
+  fresh August report against a fixed binary. `c955b6c0` is 553 commits behind `b79ba53e`; every build
+  since mid-July has carried the fix, so the camera agent's 2026-08-27 non-repro was the expected
+  outcome, six weeks after the close, not evidence of a mis-filed ticket. The fix is behavioural, not
+  diagnostic: `saved`/`existsOnDisk` are new fields, but the byte on disk is what changed.
+
+  Not re-tested here (unchanged, and out of this ticket's scope): the `overwrite:true` invalidation trap
+  and the `pendingFlush`-misreports-a-throttle observation recorded in `#3`, which remain open questions
+  for their own tickets.
