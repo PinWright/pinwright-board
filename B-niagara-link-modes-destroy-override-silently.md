@@ -1,12 +1,12 @@
 ---
 id: B-niagara-link-modes-destroy-override-silently
 title: "set_module_input's link and dynamicInput value modes destroy a pre-existing override with no opt-in and nothing in the response saying what they displaced"
-status: IN-REVIEW
+status: DONE
 severity: High
 category: bug
 tags: [niagara, set_module_input, dynamic-input, linked-parameter, override-pin, silent-mutation, no-opt-in]
 encounters: 1
-lastSeen: 2026-08-27
+lastSeen: 2026-08-28T09:15:00+05:00
 ---
 
 # The literal path now refuses to clobber a link; the other two paths still clobber silently
@@ -47,3 +47,5 @@ new dynamic input over an old one is plausibly intended most of the time.
   `Source/PinWright/Private/Tests/Niagara/TestNiagaraSetModuleInputReplacedOverride.cpp` (new). Tests:
   `PinWright.niagara.set_module_input.LinkReportsReplacedOverride`,
   `PinWright.niagara.set_module_input.DynamicInputReportsReplacedOverride`.
+
+- `#3-verified-against-built-binary` `DONE` verifier - Behavioural repro against the running editor (PinWright HEAD `b79ba53e`), 2026-08-28, UE 5.8, same scratch SimpleExplosion duplicate as `B-niagara-literal-over-linked-override-pin` `#3`. Both remaining value modes now disclose what they destroyed, ungated, in the live response. **dynamicInput over dynamicInput**: `set_module_input {emitter:"SimpleSpriteBurst", entryId:8B92C307...(ScaleColor), inputName:"Scale Alpha", value:{dynamicInput:"/Niagara/DynamicInputs/UniformRange/V2/RandomRangeFloat.RandomRangeFloat"}}` returned `success:true, dynamicInput:"...RandomRangeFloat"` plus `replacedOverride:{valueMode:"dynamicInput", source:"/Niagara/DynamicInputs/ValueFromCurve/FloatFromCurve.FloatFromCurve"}` - naming the chain it deleted. **link over literal**: `{entryId:FD5806F4...(AddVelocity), inputName:"Velocity Speed", value:{link:"User.VerifySpeed"}}`, on a pin then holding the literal `777.0`, returned `linked:true, parameter:"User.VerifySpeed", parameterType:"NiagaraFloat"` plus `replacedOverride:{valueMode:"local", value:"777.0"}` - so the `Value` field `#2` added to `FNiagaraOverrideReplacement` really does carry the displaced literal's pin default, which is the text a caller would restore. Neither write was gated behind `breakExistingLink`, which is what `#2` intended. Both `replacedOverride` classifications agree with the `moduleInputs[].valueMode` readback taken immediately before the write, so the write's account and a later `niagara.inspect` do not disagree.
