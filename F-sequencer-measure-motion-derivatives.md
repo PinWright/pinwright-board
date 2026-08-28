@@ -1,7 +1,7 @@
 ---
 id: F-sequencer-measure-motion-derivatives
 title: "No way to see whether a sequencer transform track's MOTION is any good — 47 methods report keys, values and tangents but nothing reports speed, acceleration, jerk, angular rate or path curvature, so a camera can pass every available check and still read as jagged"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: feature
 tags: [sequencer, cinematics, camera-path, motion, derivatives, curves, verification, measure_motion]
@@ -162,3 +162,47 @@ correct in every reported quantity, and visibly bad in motion, look finished.
   radius, caused by shrinking a tangent at a key where the path also turned. Every figure quoted
   above is from that asset. Not filed as a bug: nothing misbehaves, the measurement capability is
   simply absent.
+- `#2-measure-motion-shipped` `IN-REVIEW` developer — Shipped `sequencer.measure_motion {path,
+  bindingId, looping, sampleRate, maxSamples, maxSeamVelocityMismatch, minTurnRadius, sectionIndex,
+  maxReported}`. New `Handlers/Sequencer/SequencerMotionAnalysis.{h,cpp}` reproduces the engine's own
+  segment construction (`MovieSceneCurveChannelImpl.cpp` → `FCubicBezierInterpolation`: `P1 = P0 +
+  LeaveTangent*DX/3`, `DX` in ticks) and returns value plus first/second/third derivatives in closed
+  form, so segment jerk is exact rather than sampled and no bake is differenced; it also honours the
+  `Sequencer.LinearCubicInterpolation` cvar and treats outside-the-keys as a constant hold (both
+  extrapolations default `RCCE_Constant`) instead of extending the endpoint slope. New
+  `Handlers/Sequencer/SequencerMotionMeasureHandler.cpp` does the tick→second conversion in exactly
+  one place (n-th derivative × `ticksPerSecond^n`) and emits all six requested checks — `speed`
+  (min/max/mean/ratio/pathLength + per-key arrive/leave speeds), `acceleration` (per-key one-sided
+  vectors, absolute and relative step, median/max over interior keys only), `jerk` (per segment WITH
+  `durationSeconds`, plus `maxSegmentDurationSeconds` beside the worst magnitude), `curvature`
+  (min turn radius, where, and the tangential/normal acceleration split), `angular` (per-axis
+  deg/s and deg/s²) and `loopSeam` — in `animation.measure_motion`'s `pass`/`fail`/`reported`/
+  `unmeasured` vocabulary with `pass` false on any failed OR unmeasured check, a `units` block, and
+  the `ticksPerSecond` used. Per the design note, only `loopSeam` gates by default
+  (`maxSeamVelocityMismatch`, relative, 0.05) and `curvature` gates only when `minTurnRadius` is
+  supplied; the rest are `reported`. **One deliberate deviation from `#1`:** `loopSeam` does not
+  report the three-decade convergence ratio. With an analytic basis the one-sided derivatives are
+  exact, so all three sampling steps return the same number and the ratio is identically 1 — it
+  would measure nothing. The property that ratio existed to prove — a C1 join versus a full stop —
+  is served directly instead: `arriveSpeed` and `leaveSpeed` are reported beside `mismatch`, and the
+  check FAILS on `stopsDead` (both one-sided speeds under 2% of the move's mean) as well as on a
+  mismatch, because a camera halted on both sides has a mismatch of exactly zero. Scope limits are
+  reported rather than hidden: it measures ONE transform section's own channels (`source`, plus a
+  warning on a multi-section track), refuses weighted tangents (`RCTWM_Weighted*`) as `unmeasured`
+  rather than reading them through the unweighted basis, warns when the location channels never
+  move, and takes `bindingId` only — `actorName` was left out rather than duplicate the binding-name
+  lookup that lives in `SequenceKeyframeHelpers`. Regression cover added to
+  `Tests/Sequencer/TestSequenceAddKeyframeInterp.cpp`, reusing its fixtures:
+  `PinWright.Sequencer.SequencerMeasureMotion.RampDerivativesMatchTheAnalyticValue` authors an
+  exact straight line under `tangentMode:"user"` and asserts speed min/max/mean all equal
+  `slope × ticksPerSecond × sqrt(3)` to 1e-6 relative — that is the per-TICK→per-SECOND assertion,
+  the only place a tick-resolution factor could hide — plus zero acceleration step, zero jerk, a
+  straight curvature verdict, matching seam velocities and `pass:true`; and
+  `...AutoTangentSeamIsReportedAsAStop` authors the SAME monotonic ramp (monotonic on purpose: UE's
+  default auto mode flattens any key not strictly between its neighbours) under `tangentMode:"auto"`
+  and asserts both seam speeds are zero, mismatch is zero, `stopsDead` is true, the check is `fail`
+  and top-level `pass` is false — the differential that proves a mismatch-only seam check would have
+  passed a stopping camera. Docs: `Docs/wiki-src/sequencer.md` gained a `### sequencer.measure_motion`
+  overlay section (append-only, below the existing H3s so no `##` content is orphaned). **NOT
+  COMPILED AND NOT RUN** — building and test execution were out of scope for this pass, so a tester
+  must compile and run `PinWright.Sequencer.*` before this can move to DONE.
