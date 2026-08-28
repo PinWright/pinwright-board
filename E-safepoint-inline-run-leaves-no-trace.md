@@ -1,7 +1,7 @@
 ---
 id: E-safepoint-inline-run-leaves-no-trace
 title: "A tick-unsafe verb that runs INLINE logs nothing, so a crash log cannot say whether the SafePoint gate fired"
-status: OPEN
+status: IN-REVIEW
 severity: Medium
 category: ergonomic
 tags: [safepoint, dispatch, observability, rpc-dispatcher, crash-triage, tick-gate]
@@ -37,3 +37,13 @@ intended.
   did not apply it: `Dispatch/RpcDispatcher.cpp` is a central dispatch file outside that ticket's
   ownership. Recorded after the deferral message itself was corrected — it had continued to assert "a
   world is inside `UWorld::Tick`" after the gate grew a third term, and now names whichever term fired.
+- `#2-inline-path-now-logs` `IN-REVIEW` developer — "Added a `Log`-level
+  `UE_LOG(LogPinWrightSafePoint, ...)` on the inline path in `Dispatch/RpcDispatcher.cpp`, immediately
+  after the deferral block's `return` and guarded by a hoisted `bTickUnsafeMethod` local so only the 35
+  table entries reach it; the message names both terms of `IsSafeNow()` — no world is inside
+  `UWorld::Tick`, and the game thread is not draining a task-graph named-thread queue. Regression test
+  `PinWright.core.safe_point.DispatcherLogsInlineTickUnsafeRun` in `Tests/World/TestSafePointGate.cpp`
+  marks the `_test.beta` fixture tick-unsafe, dispatches it on the real automation stack and asserts
+  exactly one captured `LogPinWrightSafePoint` line carrying the request id and both gate terms. It
+  needs no nested named-thread pump, so unlike the two skipping pump tests it runs on this host. Not
+  compiled or executed here — the build/test loop is the verification."
