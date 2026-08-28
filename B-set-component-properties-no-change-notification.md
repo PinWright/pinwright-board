@@ -1,12 +1,12 @@
 ---
 id: B-set-component-properties-no-change-notification
 title: "actor.set_component_properties stores UPROPERTYs by reflection and fires no PostEditChangeProperty, so every property whose effect lives in that override is a silent no-op"
-status: IN-REVIEW
+status: DONE
 severity: High
 category: bug
 tags: [actor, components, property-write, derived-state, post-edit-change, water, exponential-height-fog, volumetric-fog, silent-noop, misleading-success]
-encounters: 2
-lastSeen: 2026-08-27T13:55:00+0000
+encounters: 3
+lastSeen: 2026-08-28T11:00:00+05:00
 ---
 
 # The store is not the write
@@ -227,3 +227,40 @@ judgement (some are pre-registration or pre-compile, where the defect does not a
 - `#2-notify-on-the-generic-path` `IN-REVIEW` developer — Added `Utils/PropertyChangeNotify.h` (`PinWright::NotifyPropertyChanged`), which builds `FPropertyChangedEvent(Property, EPropertyChangeType::ValueSet)` and calls the virtual `PostEditChangeProperty`; `ComponentHandler.cpp` now calls it after each successful `ApplyJsonValueToProperty` and emits a `notified[]` array beside `applied[]`, because "the value is in the field" and "the class's change hook ran" fail independently and only the second one moves a derived-state property. Non-chain form only (the chain form crashes on ISM, `InstancedStaticMesh.cpp:5638`); no `PreEditChange` (it would flush rendering commands and, via `EditReregisterContexts`, rerun the owner's construction scripts — `ActorComponent.cpp:1327`, `:1336-1339`, `:1437-1446`); engine-setter paths deliberately excluded. Tests in `Tests/Actor/TestSetComponentPropertiesNotifies.cpp`: `ReflectionWriteRunsEngineNotification` writes `LDMaxDrawDistance` on a Movable probe and asserts `CachedMaxDrawDistance` followed it — a copy only `UPrimitiveComponent::PostEditChangeProperty` performs (`PrimitiveComponent.cpp:1552-1555`, `:1628`), so it fails on the pre-fix handler for the right reason, needs no RHI and no Water plugin; `EngineSetterPathIsNotNotified` asserts `Mobility` lands in `applied` and never in `notified`. **Not yet linked or suite-run.** Both touched translation units compile clean under `-SingleFile` (`ComponentHandler.cpp`, `TestSetComponentPropertiesNotifies.cpp`, UE 5.8, Result: Succeeded), which writes nothing into `Binaries/`; a full link and the automation suite were not run because a shared editor for this host project was live throughout with roughly a dozen agents attached, and linking requires that editor to exit. The remaining doors into the same state are enumerated above as deliberately-not-fixed and are what a tester should check are still separately tracked before this closes.
 - `#3-shape-extent-correction-and-split` `IN-REVIEW` developer — Two corrections to `#1`, both from re-reading engine source rather than new measurement. (a) The `UShapeComponent` row overstated the fix: `UShapeComponent::GetBodySetup()` calls `UpdateBodySetup()` on the way past (`ShapeComponent.cpp:100-104`), so `AggGeom` self-repairs and is not durably stale; the real gap is the live physics body, which `UBoxComponent::SetBoxExtent` rebuilds via `BodyInstance.UpdateBodyScale(..., true)` when `bPhysicsStateCreated` (`BoxComponent.cpp:28-47`) and which the Details panel rebuilds via the `PreEditChange` reregister this fix deliberately avoids. Net: a shape extent written through this verb renders new and traces old — a screenshot and an overlap query disagree about the same actor, before AND after this fix. Written up under "Shape extents: only half closed" with the follow-up question (should a notified property whose engine setter follows with a body update also trigger `RecreatePhysicsState()`) left open rather than guessed at. (b) The `property.set` / `container.*` entry in the deliberately-not-fixed list has been split into its own ticket `B-property-set-container-empty-change-event`, because burying a camouflaged defect with a different fix inside another ticket is how it gets closed by association. No code change in this entry; the commit from `#2` is unchanged and still unlinked.
 - `#4-fix-verified-live-on-exponential-height-fog` `IN-REVIEW` reporter — **Live confirmation of `#2`'s fix on a component class this ticket only inferred from source**, plus a correction to a downstream project's workaround. Measured 2026-08-27 on host project EAContentExamples58, level `/Game/Maps/Atlantis`, while tuning underwater fog depth. (a) The running editor build **does** carry `#2`: every `actor.set_component_properties` response in this session returned a `notified[]` array beside `applied[]` (e.g. `{"applied":["FogDensity"],"notified":["FogDensity"]}`), so the change is linked and live on this host — `#2` had recorded that a full link was never run. (b) `UExponentialHeightFogComponent` appears in this ticket only in the "same shape, not enumerated exhaustively" list, never measured. It is now measured, and the notification reaches the renderer: `FogDensity` 0.06 -> 0.6 through `actor.set_component_properties` on `ExponentialHeightFog_0` / `HeightFogComponent0` moved a fixed-pose, pinned-exposure frame (`render.capture_open_level`, location `{x:-9000,y:0,z:260}`, rotation `{pitch:-4,yaw:0,roll:0}`, fov 60, 768x768, `exposure {mode:"fixed", ev100:0}`) from `meanLuminance` **0.333654** to **0.275127** — against a no-change control pair shot at the same pose immediately before, which differed by **0.0017**. A 0.0585 signal against a 0.0017 floor is 35x, and **no `lighting.setup_volumetric_fog` flush was called between the write and the capture.** Six further density/emissive edits in the same session behaved identically. (c) The correction: that host project's own defect log had generalised an earlier `property.set` measurement into "fog component writes do not reach the renderer, call `lighting.setup_volumetric_fog` as a flush after **every** fog write", and was applying that workaround to `actor.set_component_properties` as well. The flush is unnecessary on this verb — the two verbs differ exactly as this ticket and `B-property-set-container-empty-change-event` predict, and conflating them costs a spurious RPC per edit and, worse, hides which verb is actually broken. Nothing here changes the ticket's own status or its deliberately-not-fixed list; it is evidence that the shipped fix does what `#2` claimed, on a second component class, under a pixel measurement with a control.
+- `#5-verified-fixed-by-derived-state` `DONE` verifier — 2026-08-28. Verified on the editor rebuilt at
+  `b79ba53e` by watching a **derived** value that only the engine's change hook can write, not by
+  reading the property back (a read-back returns the reflection store and cannot fail) and not by
+  trusting the new `notified[]` array (that is the diagnostic, not the behaviour). Probe was a
+  throwaway `/Engine/BasicShapes/Cube` StaticMeshActor `PWVERIFY_NOTIFY_01` spawned into
+  `/Game/Maps/Atlantis` and deleted afterwards — no shipping actor was written to, and the level was
+  not saved. Made Movable first (`{"applied":["Mobility"]}` — note **no** `notified` entry, which is
+  the documented engine-setter exclusion, observed rather than assumed) so
+  `UPrimitiveComponent::PostEditChangeProperty` takes the direct
+  `if (!bAllowCullDistanceVolume || Mobility != Static)` branch and the cull-volume path cannot
+  contribute.
+  The observable is `CachedMaxDrawDistance`: in the editor it is written **only** by
+  `SetCachedMaxDrawDistance` inside `PostEditChangeProperty`, reached only through
+  `if (PropertyThatChanged)` + `PropertyName == GET_MEMBER_NAME_CHECKED(UPrimitiveComponent,
+  LDMaxDrawDistance)` (`PrimitiveComponent.cpp:1541-1560`, `:1600-1628`) — so a reflection store with
+  no event, or with an event carrying a null `Property`, leaves it behind.
+  Sequence, every step through `actor.set_component_properties` on `StaticMeshComponent0`, each read
+  back with `actor.get_component_property`:
+  `CachedMaxDrawDistance` **0** (baseline) -> write `LDMaxDrawDistance: 5000` -> **5000** -> write
+  `LDMaxDrawDistance: 1234` -> **1234**. Two independent writes, so not a one-off.
+  **Name-scoping control, to rule out the plugin simply copying the field itself:** forced
+  `CachedMaxDrawDistance: 99` directly (`applied` + `notified`), then wrote `MinDrawDistance: 10`
+  (also `applied` + `notified`) — `CachedMaxDrawDistance` stayed **99**, because `MinDrawDistance`'s
+  branch only calls `MarkRenderStateDirty()` and never touches the cached distance. Then
+  `LDMaxDrawDistance: 2222` -> **2222** again. So the event carries the *specific* property name and
+  the engine picks the branch: a blanket recompute or a plugin-side copy would have restored 1234 at
+  the `MinDrawDistance` step, and an empty/absent event would never have moved it at all.
+  Together with `#4`'s independent pixel measurement on `UExponentialHeightFogComponent`, the fix is
+  confirmed on two component classes by two different kinds of instrument.
+  **Not closed by this, and stated so it is not buried:** (a) `B-property-set-container-empty-change-event`
+  is verified separately, same day — this ticket's `notified[]` is not evidence for that verb;
+  (b) the § *Shape extents: only half closed* finding is still true after the fix (a notified extent
+  write rebuilds the render proxy but not the live physics body, so a screenshot and an overlap query
+  still disagree) and it has **no ticket of its own** — I searched the board and found none. It is a
+  distinct defect from the missing notification and should be filed rather than left inside a DONE
+  ticket. (c) The § *Deliberately NOT fixed* list of other entry points is untouched and untested
+  here; it is scoped to other verbs by construction.
