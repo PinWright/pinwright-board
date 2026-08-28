@@ -4,7 +4,7 @@ title: "`spatial` ground probes resolve against SIMPLE collision by default, so 
 status: OPEN
 severity: High
 category: bug
-tags: [spatial, raycast, ground_actors, verify_grounding, trace, collision, simple-vs-complex, hull, silent-wrong-data, review-hazard, level-building, placement]
+tags: [spatial, raycast, ground_actors, verify_grounding, trace, collision, simple-vs-complex, hull, silent-wrong-data, review-hazard, level-building, placement, face-index, provenance, non-uniform-scale]
 encounters: 1
 lastSeen: 2026-08-28T00:00:00+05:00
 ---
@@ -301,3 +301,124 @@ Note the asymmetry worth preserving in any fix: both pages already teach the cal
   result that is a lie and builds on it — with the reach modifier neutral: `spatial.raycast` and
   the two grounding verbs run in most level-building sessions, but the divergence only bites on
   authored architecture, not on terrain.
+- `#2-ask-recast-to-surface-existing-provenance` `OPEN` reporter — 2026-08-28, source-verified at
+  HEAD in this tree. **The ask in *"The ask: make the probe say which surface answered"* is the
+  wrong shape and is recast here — read this entry before working those rungs.** Nothing in the
+  body is retracted: the 16 probe pairs, both controls, and the *"always trace complex is NOT the
+  fix"* constraint all stand. What changes is what to build.
+
+  **1. `renderGeometryHit` cannot cover this case by construction — it is not "close".** It is
+  exactly `bTraceComplex && SimpleCollisionShapes == 0`
+  (`Handlers/Spatial/SpatialTraceUtils.cpp:43`), serialized only when true
+  (`Handlers/Spatial/RaycastHandler.cpp:201-204`). `simpleCollisionShapes` is
+  `UBodySetup->AggGeom.GetElementCount()` verbatim on the hit component, `-1` when there is no body
+  setup — the Landscape case — and `-1` is omitted from the response rather than forged into a `0`
+  (`Utils/CollisionSummaryUtils.h:66-90`, `RaycastHandler.cpp:191-200`). So it detects exactly one
+  thing: *a complex trace hit render triangles because there was nothing else to hit.* Every mesh in
+  the divergence table **has** simple collision, so `simpleCollisionShapes >= 1`, and at the
+  documented default `traceComplex: false` the flag is **unreachable — it cannot fire on this
+  defect at any argument the caller can pass.** **Record this as the evidence, because it is why the
+  defect published with every number looking correct:** the probe that left `Rubble_Step_C4` 202 cm
+  above the visible stone returned `simpleCollisionShapes: 1`, **no `renderGeometryHit`, and no
+  `warnings[]`** — a completely clean, on-contract response. The warning loop at
+  `RaycastHandler.cpp:516-535` `continue`s past every hit whose `bRenderGeometryHit` is false, so
+  there was nothing for it to say.
+
+  **2. `faceIndex` IS a per-hit detector for this, and it already works on a `traceComplex: false`
+  probe.** It is **provenance**: present means a triangle mesh or heightfield answered, absent means
+  a simple primitive did (`Handlers/Spatial/SpatialTraceUtils.h:39-43`). Unlike `renderGeometryHit`
+  it is **independent of both `channel` and `traceComplex`** — `QueryParams.bReturnFaceIndex = true`
+  is set in `TraceLine` (`SpatialTraceUtils.cpp:290`), under an in-code comment at `:286-289`
+  stating it is "what lets the response tell a caller WHICH representation answered", and
+  `TraceLineLayered` calls `TraceLine` once per layer (`:320`), so multiHit, filtered and
+  ground-column probes all inherit it. Scope, stated accurately rather than as "every trace": the
+  two exceptions are `:387` `PinWrightFootprintProbe`, an `OverlapMultiByChannel` where a face index
+  has no meaning, and `GroundPlacementUtils.cpp:83`, the actor's **underside** probe via
+  `LineTraceComponent` with its own params — not the ground probe, so not part of this gap. **This
+  ticket's own repro already shows the signal working**: the hull hit carries no `faceIndex`, the
+  complex hit does, and the landscape control at (-8000, 3000) returns `faceIndex 20` under *both*
+  flags. **This corrects the body's framing** — detection does **not** require a second trace.
+
+  **3. Absence is presumptive, not proof. A fixer must not build a hard assertion on it.**
+  `SpatialTraceUtils.h:41-43` is explicit: `FaceIndex` is `INDEX_NONE` for a simple-primitive hit
+  **or when the physics backend reported none**. Presence is a positive signal; absence is a strong
+  prior and must be surfaced as one. Landscape returns a face index under either trace, which is a
+  second and independent reason terrain is the easy case here.
+
+  **4. The discard is three fields wide, not one — and closing it is the whole primary ask.** The
+  ground column probe goes through `TraceLineLayered` (`GroundPlacementUtils.cpp:784-787`) and then
+  reads only `Hit.Location.Z`, `Hit.Normal` and `Hit.HitActor` off the returned `FSpatialHit`
+  (`:791-799`; commit `9e17fefc` cites the same block more narrowly as `:787-792`). **`FaceIndex`,
+  `SimpleCollisionShapes` and `bRenderGeometryHit` are all computed on that same hit and all thrown
+  away before serialization.** `faceIndex` reaches a response at `RaycastHandler.cpp:195` and
+  **nowhere else in the plugin** — a repo-wide grep for the serialized key returns that one site
+  plus a docs test. Both presets pin `bTraceComplex = false` (`GroundPlacementUtils.cpp:134`
+  landscape, `:153` any_solid); only `custom` leaves it to the caller. So a batch seated onto
+  structures is choosing blind while the one signal that would have caught it sits in a local
+  variable. **Recast ask, replacing both rungs above:** `spatial.ground_actors` and
+  `spatial.verify_grounding` should surface the per-column provenance their probe **already
+  computes** — all three fields — on each contact column. No extra trace, nothing new measured, no
+  new cost: a serialization change. The "Minimum" rung's `hitCollision: "simple" | "complex"` is a
+  fair *presentation* of `faceIndex` and worth having on `spatial.raycast`, but it must carry
+  `#3`'s caveat rather than assert a certainty the signal does not have.
+
+  **5. The divergence comparison stays, as the richer follow-on rather than the entry price.**
+  Provenance says *which* representation answered; it carries neither **magnitude nor sign**, and
+  those are what a seating decision needs. Keep the "Preferred" rung — re-probe at the opposite
+  trace complexity and report both Z values, which actor answered each, and the delta
+  (`hullDivergenceCm` per contact column on the grounding verbs, an agreement/divergence readout on
+  `spatial.raycast`), with a `warnings[]` entry past a threshold — but ship it **after** the three
+  provenance fields, not instead of them.
+
+  **6. No sampling heuristic can substitute for either, and the control proves it.** On unmodified
+  stone on the same podium at (0, -1800) **both traces return an identical `600.000`**. The hull is
+  not a coarse approximation that more sample points would eventually catch out: it **agrees
+  everywhere the mesh is unmodified** and diverges only over `subtract`-cut or eroded features and
+  non-uniformly scaled hulls. More samples cannot find that; comparing representations — or reading
+  the provenance of the one trace you already took — can.
+
+  **7. `simpleCollisionShapes` is a usable weak prior, explicitly not a solution.** A count of `1`
+  standing in for an elaborately authored mesh is the signature shape of a divergent hull, and it is
+  already in the response at zero cost — worth naming as **cheap triage** ("this hull is far simpler
+  than this mesh; check the provenance"). It carries neither magnitude nor sign, so it is not the
+  fix. Sign is the harder half: `SM_Wall_Ruin_A` measures **+86.46 at one XY and -104.83 at another
+  on the same actor**, so no "take the higher hit" rule exists at any granularity — not even
+  per-mesh, let alone globally.
+
+  **8. The defect does not require an authoring mistake, which materially widens who is affected.**
+  UE scales an `FKSphereElem` radius by the **minimum absolute scale component**, so an actor at
+  (1.1, 1.1, 1.0) gets a hull sphere sized to its *unscaled* axis while the render surface is 10%
+  wider — measured up to **-396 cm under the render surface** on `BLD_Dome_A3`. A correctly authored
+  mesh with a correct hull, placed at a non-uniform scale, produces this defect with nothing done
+  wrong by anyone. Any project that non-uniformly scales an actor whose hull contains a sphere is
+  exposed, on any map.
+
+  **The documentation half is CLOSED — reference it, do not re-ask for it.** Fixed and committed in
+  the plugin repo as **`4fafde6b`** and its follow-up **`9e17fefc`**. `spatial.md` gained a
+  `## Which trace, for which ground` section splitting the advice three ways (terrain / authored
+  architecture / foliage-and-cards) and its *"simple collision is what you want ... in almost every
+  case"* bullet — the exact sentence quoted in *"The published guidance points straight at this
+  trap"* above — was rewritten; it now also separates the three fields by the question each answers
+  and states plainly that `renderGeometryHit` cannot flag a hull.
+  `spatial.ground-placement.md:35` no longer says `traceComplex` "should stay" `false` for the two
+  grounding verbs, and says outright that neither verb surfaces any of the provenance.
+  `editor.collision-review.md` now records that capturing both collision views from one pose is how
+  you *see* a divergent hull. **The guidance gap this ticket raised is closed; only the tooling ask
+  remains open**, which is why this stays `OPEN` against the response shape alone.
+
+  **Severity stays `High` — argued, not silently held.** Impact class is unchanged and already at
+  the board's ceiling short of `Critical`: silent wrong data on a normal path, where the caller
+  trusts a result that is a lie and builds on it. `Critical` is defined by impact class alone —
+  editor crash, or a write that corrupts or loses asset data — and neither applies: nothing crashes,
+  no asset is corrupted, and the damage is a misplaced actor, recoverable by re-seating once you can
+  see it. The `FKSphereElem` finding in `#8` is the strongest candidate for a bump and it lands on
+  the **reach modifier**, where it widens *within* neutral rather than up a band: the widening is in
+  the **population of affected geometry** (no authoring mistake required, any project), not in the
+  **methods** — the same three verbs are affected as before, and terrain, which is most probes,
+  stays provably immune per `#1`'s bit-identical landscape control. Reach neutral, severity `High`.
+
+  **Frontmatter deliberately unchanged apart from tags.** `encounters` stays `1` and `lastSeen`
+  stays `2026-08-28T00:00:00+05:00`: this entry is source analysis of the filed observation, not a
+  second sighting, and bumping either would assert an encounter that did not happen (same reasoning
+  as `B-verify-grounding-maxgap-false-fail` `#2`). Tags `face-index`, `provenance` and
+  `non-uniform-scale` added so a future dedup sweep on any of the three lands here.
