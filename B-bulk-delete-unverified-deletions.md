@@ -1,7 +1,7 @@
 ---
 id: B-bulk-delete-unverified-deletions
 title: "asset.bulk_delete verifies nothing: deleted[] is the requested list, success is DeletedCount > 0, and a partially-deleted batch reports as a clean success"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: bug
 tags: [asset, bulk-delete, asset-delete, objecttools, false-success, unverified-write, disk-vs-memory, partial-batch]
@@ -165,3 +165,31 @@ in the plugin reads `success` / `deleted` / `requested` from it.
   the referencer cull does not fire here — the silent losses come from
   `MakeReadOnlyPackageWritable` / `DeleteSingleObject` skips, the `DoesPackageExist` cull, the
   unchecked `IFileManager::Delete`, and `AddExtraObjectsToDelete` inflating the count.
+- `#2-reconciled-against-a-probe` `IN-REVIEW` developer — `AssetWorkflowHandler.cpp`
+  `asset.bulk_delete` now records one `FRequestedDelete` per path the CALLER sent
+  (`path` / `existedBefore` sampled before the delete / `attempted`), keeps
+  `ObjectTools::DeleteObjects`' return only as `engineDeletedCount`, and after the call
+  re-probes every requested path against `UEditorAssetLibrary::DoesAssetExist` **union**
+  `AssetUtils::DoesPackageFileExistOnDisk`. Response is now `results[]`
+  (`path`/`existedBefore`/`attempted`/`existsAfter`/`existsOnDisk`/`deleted`/`missing`, plus
+  `memoryDiskDivergence` when the registry row is gone and the file is not) with
+  `deleted[]`/`failed[]`/`missing[]`, `deletedCount`/`failedCount`/`missingCount`/
+  `attemptedCount`, `existsAfter`, and a `failureHint`; `success` is `!bAnySurvived` and the
+  envelope now errors `BULK_DELETE_FAILED` (carrying the body) on a partial batch instead of
+  reporting it as a success. `requested` (the count that LOADED) is replaced by
+  `requestedCount` (the caller's array length), which closes the second defect: dropped paths
+  now appear as `missing` with `attempted:false` rather than vanishing. The sibling's
+  referencer logic was deliberately NOT imported — this route passes
+  `bPerformReferenceCheck=false` and is gated by `FAssetDeleteModel::CanDelete()`, confirmed
+  in UE 5.8 source, so the cull does not fire here. Regression coverage:
+  `Tests/Assets/TestBulkDeleteVerification.cpp` —
+  `PinWright.asset.bulk_delete.PartialBatchIsReportedAsPartial` forces a deterministic partial
+  batch with a one-object `FEditorDelegates::OnAssetsCanDelete` veto (the route
+  `DeleteObjectsUnchecked` → `DeleteSingleObject` takes) and asserts the survivor is in
+  `failed[]` not `deleted[]` while `engineDeletedCount > 0`; `.UnattemptedPathIsReportedAsMissing`
+  asserts a never-created path reaches `missing[]` with `requestedCount == 2`. Both fail on the
+  old shape. `Docs/wiki-src/asset.md` § asset.bulk_delete rewritten (it documented the defect).
+  NOT COMPILED OR RUN (instructed): a suite pass must confirm the two new tests and, in
+  particular, that `PinWright.asset.bulk_delete.OutsideRedirectorsSurviveTheDefaultScope` stays
+  green — its `Capture.bSuccess` assertion now depends on the deleted in-memory fixture actually
+  probing absent after `CleanupAfterSuccessfulDelete`'s `CollectGarbage`.
