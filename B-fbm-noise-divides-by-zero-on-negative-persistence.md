@@ -1,7 +1,7 @@
 ---
 id: B-fbm-noise-divides-by-zero-on-negative-persistence
 title: "FBMNoise can still divide by zero via a negative persistence with an even octave count"
-status: OPEN
+status: IN-REVIEW
 severity: Medium
 category: bug
 tags: [texture, create_noise_texture, FBMNoise, persistence, divide-by-zero, unvalidated-input]
@@ -27,3 +27,4 @@ persistence is arguably never intended, and if so refusing it is simpler than de
 ## History
 - `#1-adjacent-to-the-octaves-fix` `OPEN` reporter — Found by the agent fixing the octaves defect,
   adjacent to it and out of that ticket's scope. Source reading, not reproduced.
+- `#2-persistence-range-enforced` `IN-REVIEW` developer — "Added MinNoiseTexturePersistence/MaxNoiseTexturePersistence (0..1) and a negated-range check beside the octaves check in TextureHandler.cpp, so a negative (or non-finite) persistence is refused before anything is created instead of cancelling the octave amplitudes to zero; documented the range on the persistence param spec and in docs/wiki-src/texture.md, and added PinWright.texture.create_noise_texture.PersistenceRangeIsEnforced"
