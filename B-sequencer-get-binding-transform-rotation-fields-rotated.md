@@ -1,12 +1,12 @@
 ---
 id: B-sequencer-get-binding-transform-rotation-fields-rotated
 title: "sequencer.get_binding_transform labels the rotation triple one position out — it reports (pitch, yaw, roll) under the keys (roll, pitch, yaw), so a camera's orientation reads back plausible and wrong on the namespace's only evaluation verb"
-status: IN-REVIEW
+status: DONE
 severity: High
 category: bug
 tags: [sequencer, get_binding_transform, rotation, frotator, silent-wrong-data, readback, verification-verb, camera, transform-track]
-encounters: 5
-lastSeen: 2026-08-27T23:01:00+05:00
+encounters: 6
+lastSeen: 2026-08-28T08:30:00+05:00
 ---
 
 # The rotation readback is shifted by one field
@@ -227,3 +227,5 @@ UE 5.8, `EAContentExamples58`, `/Game/Maps/Atlantis`, 2026-08-27. Sequence
   changes which key each number is printed under and changes no number. If a post-fix run produces a
   value that differs numerically from what the inverse of this permutation predicts, the fix has
   overshot and reintroduced a shuffle.
+
+- `#6-verified-fixed` `DONE` verifier — 2026-08-28. Plugin rebuilt from a clean tree at `b79ba53e` and verified against disk, not against the build's own success message: `UnrealEditor-PinWright.dll` 39,898,624 -> 40,644,096 bytes at 2026-08-28 08:11:48, `UnrealEditor-PinWrightGeometry.dll` 4,983,296 -> 5,113,344, canonical link with no `-000N` artifacts in `UnrealEditor.modules`. Editor restarted on that DLL and the ticket's own repro re-run. Field labelling corrected; verified against `sequencer.list_sections {includeKeys:true}` as ground truth rather than against the ticket's transcription. On `/Game/Atlantis/Cine/LS_Atlantis_Flythrough`, binding `C35BAEA544B50124B4EA1B8B9313991C`. Before (OLD DLL): frame 760 -> `{roll 6.5, pitch 19.15, yaw 0}`, frame 1200 -> `{roll -22, pitch 360, yaw 0}`. After: frame 760 -> `{roll 0, pitch 6.5, yaw 19.15}`, frame 1200 -> `{roll 0, pitch -22, yaw 360}`. Ground truth read from the section's channels at tick 480000: ch3 (roll) 0, ch4 (pitch) -22, ch5 (yaw) 360 - an exact match. The interpolated frame 760 also lands mid-way between the f296000 `{pitch 2, yaw 0}` and f312000 `{pitch 11, yaw 38.3}` keys, so the fix holds off a key as well as on one.

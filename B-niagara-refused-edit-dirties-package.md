@@ -5,8 +5,8 @@ status: OPEN
 severity: Medium
 category: bug
 tags: [niagara, set_module_input, transaction, package-dirty, refused-write, side-effect]
-encounters: 1
-lastSeen: 2026-08-27
+encounters: 2
+lastSeen: 2026-08-28T08:30:00+05:00
 ---
 
 # A refusal still marks the asset dirty
@@ -29,3 +29,5 @@ that function at the time.
 - `#1-pre-existing-made-more-reachable` `OPEN` reporter -- Recorded by the agent fixing
   `B-niagara-literal-over-linked-override-pin`, whose new refusal joins the three existing ones on the
   same path. Pre-existing, not introduced by that fix. Source-level claim.
+
+- `#2-still-reproduces` `OPEN` verifier — 2026-08-28. Plugin rebuilt from a clean tree at `b79ba53e` and verified against disk, not against the build's own success message: `UnrealEditor-PinWright.dll` 39,898,624 -> 40,644,096 bytes at 2026-08-28 08:11:48, `UnrealEditor-PinWrightGeometry.dll` 4,983,296 -> 5,113,344, canonical link with no `-000N` artifacts in `UnrealEditor.modules`. Editor restarted on that DLL and the ticket's own repro re-run. Still reproduces on the rebuilt plugin at `b79ba53e`; untouched by this batch. Two `niagara.graph.create_node` calls that were **refused** - one `[UNSUPPORTED_NODE_CLASS]`, one `[INVALID_OP]` - left `/Game/PinWrightScratch/NS_TplProbe` listed in `editor.list_dirty_packages`, alongside no other write to that asset in the session. Noticed while confirming the `B-niagara-create-node-unfinalized-graph-node-creator-fatal` fix: the crash is gone, the spurious dirty is not. Consequence worth naming - a refused edit makes the next `editor.quit` or restart prompt about, or silently discard, an asset the caller never successfully modified.

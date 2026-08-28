@@ -1,12 +1,12 @@
 ---
 id: B-niagara-create-node-unfinalized-graph-node-creator-fatal
 title: "niagara.graph.create_node kills the editor on every rejected payload: it constructs the node before validating, then returns the typed error without calling NodeCreator.Finalize(), so ~FGraphNodeCreator asserts bPlaced and the process dies"
-status: IN-REVIEW
+status: DONE
 severity: Critical
 category: bug
 tags: [niagara, niagara-graph, create-node, editor-crash, assertion, fgraphnodecreator, error-path, returns-clean-then-dies, shared-editor, test-gap]
-encounters: 3
-lastSeen: 2026-08-27T19:16:48+05:00
+encounters: 4
+lastSeen: 2026-08-28T08:30:00+05:00
 ---
 
 # `niagara.graph.create_node` takes the whole editor down whenever it rejects the payload
@@ -309,3 +309,5 @@ severity rationale: impact=editor-killing `appError` with silent loss of every s
   Not compiled or run here — the orchestrator owns builds. Closes both reports: the duplicate
   `B-niagara-create-node-early-return-before-finalize-crash` was merged into this ticket and deleted
   (see `#3`) before this fix landed, so there is no second file to flip.
+
+- `#5-verified-fixed` `DONE` verifier — 2026-08-28. Plugin rebuilt from a clean tree at `b79ba53e` and verified against disk, not against the build's own success message: `UnrealEditor-PinWright.dll` 39,898,624 -> 40,644,096 bytes at 2026-08-28 08:11:48, `UnrealEditor-PinWrightGeometry.dll` 4,983,296 -> 5,113,344, canonical link with no `-000N` artifacts in `UnrealEditor.modules`. Editor restarted on that DLL and the ticket's own repro re-run. **Fixed, and the only ticket in this batch with a proven before/after crash.** Previous encounters deliberately never re-ran the repro because it kills a shared editor; this pass had the editor to itself and ran it on both DLLs. Before: the ticket's verbatim call on `/Game/PinWrightScratch/NS_TplProbe` returned the correct `[UNSUPPORTED_NODE_CLASS]` and killed editor pid 80620 within 12 s - `Assertion failed: bPlaced [EdGraph.h:312]` at `2026.08.28-03.05.31` UTC in `Saved/Logs/EAContentExamples58.log`, the same assert as #1. After the rebuild the identical call returns the identical typed error and the editor survives. Also exercised the path the class-check hoist does NOT cover, i.e. a rejection raised *inside* the `FGraphNodeCreator` lifetime: `nodeClass:"NiagaraNodeOp"` with `payload.opName:"ThisOpDoesNotExist"` -> `[INVALID_OP] Unknown Niagara op`, editor alive, zero asserts in the fresh log. Both declared error shapes are now survivable. Residual, unrelated to the crash: the refused call still leaves `NS_TplProbe` dirty - see `B-niagara-refused-edit-dirties-package`.

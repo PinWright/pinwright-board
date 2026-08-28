@@ -5,8 +5,8 @@ status: IN-REVIEW
 severity: Critical
 category: bug
 tags: [render, capture_asset_preview, capture-subject, crash, access-violation, editor-teardown, asset-editor, resource-leak, multi-agent]
-encounters: 1
-lastSeen: 2026-08-27T18:47:15+05:00
+encounters: 2
+lastSeen: 2026-08-28T08:30:00+05:00
 ---
 
 # `render.capture_asset_preview` has no safe configuration — `closeAfterCapture: true` faults in the shared teardown, `closeAfterCapture: false` leaks asset editors without bound
@@ -378,3 +378,5 @@ severity rationale: impact=editor crash taking down every agent sharing the proc
   `B-niagara-edit-with-open-asset-editor-slate-crash` is narrowed but not closed by (b): the pool
   keeps at most one editor open, so the stale-emitter window still exists for the asset being
   captured.
+
+- `#4-verification-inconclusive` `IN-REVIEW` verifier — 2026-08-28. Plugin rebuilt from a clean tree at `b79ba53e` and verified against disk, not against the build's own success message: `UnrealEditor-PinWright.dll` 39,898,624 -> 40,644,096 bytes at 2026-08-28 08:11:48, `UnrealEditor-PinWrightGeometry.dll` 4,983,296 -> 5,113,344, canonical link with no `-000N` artifacts in `UnrealEditor.modules`. Editor restarted on that DLL and the ticket's own repro re-run. Deferred close is present and observable, but **this ticket is not closed**, because a timing-dependent crash cannot be proven absent by a handful of calls - the ticket itself records a capture that returned `assetEditorClosed: true` and was followed by a kill 90 s later on unrelated work. What was measured on the rebuilt DLL: `render.capture_asset_preview` now returns a new `assetEditorCloseDeferred` field, true on Niagara subjects with the default `closeAfterCapture`, and `assetEditorClosed: false`. With `closeAfterCapture: false` on a `staticMesh` subject both flags are false and the editor is left open as asked. Four captures (three Niagara across `NS_Bubbles_Stream` and `NS_Plankton_Drift`, one `staticMesh` on `SM_Portal_Ring`) plus two explicit `editor.close_asset` calls - one of them on a Niagara toolkit, the exact `CloseAllEditorsForAsset` path from crash A - produced zero asserts and no process death. `editor.quit` afterwards reported `assetEditorsRemaining: 0`, so the deferred closes did drain rather than silently accumulating. **Test gap that keeps this open:** no test drives `render.capture_asset_preview` end to end. `TestCaptureSubjectDeferredClose.cpp` calls `AcquireAssetEditorViewport` and `CloseAssetEditor` directly and never runs `ReleaseSubject` / `ReleaseMeshSubject` / `Niagara::Release` - the frame sitting immediately above `CloseAssetEditor` in both recorded crash stacks - and `TestAnnotatedAssetOverlay.cpp` was weakened from `bClosed` to `bClosed || bCloseDeferred` to accommodate the change. The Niagara provider has no new test at all. Leave IN-REVIEW until a capture-path test exists or a long repeated-capture soak runs clean.

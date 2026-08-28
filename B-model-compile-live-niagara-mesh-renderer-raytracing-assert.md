@@ -1,12 +1,12 @@
 ---
 id: B-model-compile-live-niagara-mesh-renderer-raytracing-assert
 title: "model.compile on a static mesh a live Niagara mesh renderer is drawing kills the editor in the ray-tracing gather"
-status: IN-REVIEW
+status: DONE
 severity: Critical
 category: bug
 tags: [model, static-mesh, niagara, mesh-renderer, ray-tracing, editor-crash, render-thread, stale-reference, missing-guard, shared-editor]
-encounters: 2
-lastSeen: 2026-08-27T19:29:41+05:00
+encounters: 3
+lastSeen: 2026-08-28T08:30:00+05:00
 ---
 
 # Recompiling a mesh that a spawned Niagara mesh renderer references crashes the editor
@@ -308,3 +308,5 @@ The assert is in engine code, so PinWright cannot fix it directly, but it can st
   `/Game/Atlantis/Meshes/SM_Bubble` returns bounds, LODs and materials and says nothing about the
   eleven live Niagara components that make recompiling it fatal. That read-only field would have
   replaced the whole manual enumeration.
+
+- `#6-verified-fixed` `DONE` verifier — 2026-08-28. Plugin rebuilt from a clean tree at `b79ba53e` and verified against disk, not against the build's own success message: `UnrealEditor-PinWright.dll` 39,898,624 -> 40,644,096 bytes at 2026-08-28 08:11:48, `UnrealEditor-PinWrightGeometry.dll` 4,983,296 -> 5,113,344, canonical link with no `-000N` artifacts in `UnrealEditor.modules`. Editor restarted on that DLL and the ticket's own repro re-run. Did not reproduce on the rebuilt DLL under the ticket's own conditions, reconstructed without modifying the level. Preconditions confirmed rather than assumed: four `VFX_BubblesAmbient_*` NiagaraActors are already placed and live in `/Game/Maps/Atlantis`; `NS_Bubbles_Ambient` really does bind `/Game/Atlantis/Meshes/SM_Bubble.SM_Bubble` through a mesh renderer (read out of a `niagara.inspect` dump, not assumed); and `r.RayTracing:1` plus `r.Lumen.HardwareRayTracing:1` were set at boot, which is what puts `GetDynamicRayTracingInstances` on the render path at all. `model.compile {filePath:"Content/Atlantis/Meshes/SM_Bubble.pwmodel"}` then produced the same log signature that preceded the crash - `LogStaticMesh: Building static mesh SM_Bubble` at `2026.08.28-03.20.58:311` and `Built static mesh` at `:316`, an in-place rebuild - and the editor survived with zero asserts. Previously the `appError` landed 85 ms later. **Caveat:** the `.pwmodel` source was left unchanged, so the rebuild was geometry-identical (432 triangles); #1 changed `subdivisions` 3 -> 4. The reallocating rebuild is the trigger and it demonstrably occurred, but a topology change was not re-tested. **Reportability gap found:** `MeshRebuildRenderGuard` emits nothing into the `model.compile` response - no consumer count, no quiesce field - so a caller cannot tell whether the guard engaged, and neither can a verifier. Its tests call `FQuiesceScope` directly and never invoke `model.compile`, so deleting the wiring from `ModelCompileHandler.cpp` would leave them green. Worth a follow-up: publish the quiesced-consumer count.

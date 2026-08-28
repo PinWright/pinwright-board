@@ -1,12 +1,12 @@
 ---
 id: B-pwmodel-health-no-self-intersection
 title: "The documented `.pwmodel` health gate `isClosed && signedVolume > 0` returns green on a solid whose walls have been pushed through each other — `health` carries no self-intersection field, and `signedVolume` degrades smoothly with no threshold, so it only catches the pinch after the sign has already flipped"
-status: IN-REVIEW
+status: DONE
 severity: Medium
 category: bug
 tags: [pwmodel, health, signedVolume, self-intersection, model.validate, model.compile, sweep, false-green, missing-signal]
-encounters: 1
-lastSeen: 2026-08-27T18:57:03+05:00
+encounters: 2
+lastSeen: 2026-08-28T08:30:00+05:00
 ---
 
 # A closed mesh that is no longer a solid reports every health field healthy
@@ -156,3 +156,5 @@ severity rationale: impact=soft blocker — every field the response emits is TR
   content and was not reproduced here; the transversal fixture is synthetic. `geometry.check_health`
   and its `healthy` verdict are deliberately NOT wired to the new measurement - out of this
   ticket's scope and a different cost class for that verb's callers.
+
+- `#3-verified-fixed` `DONE` verifier — 2026-08-28. Plugin rebuilt from a clean tree at `b79ba53e` and verified against disk, not against the build's own success message: `UnrealEditor-PinWright.dll` 39,898,624 -> 40,644,096 bytes at 2026-08-28 08:11:48, `UnrealEditor-PinWrightGeometry.dll` 4,983,296 -> 5,113,344, canonical link with no `-000N` artifacts in `UnrealEditor.modules`. Editor restarted on that DLL and the ticket's own repro re-run. Signal exists and detects. `health` now carries `selfIntersections`, `selfIntersectingComponents` and `selfIntersectionsTruncated`. Verified with both a negative and a positive control rather than a single case: a clean closed revolve reports `selfIntersections: 0`, and an axis-crossing revolve (`profile=[(-60,0),(100,0),(100,40),(-60,40)] steps=24`) reports **3341** crossing pairs in 1 shell plus a `PWMODEL_SELF_INTERSECTING_SURFACE` warning that names the first crossing at (-53.4993, -26.2874, -0) and explicitly distinguishes itself from `PWMODEL_UNUNIONED_OVERLAP`. Every other health field stayed green on that mesh - `isClosed` true, `boundaryEdges` 0, `orientationConsistent` true - which is exactly the blindness the ticket reported.
