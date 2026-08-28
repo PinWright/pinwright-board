@@ -1,7 +1,7 @@
 ---
 id: B-asset-delete-force-delete-leaves-uasset-on-disk
 title: "asset.delete force-deletes the objects out of memory but never removes the .uasset: UEditorAssetLibrary::DeleteAsset returns true, the file's mtime never moves, and an unreferenced asset is undeletable through the plugin"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: bug
 tags: [asset, asset-delete, force-delete, editor-asset-library, objecttools, disk-vs-memory, no-workaround, cleanup, shared-editor]
@@ -185,3 +185,4 @@ a call that reported failure. That path was not exercised here and is not claime
   `AssetManageHandler.cpp:589` as the call and `ForceDeleteObjects` as the reached engine path — the
   `CleanupAfterSuccessfulDelete` hypothesis in `## Guilty source` is inference from the log
   signature, not read from a debugger.
+- `#2-verdict-from-probe-not-engine-return` `IN-REVIEW` developer — "Confirmed the hypothesis in engine source: ForceDeleteObjects' return counts objects torn down by DeleteSingleObject and is final before CleanupAfterSuccessfulDelete, which culls any package GatherObjectReferencersForDeletion still finds referenced in memory and skips its file delete with no log (ObjectTools.cpp, same on 5.3-5.8). AssetManageHandler.cpp asset.delete now probes registry AND disk (existsOnDisk via the exported AssetUtils DoesPackageFileExistOnDisk), emits deleteReported only when the probe agrees, adds inMemoryReferencers / referencedByUndoBuffer / memoryDiskDivergence per failed entry from the engine's own gather, and replaces the three-cause failureHint. asset.bulk_delete reaches the same cleanup via ObjectTools::DeleteObjects but verifies nothing - documented in Docs/wiki-src/asset.md, left for its own ticket. Test: PinWright.asset.delete.VerdictMatchesExistsAfter."
