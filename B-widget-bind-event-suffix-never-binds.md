@@ -1,10 +1,12 @@
 ---
 id: B-widget-bind-event-suffix-never-binds
 title: "`widget.bind` cannot bind any real UMG delegate; the only name it accepts is the one that never resolves"
-status: IN-REVIEW
+status: DONE
 severity: High
 category: bug
 tags: [umg, widget-bind, silent-false-success]
+encounters: 1
+lastSeen: 2026-08-28
 ---
 
 # `widget.bind` cannot bind any real UMG delegate
@@ -69,3 +71,5 @@ documents only the different, verify-only `widget.bind_event`.
 
 - `#1-reported-with-live-repro` `OPEN` reporter — Confirmed at runtime on `d195a55d` / UE 5.8: real property name rejected, suffix-stripped name accepted and persisted, `export_xml` renders it as genuine. Engine lookup order and silent-drop path verified in engine source.
 - `#2-resolve-names-the-way-umg-does` `IN-REVIEW` developer — `widget.bind` now resolves `propertyName` through UMG's own two lookups (`<Name>Delegate`, then the name verbatim when it is a bindable event per `IsBindableEvent`) instead of `bIsEvent = !FindPropertyByName`; the handler function graph is generated from the delegate's `SignatureFunction` (and flagged `FUNC_BlueprintPure` for property bindings), the record is written with `Kind=Function` plus a member guid, and the write is gated on the engine's own `FDelegateEditorBinding::IsBindingValid` so no dead binding is persisted. Unresolvable names are refused with `WIDGET_BINDING_NAME_UNRESOLVED` (payload carries `bindableProperties` / `bindableEvents`, message names the near-miss spelling) and multicast events with `WIDGET_BINDING_IS_MULTICAST_EVENT` steering to `blueprint.compile_bpir`. Files: `Handlers/UI/WidgetBindHandler.cpp`, `Handlers/UI/WidgetBindingUtils.{h,cpp}`. Tests added: `PinWright.widget.bind.BindableNamesResolve`, `PinWright.widget.bind.UnresolvableNamesRejected` (`Tests/Widget/TestWidgetBindResolution.cpp`).
+
+- `#3-runtime-verified-both-halves-invert` `DONE` verifier — 2026-08-28. Ran the `#1` repro verbatim against the live editor on plugin `b79ba53e`, UE 5.8, on a scratch `UBorder` (`/Game/PinWrightScratch/WBP_PwVerifyBind`, widget `PwProbeBorder`). Both halves inverted. **Real name now accepted:** `propertyName:"OnMouseButtonDownEvent"` → `success:true, delegateProperty:"OnMouseButtonDownEvent", bindingType:"event", functionCreated:true, bindingStored:true, resolves:true` — was `BINDING_FAILED` / "Cannot derive return type for property". **Stripped name now refused:** `propertyName:"OnMouseButtonDown"` → `WIDGET_BINDING_NAME_UNRESOLVED`, message naming the near-miss ("Did you mean 'OnMouseButtonDownEvent'?") and payload `bindableEvents:[OnMouseButtonDownEvent, OnMouseButtonUpEvent, OnMouseDoubleClickEvent, OnMouseMoveEvent]`, `bindableProperties:[… Background, BrushColor, ToolTipText, Visibility]` — was `success:true, created:true`. **The documented `OnClicked` example:** on a scratch `UButton` → `WIDGET_BINDING_IS_MULTICAST_EVENT` steering to `blueprint.compile_bpir entry widget_event`. **This is behaviour, not a better message.** After `blueprint.compile`, `AssetEditorSubsystem.open_editor_for_assets` built a real instance and `property.get` on the live child `/Engine/Transient.World_14:WBP_PwVerifyBind_C_1.WidgetTree_0.PwProbeBorder` → `OnMouseButtonDownEvent` `bindingStatus:"bound"`, bound to `PwProbeReal` **on the owning widget instance** — i.e. `InitializeBindingsStatic` resolved it. Control: the same property on the asset template `…WBP_PwVerifyBind:WidgetTree.PwProbeBorder` reads `bindingStatus:"empty"`, so the bound reading is runtime work and not a persisted field. The compiler warning "Event Reply Return Value should not be empty" confirms the handler graph was generated from the delegate's own `FOnPointerEvent` signature. `widget.export_xml` now emits only `Bind.OnMouseButtonDownEvent="PwProbeReal"`; the phantom `Bind.OnMouseButtonDown="PwProbeStripped"` of `#1` is absent because the write was refused. Automation suite deliberately not run.
