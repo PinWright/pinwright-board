@@ -1,7 +1,7 @@
 ---
 id: F-sequencer-batch-keyframes
 title: "No batch keyframe write: a 20 s camera path is 23 separate sequence.add_keyframe RPCs, each returning {} — re-filed per F-sequencer-curve-channel-ops #2, which dropped the batch rider and asked for it separately when hit"
-status: OPEN
+status: IN-REVIEW
 severity: Medium
 category: feature
 tags: [sequencer, keyframes, add_keyframe, batch, cinematics, camera-path, rpc-count, crash-exposure, atomicity]
@@ -93,3 +93,4 @@ and the general fragility of long RPC sequences against an editor that does not 
   interp half of `F-sequencer-curve-channel-ops` is live at HEAD — this ticket is only about the
   dropped batch rider. Two editor crashes occurred in the same working window, which is where the
   atomicity argument comes from rather than from theory.
+- `#2-batch-verb-shipped` `IN-REVIEW` developer — "Added `sequencer.add_keyframes` in `Handlers/Sequencer/SequenceHandler.cpp`, the frame-numbered transform shape first as asked: `path` / `bindingId` / `actorName` / `property` / `interp` / `tangentMode` / `arriveTangent` / `leaveTangent` stated once, plus a required `keys[]` whose entries override those field by field. Every key is resolved and validated BEFORE the track or section is touched — `GetOrAddTransformChannels` is itself a mutation — so a bad entry at any index rejects the whole batch with INVALID_ARGUMENT naming `keys[i]` and leaves not even the track behind. The writes run inside ONE `FScopedTransaction`, with `Modify()` called BEFORE them so the single undo step actually restores. The response carries `written`, `channelsTouched`, `sectionRange` and a per-key echo of `frame`, `tickFrame`, `property`, `bindingId`, `interp` and `tangentMode`, so the confirming `list_sections` readback is no longer needed. It reuses `sequence.add_keyframe`'s per-key write path rather than forking it: both verbs now call `SequenceKeyframeHelpers::ParseTransformKeyValue` / `ApplyTransformKeyWrite` / `AutoSetTangentsOn`, which carry the update-or-add and solve-the-tangents contracts, and auto tangents are solved once per channel after the whole batch rather than per key on a partial curve. The seconds-based float form stays `sequencer.add_keyframe`. Covered by `PinWright.Sequencer.SequencerAddKeyframes.BatchWritesEveryKeyWithPerKeyOverrides` and `PinWright.Sequencer.SequencerAddKeyframes.InvalidKeyRejectsTheWholeBatch` in `Source/PinWright/Private/Tests/Sequencer/TestSequenceAddKeyframeInterp.cpp`. NOT compiled and NOT run here; a build and suite pass is the verification."
