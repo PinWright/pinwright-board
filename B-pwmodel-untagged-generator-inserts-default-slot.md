@@ -1,12 +1,12 @@
 ---
 id: B-pwmodel-untagged-generator-inserts-default-slot
 title: "An untagged generator inserts an implicit 'Default' slot IN FIRST-USE ORDER, renumbering the author's declared slots, and no diagnostic fires even when a materials block names every slot the author wanted"
-status: IN-REVIEW
+status: OPEN
 severity: High
 category: bug
 tags: [pwmodel, materials, slot, material-id, default-slot, diagnostics, silent-noop, no-diagnostic, slot-renumbering]
-encounters: 2
-lastSeen: 2026-08-28T08:30:00+05:00
+encounters: 3
+lastSeen: 2026-08-28
 ---
 
 # A `materials { }` block that names two slots can compile to three, with the declared slot 1 pushed to index 2 and nothing said
@@ -164,3 +164,23 @@ on, where the whole point is to catch a mistake before writing.
 - `#2-implicit-default-slot-diagnostic` `IN-REVIEW` developer — Added `PWMODEL_IMPLICIT_DEFAULT_SLOT` (`PwModelDiagnostic.h`) and emitted it from the COMPILER rather than the parser: `FCompiler::WarnOnImplicitDefaultSlot` runs once after `MergeParts`, when the slot table is final, so the message can name the index `Default` took and each declared slot that moved with its new index — facts the parser cannot know. `RunGenerator` records the FIRST untagged part-level generator (op name, line, column, part) at the allocation site. Fires only when the document has a `materials` block that does not bind `Default` AND at least one declared slot reached the table; documents with no block, documents binding `Default`, and documents whose geometry is untagged throughout (already covered per-binding by `PWMODEL_UNUSED_MATERIAL`) stay silent. Slot PLACEMENT deliberately unchanged, per this ticket: appending `Default` last would renumber every document that already compiled with it in the middle — this defect inflicted on assets that are already placed. Files: `Source/PinWrightGeometry/Private/Model/PwModelCompiler.cpp`, `.../PwModelDiagnostic.h`, `.../PwModelAst.h` (corrected a comment claiming declaration order is the asset's slot order), `docs/pwmodel-format.md` (diagnostics-table row required by `core.pwmodel_diagnostics.DocumentedCodesMatchEmittedCodes`; corrected the "Slot `Default` (ID 0)" claim in the Materials section). `PwModelParser.cpp` untouched. Tests: `PinWright.Model.MaterialSlots.UntaggedGeneratorRenumberingDeclaredSlotsIsReported` and `PinWright.Model.MaterialSlots.OrdinaryUntaggedDocumentsAreNotReported` in the new `Source/PinWrightGeometry/Private/Tests/Model/TestPwModelMaterialSlotOrder.cpp` — the ticket's own differential repro, asserting the slot table is Stone/Default/Algae, that exactly one warning fires anchored on the untagged generator's line naming index 1 and 'Algae' at index 2, and that the one-`material=`-later variant is two slots and silent.
 
 - `#3-still-reproduces-as-filed` `IN-REVIEW` verifier — 2026-08-28. Plugin rebuilt from a clean tree at `b79ba53e` and verified against disk, not against the build's own success message: `UnrealEditor-PinWright.dll` 39,898,624 -> 40,644,096 bytes at 2026-08-28 08:11:48, `UnrealEditor-PinWrightGeometry.dll` 4,983,296 -> 5,113,344, canonical link with no `-000N` artifacts in `UnrealEditor.modules`. Editor restarted on that DLL and the ticket's own repro re-run. **The slot layout is unchanged; only the silence was fixed.** The ticket's differential repro re-run verbatim on the rebuilt DLL still returns `materialSlots: 3` with `Stone` at index 0, **`Default` -> `""` at index 1**, and `StoneAlgae` pushed to index 2 - byte-identical to the pre-fix reading. Two declared slots still do not produce two slots, so every referencer that binds by index still mis-binds. What did change: a new `PWMODEL_IMPLICIT_DEFAULT_SLOT` warning fires on the untagged op and names the slot, its index, the renumbering, and both remedies (tag the op, or bind `Default` in `materials`). The test that shipped with it is named `.UntaggedGeneratorRenumberingDeclaredSlotsIsReported` - reported, not prevented - so the diagnostic is the intended scope of the change, not a partial implementation. This needs a decision rather than a silent close: if the requirement is "two declared slots produce two slots", this is still OPEN; if naming the hazard loudly is sufficient, it is DONE. Left IN-REVIEW with the measurement recorded either way.
+
+- `#4-reopened-diagnostic-fixed-behaviour-not` `OPEN` verifier — 2026-08-28, second independent
+  re-run against the same `b79ba53e` binary, and the decision `#3` asked for: **reopened.** The
+  differential repro was replayed verbatim through `model.validate` (`diagnosticLimit: 0`) and
+  the slot table came back **`materialSlots: 3`** — index 0 `Stone` ->
+  `/Game/Atlantis/Materials/MI_Stone_Temple`, index 1 **`Default` -> `""`**, index 2
+  `StoneAlgae` -> `/Game/Atlantis/Materials/MI_Stone_Algae` — with geometry byte-identical to
+  both pre-fix readings (36 tris, 24 verts, `signedVolume` 3,000,000, bounds
+  (-50,-50,0)..(650,50,100)). Two declared slots still produce three, the declared slot 1 is
+  still at index 2, and `model.compile`'s documented index binding therefore still mis-binds on
+  every placed instance. The **diagnostic** half is genuinely fixed and works well: exactly one
+  `PWMODEL_IMPLICIT_DEFAULT_SLOT` warning fires, anchored at line 10 col 5 on the untagged `box`
+  in part `a`, naming the index taken, the renumbering (`'StoneAlgae' is at index 2`), and both
+  remedies. That is the whole of the change: the shipped test is
+  `...UntaggedGeneratorRenumberingDeclaredSlotsIsReported` — **reported, not prevented**. A
+  warning is not a fix for a wrong-index defect whose entire cost is paid by referencers that
+  never read the warning, so the status is `OPEN` rather than `DONE`. `#2`'s reason for not
+  moving the slot (appending `Default` last renumbers documents already placed) is still sound
+  and this reopening does not ask for that; what is missing is any path by which a document
+  declaring two slots yields two.
