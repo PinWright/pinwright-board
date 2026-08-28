@@ -1,7 +1,7 @@
 ---
 id: E-warp-deformers-no-axis-or-center
 title: "bend / twist / taper hardcode the warp frame to FTransform::Identity, so all three only work on geometry that is Z-aligned AND sits on the part-local origin — the engine call takes a full FTransform and harmonic_deform, the sibling deformer, already publishes axis= and center="
-status: OPEN
+status: IN-REVIEW
 severity: Medium
 category: enhancement
 tags: [pwmodel, geometry, bend, twist, taper, warp-deformer, axis, center, harmonic_deform, parameter-gap]
@@ -146,3 +146,31 @@ different op and the opposite failure: these three warps fail to REACH off-origi
   own motivating case. Filed separately as `E-pwmodel-transform-rotate-pivots-origin` (same
   premise, different op, opposite failure: these warps fail to REACH off-origin geometry,
   `transform rotate=` reaches it and DISPLACES it). `encounters` 1 -> 2, `lastSeen` refreshed.
+- `#3-frame-already-landed-extent-docs-corrected` `IN-REVIEW` developer — "The proposed fix is
+  ALREADY IN THE TREE at HEAD and this entry does not re-implement it; it verifies it and closes
+  the one clause left open. Verified present: `GeometryOps::FWarpFrameSpec { EMeshAxis Axis = Z;
+  FVector Center = ZeroVector; }` on `FBendParams` / `FTwistParams` / `FTaperParams`
+  (`GeometryOps_Modeling.h`), `GeometryOpsModeling_WarpFrame()` building the gizmo frame from a
+  cyclic basis (frame X = (Axis+1)%3, frame Y = (Axis+2)%3, translation = Center) and all three
+  ops passing it instead of `FTransform::Identity` (`GeometryOps_Modeling.cpp`), `axis=` (enum via
+  the shared `AxisValues()`, default `z`) and `center=` (vector3, default `(0, 0, 0)`) published
+  on all three ops spelled exactly as `harmonic_deform` spells them (`PwModelParser.cpp`), read
+  through `ReadWarpFrame` (`PwModelCompiler.cpp`) and, on the RPC side, `ReadWarpFrameSpec` +
+  `PW_WARP_FRAME_RPC_PARAMS` (`MeshOpsHandler.cpp`). Landed in `9a89ddaf`; the regression suite
+  `TestGeometryDeformerFrameAndScale.cpp` landed in `4199860f` and already carries the
+  byte-identical-defaults assertion this ticket demands —
+  `PinWright.Geometry.Ops.WarpFrame.DefaultFrameReproducesTheHardcodedIdentity` runs each of the
+  three ops at default params against the raw engine call at `FTransform::Identity` and asserts a
+  max positional delta of exactly `0.0`, plus
+  `...WarpFrame.AxisChoosesWhichAxisTheExtentSpans` and
+  `...WarpFrame.CenterTranslatesTheDeformWithTheMesh`. Wiki `Docs/wiki-src/geometry.md` documents
+  both parameters. WHAT WAS ACTUALLY CHANGED HERE: only the ticket's remaining docs clause — six
+  `extent` parameter descriptions still read `about the origin`, which stopped being true the
+  moment `center=` shipped. Rewritten to `measured ALONG axis FROM center` in the three
+  `.pwmodel` op specs (`PwModelParser.cpp` bend / twist / taper) and to `measured along \`axis\`
+  from \`center\`` in the three RPC schemas (`MeshOpsHandler.cpp` geometry.bend / .twist /
+  .taper). String literals only, no behaviour change; the `symmetric half-extent` /
+  `[-extent, +extent]` / `[-lowerExtent, +extent]` markers the
+  `infra.wiki_handler.*.Geometry*ExtentSemantics` doc tests grep for are all preserved. NOT
+  COMPILED and NOT RUN — a build and a `PinWright.Geometry.*` + `PinWright.Model.*` +
+  `PinWright.infra.wiki_handler.*` pass is the verification this entry is asking for."
