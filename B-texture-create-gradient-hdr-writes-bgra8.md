@@ -1,7 +1,7 @@
 ---
 id: B-texture-create-gradient-hdr-writes-bgra8
 title: "texture.create_gradient_texture has the identical HDR format mismatch just fixed on create_noise_texture"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: bug
 tags: [texture, create_gradient_texture, hdr, TSF_RGBA16F, wrong-pixels, format-mismatch]
@@ -25,3 +25,4 @@ the request flag, so fill and allocation cannot disagree) and write four `FFloat
 ## History
 - `#1-found-fixing-the-sibling` `OPEN` reporter — Found by the agent fixing the `create_noise_texture`
   HDR defect, which swept the file's other `CreateEmptyTexture` callers. Source reading, not reproduced.
+- `#2-branch-fill-on-source-format` `IN-REVIEW` developer — "Branched the `create_gradient_texture` fill in `TextureHandler.cpp` on `Source.GetFormat() == TSF_RGBA16F`, writing four `FFloat16` channels at an 8-byte stride on the HDR path and leaving the 4-byte BGRA path unchanged; added `PinWright.texture.create_gradient_texture.HdrWritesHalfFloatPixels` in `Tests/Material/TestGradientTextureHdrFormat.cpp`"
