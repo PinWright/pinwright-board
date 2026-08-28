@@ -1,7 +1,7 @@
 ---
 id: B-pwmodel-untagged-generator-inserts-default-slot
 title: "An untagged generator inserts an implicit 'Default' slot IN FIRST-USE ORDER, renumbering the author's declared slots, and no diagnostic fires even when a materials block names every slot the author wanted"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: bug
 tags: [pwmodel, materials, slot, material-id, default-slot, diagnostics, silent-noop, no-diagnostic, slot-renumbering]
@@ -184,3 +184,61 @@ on, where the whole point is to catch a mistake before writing.
   moving the slot (appending `Default` last renumbers documents already placed) is still sound
   and this reopening does not ask for that; what is missing is any path by which a document
   declaring two slots yields two.
+
+- `#5-implicit-default-slot-goes-last` `IN-REVIEW` developer — **The LAYOUT changed this time, not
+  the message.** New rule: the implicit `Default` slot is the one slot exempt from first-use order
+  and is placed **LAST**, after every slot a `material=` tag names. On the ticket's own repro the
+  table is now `Stone`@0, `StoneAlgae`@1, `Default`@2 — the two declared slots sit at the indices
+  the author's tags put them at, and adding or removing `material=` on a sibling generator no
+  longer moves either one. Implemented as `FCompiler::MoveImplicitDefaultSlotLast`
+  (`Source/PinWrightGeometry/Private/Model/PwModelCompiler.cpp`), which runs inside `MergeParts`
+  after the append loop and **before** the `MaterialN` padding, rotating the slot out of the array
+  and rewriting the merged mesh's material IDs to match via three `RemapMaterialIDs` steps through
+  a scratch ID past the used range (UE 5.3–5.8 all carry that entry point with the same signature).
+  It is a **pure relabelling**: every triangle keeps the same *named* slot, so no geometry changes
+  which material it renders in — including modifier output (`sweep`, `extrude_along_spline`,
+  `bridge`, `fill_holes`), which carries raw ID 0 and follows `Default` to the end when `Default`
+  was the slot allocated first. Padded `MaterialN` slots are index-invariant because the
+  permutation only touches the prefix they sit after. `material="Default"` written by hand is a
+  name the author chose and is exempt from the rotation (`bDefaultSlotExplicitlyTagged`), so the
+  exemption stays about the implicit slot rather than becoming a rule about the string.
+  **Rejected alternatives, with the reason.** *Declaration order becomes authoritative* — rejected:
+  `PinWright.Model.Compiler.SlotListReportsFirstUseOrderAndItsBindings` is a deliberate, commented
+  specification that first-use order beats declaration order, and two shipped examples
+  (`crystal_cluster.pwmodel` declares `Quartz, Matrix` but first-uses `Matrix, Quartz`;
+  `spiral_stair.pwmodel` declares `TreadPlate, Iron, Timber` but first-uses `Timber, TreadPlate,
+  Iron`) would have been renumbered by it. *Untagged generator becomes a compile error* — rejected:
+  it produces no layout at all, and the ticket asks for a predictable one.
+  **Breaking-change assessment: yes, but narrowly, and only for documents that are already wrong.**
+  The population whose indices move is exactly "a document with mixed tagged/untagged part-level
+  geometry where some untagged generator runs before a tagged one". Fully tagged models have no
+  `Default`; fully untagged ones have nothing else; both are byte-identical to before. All 14
+  `Examples/pwmodel/*.pwmodel` were scanned with a brace-depth walker restricted to depth-1
+  generators inside `part { }` — **none moves**: twelve are fully tagged, and `mobius_band` and
+  `robot_arm_skin` are untagged throughout (single `Default` slot at index 0 either way). `#2`'s
+  objection (moving the slot renumbers assets already placed) is real and is the cost this
+  deliberately accepts: the alternative is that the defect keeps shipping wrong indices silently
+  while a warning no referencer reads narrates it. Files: `Model/PwModelCompiler.cpp` (rule +
+  rotation, and `WarnOnImplicitDefaultSlot` collapsed — its "declared slots are renumbered" branch
+  is now unreachable, so the message says the geometry ships on the engine default material and
+  names the index without claiming a renumbering), `Model/PwModelAst.h`,
+  `Model/PwModelDiagnostic.h`, `Handlers/Model/ModelCompileHandler.cpp` (comment),
+  `Docs/pwmodel-format.md` (Materials section, the warnings list, the
+  `PWMODEL_IMPLICIT_DEFAULT_SLOT` diagnostics-table row required by
+  `core.pwmodel_diagnostics.DocumentedCodesMatchEmittedCodes` — no code was added or removed, so
+  the table's key set is unchanged — and the modifier/ID-0 paragraph), `Docs/wiki-src/model.md`,
+  `model.authoring.md`, `model.vertex-color.md`. `PwModelParser.cpp` untouched. Tests, in
+  `Source/PinWrightGeometry/Private/Tests/Model/TestPwModelMaterialSlotOrder.cpp`:
+  `PinWright.Model.MaterialSlots.UntaggedGeneratorDoesNotRenumberDeclaredSlots` is the behavioural
+  regression — it asserts the whole table on BOTH halves of the differential (3 slots
+  Stone/Algae/Default, and 2 slots Stone/Algae, with the declared names at the same indices in
+  each) plus the hand-tagged-`Default` exemption, and it FAILS before this change because index 1
+  read `Default` and index 2 read `Algae`. The old
+  `...UntaggedGeneratorRenumberingDeclaredSlotsIsReported` asserted that broken table verbatim; it
+  is renamed to `...UntaggedGeneratorAllocatingAnUndeclaredSlotIsReported` and now covers only the
+  diagnostic (one warning, warning severity, line 8, part `a`, names `'box'`, `at index 2`, the
+  default-material consequence and both remedies). NOT COMPILED and NOT RUN — the task forbade
+  building, so the tests are unexecuted and the DLL on disk is still `b79ba53e`'s; the verifier
+  must rebuild before re-running the repro. Pre-existing and untouched:
+  `Docs/pwmodel-emitter-and-migration.md:17` claims "material bindings *are* the asset's slot
+  order", which was already false under first-use order and is not made worse here.
