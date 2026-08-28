@@ -1,7 +1,7 @@
 ---
 id: B-niagara-decode-pin-default-coerces-to-zero
 title: "DecodePinDefault silently coerces an unresolvable stored enum name to 0, and its one caller then reports the declared default while still stamping source:override"
-status: OPEN
+status: IN-REVIEW
 severity: Medium
 category: bug
 tags: [niagara, static-switch, DecodePinDefault, asset-dump, silent-wrong-data, self-contradicting]
@@ -32,3 +32,13 @@ table) rather than the read-back of an already-broken pin.
   `B-niagara-static-switch-enum-value-map-undiscoverable` and
   `B-niagara-static-switch-enum-display-name`, which deliberately left this because it is a different
   function from the two those tickets name and needs a call-site change. Source-level claim.
+- `#2-decode-fails-and-caller-reports-raw` `IN-REVIEW` developer -- "Changed `DecodePinDefault` in
+  `NiagaraEditTypes.cpp` to return false (with an optional `OutError` naming the rejected string and
+  listing the branch table) for an unresolvable stored enum name and for an enum switch with no enum
+  class, instead of coercing both to branch 0, and restructured `BuildStaticSwitchInputs` in
+  `NiagaraDumpBuilder.cpp` so an undecodable override emits no `value` at all and carries `rawValue` +
+  `valueError` under `source: \"override\"`. Bumped `niagara_model.json` / `niagara_stack.json` aspect
+  versions 3 -> 4 and documented the read-back shape in `docs/wiki-src/niagara.md`. Regression test
+  `PinWright.niagara.dump.StaticSwitchPinDefaultDecode` in
+  `Tests/Niagara/TestNiagaraDumpStaticSwitch.cpp`. Not compiled -- build/test loop is the
+  verification."
