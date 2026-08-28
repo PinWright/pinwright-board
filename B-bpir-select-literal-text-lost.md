@@ -1,10 +1,12 @@
 ---
 id: B-bpir-select-literal-text-lost
 title: "BPIR `select` writes literal FText options into `DefaultValue` instead of `DefaultTextValue`, so they compile to empty text"
-status: IN-REVIEW
+status: DONE
 severity: High
 category: bug
 tags: [bpir, k2node-select, ftext, wrong-data-that-looks-correct]
+encounters: 1
+lastSeen: 2026-08-28
 ---
 
 # BPIR `select` loses literal FText options
@@ -96,3 +98,24 @@ which is how this survived.
 
 - `#1-reported-with-live-repro` `OPEN` reporter — Confirmed at runtime on `d195a55d` / UE 5.8: Select `Option 0` typed `text` carrying the raw literal in `defaultValue` with `defaultTextValue` absent, against a same-asset function-input control showing `defaultTextValue:"DIRECT"`. Decompile round-tripped the literals cleanly while the pin was broken. Literal index-pin variant reproduced as the documented "undetermined" compile error.
 - `#2-pretype-select-option-pins` `IN-REVIEW` developer — Fixed by pre-typing the Select's Return Value and option pins at emit time, before pass 3a applies option literals, so `FCodePinResolver::SetPinDefaultValue` takes its `PC_Text` branch and writes `DefaultTextValue` instead of the wildcard escape hatch's `DefaultValue`. Two type sources in `Compiler/BpirCompiler.cpp` (new statics `ResolveSelectResultPinType` / `PreTypeSelectPins`, called from the `EBpirOpcode::Select` emit case): the previously-unused `FBpirInstruction::DeclaredResultType` (which `BpirTextEmitter::ResolvePrimaryOutputTypeAnnotation` already emits for every select, so decompile/recompile now restores the type), and an option literal that `CoerceStringToPersistedFText` accepts as an FText with a real localization identity. Bare quoted strings have no identity and are untouched, so string selects behave exactly as before. Pin types are stamped directly rather than via `UK2Node_Select::ChangePinType`/`OnPinTypeChanged`, avoiding the `bReconstructNode` side effect that would invalidate the pin pointers the emit pass just cached; option pins are found by walking `Pins` because `GetOptionPins()` keys off `IndexPinType`, which `SetEnum` leaves at its `PC_Wildcard` default on a freshly emitted enum-backed select. Files: `Source/PinWright/Private/Compiler/BpirCompiler.cpp` (+ `Utils/PropertyImport.h` include), `docs/bpir-test-matrix.md`. Test added: `PinWright.bpir.round_trip.SelectTextOptionLiteral` (`Source/PinWright/Private/Tests/Bpir/TestBpirSelectTextOptionLiteral.cpp`) — asserts each option pin is `PC_Text`, carries a non-empty `DefaultTextValue` with the original display string and key, and has an empty `DefaultValue`; then decompiles, asserts the `NSLOCTEXT` identity and the `: text = select(` annotation survive, and recompiles the decompiled source into a fresh BP asserting the same pin state (that leg covers the declared-result-type path). NOT fixed here and reported separately: the literal-index variant (`select(Index: <literal>)` leaves the Index pin `PC_Wildcard`) — logged as gap 23 in `docs/bpir-test-matrix.md`; and `make_array`, whose element pins are wildcard on the same code path and lose FText literals identically.
+
+- `#3-behaviourally-verified-at-b79ba53e` `DONE` verifier — 2026-08-28. Ran the ticket's original
+  repro live against the running editor at `b79ba53e` (UE 5.8), scratch Actor BP
+  `/Game/PinWrightScratch/BP_PwVerifyBpir0828` with a `bFlag` bool. `blueprint.compile_bpir` with
+  the un-annotated original line `%t = select(cond: $bFlag, true: "NSLOCTEXT(\"PwTest\",\"Yes\",\"YES\")",
+  false: "NSLOCTEXT(\"PwTest\",\"No\",\"NO\")")` → `compiled:true, errors:[]`.
+  `blueprint.graph.get_pin_details` on the emitted `K2Node_Select_0` now returns
+  `Option 0 {pinType:"text", defaultTextValue:"NO"}` and `Option 1 {pinType:"text",
+  defaultTextValue:"YES"}` — the exact inverse of the `#1` repro, which had the raw literal in
+  `defaultValue` and no `defaultTextValue` field at all. No `defaultValue` key on either option pin.
+  `ReturnValue` is `text`, so the Return Value pre-typing is present too (the inference path fired
+  with no `: text` annotation in the source, as claimed). **Round trip proven stable, not just
+  present:** `blueprint.decompile` emitted
+  `%n0: text = select(Index: $bFlag, false: "NSLOCTEXT(\"PwTest\", \"No\", \"NO\")", true:
+  "NSLOCTEXT(\"PwTest\", \"Yes\", \"YES\")")` — namespace and both keys intact, so the
+  localization identity really is on the pin and not just the display string; that text recompiled
+  verbatim into a second scratch BP (`BP_PwVerifyBpir0828_RT`) gave the identical pin state
+  (`defaultTextValue` NO/YES, no `defaultValue`), and the second decompile was byte-identical to the
+  first. **Also survives reconstruction:** `asset.save {force:true}` + `asset.reload` (compile-on-load
+  path) then re-read — pins still `text` / `defaultTextValue` NO/YES, decompile unchanged. Not
+  re-tested here and still open per `#2`: the literal-index variant (gap 23).

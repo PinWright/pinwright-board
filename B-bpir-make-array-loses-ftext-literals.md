@@ -1,12 +1,12 @@
 ---
 id: B-bpir-make-array-loses-ftext-literals
 title: "BPIR make_array writes literal FText elements into DefaultValue instead of DefaultTextValue, so they compile to empty text -- the same defect just fixed on select"
-status: IN-REVIEW
+status: DONE
 severity: High
 category: bug
 tags: [bpir, k2node-makearray, ftext, wrong-data-that-looks-correct, DefaultTextValue]
-encounters: 1
-lastSeen: 2026-08-27
+encounters: 2
+lastSeen: 2026-08-28
 ---
 
 # The same misrouting `select` had, on the other node kind that can hit it
@@ -44,3 +44,22 @@ Bounded: `make_set` and `make_map` are not emitted at all (documented gaps), so 
   string, namespace and key with DefaultValue empty, on both the inference and the annotation path,
   plus a negative leg that a bare quoted element is not mistyped as text. `Docs/bpir-test-matrix.md`
   rows updated and gap 24 appended. Not compiled or run -- the orchestrator owns builds.
+
+- `#3-behaviourally-verified-at-b79ba53e` `DONE` verifier — 2026-08-28. Ran the repro live against
+  the running editor at `b79ba53e` (UE 5.8) on scratch Actor BP
+  `/Game/PinWrightScratch/BP_PwVerifyMkArr0828`. `blueprint.compile_bpir` with the un-annotated
+  original shape `%arr = make_array("NSLOCTEXT(\"PwTest\",\"A\",\"AAA\")",
+  "NSLOCTEXT(\"PwTest\",\"B\",\"BBB\")")` → `compiled:true, errors:[]`.
+  `blueprint.graph.get_pin_details` on the `K2Node_MakeArray` returns `[0] {pinType:"text",
+  defaultTextValue:"AAA"}`, `[1] {pinType:"text", defaultTextValue:"BBB"}` and the output
+  `Array {pinType:"text"}` — no `defaultValue` key on any element pin, so the literal reached
+  `DefaultTextValue` and the output-pin stamp is present as claimed. The inference path fired with
+  no `array<text>` annotation in the source. **Round trip proven stable:** `blueprint.decompile`
+  emitted `%n0: array<text> = make_array("NSLOCTEXT(\"PwTest\", \"A\", \"AAA\")",
+  "NSLOCTEXT(\"PwTest\", \"B\", \"BBB\")")` with namespace and both keys intact; recompiling
+  that text verbatim into `BP_PwVerifyMkArr0828_RT` reproduced the identical pin state, and after
+  `asset.save {force:true}` + `asset.reload` (compile-on-load reconstruction) the second decompile
+  was byte-identical to the first. **Negative leg confirmed:** `%s = make_array("A", "B", "C")` in
+  the same BP still yields wildcard pins carrying `defaultValue` `A`/`B`/`C` and a wildcard `Array`
+  output — bare quoted strings are not mistyped as text, so string make_arrays behave exactly as
+  before.
