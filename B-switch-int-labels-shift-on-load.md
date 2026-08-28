@@ -1,10 +1,12 @@
 ---
 id: B-switch-int-labels-shift-on-load
 title: "BPIR `switch_int` case labels silently renumber on asset load when they are not a contiguous run from `StartIndex`"
-status: IN-REVIEW
+status: DONE
 severity: High
 category: bug
 tags: [bpir, k2node-switchinteger, wrong-data-that-looks-correct]
+encounters: 1
+lastSeen: 2026-08-28
 ---
 
 # BPIR `switch_int` case labels silently renumber on asset load
@@ -94,3 +96,29 @@ A test that compiles, reconstructs (or saves and reloads), and asserts the case 
 
 - `#1-reported-with-live-repro` `OPEN` reporter — Confirmed at runtime on `d195a55d` / UE 5.8: labels `1,2` read back as `1,2` after compile and as `0,1` after save+reload; control with labels `0,1` stable across the same cycle. Engine reconstruction path verified in engine source; PinWright's by-name wiring confirmed correct by the pre-reload read.
 - `#2-anchor-startindex-and-reject-gapped-labels` `IN-REVIEW` developer — `Compiler/BpirCompiler.cpp`: added `TryParseSwitchIntCaseLabel` + `ResolveSwitchIntCaseValues` statics and rewrote the `EBpirOpcode::SwitchInt` emit case. Case labels are now parsed as integers, sorted ascending, checked for contiguity, and the node's `StartIndex` is anchored to the lowest label before the case pins are created in ascending order — which is exactly the layout `ReallocatePinsDuringReconstruction`'s positional renumber reproduces, so the labels survive compile-on-load. Gapped, duplicated and non-canonical-decimal label sets are now rejected with a typed compile error naming the constraint, before the node is created (so nothing half-built is left behind). Wiring was already by pin name, so `FindExecOutputPin` needed no change; the decompiler needed none either, since the emitted labels *are* the pin names and recompiling them re-derives the same `StartIndex`. New tests in `Tests/Bpir/TestBpirSwitchIntCaseLabels.cpp`: `PinWright.bpir.switch_int.CaseLabelsSurviveReconstruction`, `.OutOfOrderLabelsAreLaidOutAscending`, `.NonContiguousLabelsRejected` — the first two compile, record each case pin's downstream arm, run `FBlueprintEditorUtils::ReconstructAllNodes` (the compile-on-load path), and assert every label still runs the arm it was authored with. `Docs/bpir-test-matrix.md` updated: `switch_int` row now lists the reconstruction tests, and a "recently closed gaps" entry records why the old `bSuccess`-plus-node-count assertions could not see this.
+
+- `#3-behaviourally-verified-at-b79ba53e` `DONE` verifier — 2026-08-28. Ran `#1`'s original repro
+  live against the running editor at `b79ba53e` (UE 5.8) on scratch Actor BP
+  `/Game/PinWrightScratch/BP_PwVerifySwInt0828`. Authored the exact failing shape
+  `%sw = switch_int(Index: 3) [1 -> @a, 2 -> @b, default -> @d]` with three distinguishable
+  `PrintString` arms (`ARM_ONE` / `ARM_TWO` / `ARM_DEFAULT`) → `compiled:true, errors:[]`; case pins
+  read `1`, `2` wired to the `ARM_ONE` and `ARM_TWO` nodes. Then `asset.save {force:true}` +
+  `asset.reload` — the compile-on-load reconstruction path `#1` measured. **Post-reload the case pins
+  are still `1` and `2`** (`blueprint.graph.get_node_details` on `K2Node_SwitchInteger_0`, with
+  `Selection defaultValue:"3"` intact), where `#1` measured `0`, `1`. `blueprint.decompile` after the
+  reload returns `switch_int(3) [1 -> @case_1, 2 -> @case_2, default -> @default]` with `@case_1`
+  running `ARM_ONE` and `@case_2` running `ARM_TWO` — every label still runs the arm it was authored
+  with, so `StartIndex` is genuinely anchored to 1 rather than the labels having been renamed.
+  **Out-of-order leg:** `switch_int(Index: 4) [3 -> @c3, 2 -> @c2, 4 -> @c4, default -> @cd]`
+  compiles, and after save+reload decompiles as `[2 -> OOO_TWO, 3 -> OOO_THREE, 4 -> OOO_FOUR]` —
+  laid out ascending, each arm intact. **Rejection leg:** `[1 -> @a, 5 -> @b, 9 -> @c, default -> @d]`
+  now fails with a typed `COMPILE_FAILED`: *"switch_int case labels must form a contiguous ascending
+  run (e.g. [3, 4, 5]); got [1, 5, 9], which has a gap between 1 and 5. UK2Node_SwitchInteger stores
+  no case values — it renumbers its case pins to StartIndex, StartIndex+1, ... on the next load — so
+  a gapped set would silently change which arm each case runs."* A subsequent decompile of the same
+  BP shows no `GappedCase` entry, so nothing half-built was left behind. **Decompiler round trip:**
+  the emitted `[2, 3, 4]` text recompiled verbatim into a fresh BP
+  (`BP_PwVerifySwInt0828_RT`), saved and reloaded, decompiles identically — `StartIndex` is
+  re-derived from the labels, so the missing-`StartIndex` emission noted under "Contributing gaps"
+  is no longer a round-trip loss for contiguous label sets. `blueprint.graph.set_node_property` still
+  cannot set `StartIndex` (unchanged, and no longer needed for this defect).
