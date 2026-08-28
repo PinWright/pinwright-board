@@ -1,12 +1,12 @@
 ---
 id: B-widget-bind-accepts-non-variable-widget
 title: "widget.bind accepts a binding on a widget with bIsVariable=false, which passes IsBindingValid and resolves to nothing at runtime"
-status: IN-REVIEW
+status: DONE
 severity: High
 category: bug
 tags: [umg, widget-bind, bIsVariable, InitializeBindingsStatic, silent-false-success, import-xml]
-encounters: 1
-lastSeen: 2026-08-27
+encounters: 2
+lastSeen: 2026-08-28
 ---
 
 # One false-success vector left in the verb, reachable through widget.import_xml
@@ -51,3 +51,5 @@ must be a variable, since the remedy is not obvious.
   instantiates and runs `UUserWidget::Initialize`, then asserts the child's `TextDelegate` is bound to
   the handler -- so the refusal cannot be re-added silently. The ticket's suggested reuse is also
   unsound: see `B-widget-variable-guid-map-is-not-a-variable-set`.
+
+- `#3-premise-refuted-at-runtime` `DONE` verifier -- 2026-08-28. Ran the ticket's own vector against the live editor on plugin `b79ba53e`, UE 5.8, and the reported defect does not reproduce -- `#2` is correct. Built the non-variable widget through the exact path the ticket names: `widget.import_xml` on `/Game/PinWrightScratch/WBP_PwVerifyNonVar` with `<TextBlock name="PwNonVarText" IsVariable="false">` plus a variable sibling `PwVarText` as control -- the response's own `variableWidgets:["RootCanvas","PwVarText"]` confirms `PwNonVarText` got no GUID registration. `widget.bind {widgetName:"PwNonVarText", propertyName:"Text", functionName:"PwGetNonVarText"}` -> `success:true, delegateProperty:"TextDelegate", bindingType:"property", resolves:true` (no refusal was added, as `#2` intended). **Compiler promotion observed directly:** after `blueprint.compile` (UpToDate, 0 errors), reading `PwNonVarText` off the generated CDO fails with *"Property 'PwNonVarText' ... is **protected** and cannot be read"* while `PwVarText` and `RootCanvas` read fine -- the property exists on `WBP_PwVerifyNonVar_C` but is the hidden variable `PopulateBlueprintGeneratedVariables` mints for a bound widget. A widget genuinely absent from the map would have reported the property missing, not protected. **Runtime resolution measured:** `AssetEditorSubsystem.open_editor_for_assets` built a live instance; `property.get` on `/Engine/Transient.World_11:WBP_PwVerifyNonVar_C_1.WidgetTree_0.PwNonVarText` returns `TextDelegate` `bindingStatus:"bound"` -> `{object: …WBP_PwVerifyNonVar_C_1, function: "PwGetNonVarText"}`. So `InitializeBindingsStatic` **does** resolve the non-variable widget. Differential control: the unbound sibling `…WidgetTree_0.PwVarText` reads `bindingStatus:"empty"` on the same instance. The proposed refusal would therefore have broken `widget.import_xml`'s `IsVariable="false"` output for no gain. Closing as not-a-defect; the `#2` comment and `PinWright.widget.bind.NonVariableWidgetResolves` guard the behaviour. Automation suite deliberately not run.
