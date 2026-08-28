@@ -1,7 +1,7 @@
 ---
 id: B-force-delete-nulls-referencers
 title: "asset.delete force-deletes unconditionally: every in-memory pointer to the target is nulled and its owner marked dirty BEFORE the engine decides whether the package may go, so a declined delete leaves the .uasset alive and its referencers broken"
-status: OPEN
+status: IN-REVIEW
 severity: Critical
 category: bug
 tags: [asset, asset-delete, level-delete, animation-cleanup, force-delete, objecttools, data-loss, destructive-default, no-preflight, referencers, engine-behaviour]
@@ -232,3 +232,60 @@ with everything else. This is not a judgement call — it is read from the sourc
   marked dirty) was not exercised. Rated Critical on impact class *"a write that corrupts or loses
   asset data"* x reach *routine verb, force unconditional*; downgrade to High is defensible if a
   reviewer holds that unobserved on-disk persistence keeps it out of the Critical band.
+- `#2-gate-behind-force-opt-in` `IN-REVIEW` developer — "Gated all three verbs behind a new
+  `force` parameter (default false) routed through one new shared helper
+  `Source/PinWright/Private/Utils/AssetDeletePolicy.{h,cpp}` (`DeleteAsset` / `DeleteDirectory`).
+  **Deviated from the Fix section on the mechanism, deliberately.** The ticket proposes hoisting
+  the plugin's `GatherInMemoryPackageReferencers` above the delete and routing clean →
+  `DeleteObjectsUnchecked`. That pre-flight is wrong as written and would have refused every
+  delete: it gathers over the **package**, and `GatherObjectReferencersForDeletion` sets
+  `bOutIsReferenced` from any object inside `InObject` carrying `GARBAGE_COLLECTION_KEEPFLAGS`
+  (= `RF_Standalone` in the editor, `GarbageCollection.h:28`) — pre-delete that is the asset
+  itself. The existing wrapper is only meaningful *after* `DeleteSingleObject` clears
+  `RF_Standalone`, which is exactly why it sits on the failure path. The clean path instead calls
+  `ObjectTools::DeleteObjects(Objects, bShowConfirmation=false, CancelNotAllowed)`, the engine's own
+  safe delete: `DeleteItems` builds an `FAssetDeleteModel`, `DoDelete()` early-outs on
+  `CanDelete() == !CanForceDelete()` having mutated nothing, and otherwise reaches the very
+  `DeleteObjectsUnchecked` the ticket names. That is the same primitive `asset.bulk_delete` already
+  uses, so the two verbs no longer disagree; it duplicates no predicate, so the ticket's *cost on the
+  normal path* and *gate can be wrong in the safe direction* tradeoffs both disappear — the refusal
+  is the engine's own decision and the referencer walks run only after one. **`force:true` survives**
+  (opt-in, priced in its param description and in the response): `ForceDeleteObjects` is the only way
+  to delete a referenced asset, interactive UE offers exactly that behind a red-button confirm, and
+  removing it would leave callers unable to do something the editor can. Ticket item 4 implemented:
+  `ForceDeleteObjects` discards its `FForceReplaceInfo`, so the policy brackets the force call with a
+  `TObjectIterator<UPackage>` dirty-set snapshot and returns the newly-dirtied packages as
+  `referencesNulled`, with a hint naming every verb that would write the nulls and pointing at
+  `asset.reload`. **Two ticket claims corrected.** (a) The tradeoff *'`DeleteObjectsUnchecked` skips
+  the editor-closing step'* is wrong: it calls `DeleteSingleObject`, which calls
+  `CloseAllEditorsForAsset` unconditionally before its reference check (`ObjectTools.cpp:3470`); what
+  it skips is only `ForceDeleteObjects`' recursive close of *referencers'* editors, which cannot
+  matter on a path that refuses when referencers exist. No editor-open pre-flight was added. (b) A
+  new hazard the ticket does not name: the safe path's terminal `CleanupAfterSuccessfulDelete` runs
+  with `bPerformReferenceCheck=false`, so for the rare package holding **two** `RF_Standalone`
+  assets, deleting one now removes the shared `.uasset` (taking the other with it) where the force
+  path's cull used to leave the file alone. That is engine-standard Content Browser behaviour and it
+  keeps `PinWright.asset.delete.VerdictMatchesExistsAfter` green (its assertions are relational), but
+  it is a real edge-case change. **Files:** new `Utils/AssetDeletePolicy.{h,cpp}`;
+  `Handlers/Asset/AssetManageHandler.cpp` (`asset.delete`: `force` param, policy routing, per-entry
+  `refused` / `errorCode` / `refusalReason` / `referencesPreserved` / `referencers`, per-entry and
+  top-level `forced` / `referencesNulled`, top-level `errorCode`, extended `failureHint`; the
+  'may now contain broken references' warning is now emitted only when something was actually
+  deleted); `Handlers/Level/LevelHandler.cpp` (`level.delete`: `force` param, `ASSET_IN_USE`
+  refusal — its registered summary has always claimed this guard and now has it; raw `TEXT()` code
+  because that file does not adopt `ErrorCodes::`); `Handlers/Animation/AnimationHandler.cpp`
+  (`animation.cleanup`: `force` param, new `refused[]` bucket kept out of `failed[]`,
+  `referencesNulled`, `CLEANUP_PARTIAL` now counts refusals). `blueprint.create_enum`'s rollback was
+  left forcing — it deletes only the asset it just created. Docs: `Docs/wiki-src/asset.md`
+  `### asset.delete` and `Docs/wiki-src/level-building.build-scripts.md` (whose 'their references are
+  nulled' advice was stale). **Regression test:**
+  `Source/PinWright/Private/Tests/Assets/TestAssetDeleteForceGate.cpp`,
+  `PinWright.asset.delete.RefusesReferencedInsteadOfNullingReferences`. It judges on the side effect,
+  not the wire text: using `AssetRefDirectionFixtures::BuildHardDependency` (A references B), it
+  asserts that after `asset.delete{path:B}` the asset survives **and A's package is still clean** —
+  before the fix `ForceReplaceReferences` calls `MarkPackageDirty()` on every object it rewrites
+  (`ObjectTools.cpp:1470`) and B is deleted outright, so both halves fail. Case 2 asserts the
+  unreferenced path still deletes (A, which nothing references). **Breaking change, stated plainly:**
+  any caller relying on `asset.delete` / `level.delete` / `animation.cleanup` silently removing a
+  referenced asset now gets `ASSET_IN_USE`; a folder is gated as one batch, so one externally-held
+  asset refuses the whole folder. Not compiled and not run — the orchestrator owns builds."
