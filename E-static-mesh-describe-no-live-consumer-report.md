@@ -1,7 +1,7 @@
 ---
 id: E-static-mesh-describe-no-live-consumer-report
 title: "Nothing reports which live components reference a static mesh, so a caller cannot see in advance that a rebuild will be refused"
-status: OPEN
+status: IN-REVIEW
 severity: Medium
 category: ergonomic
 tags: [static_mesh, describe, model-compile, niagara, live-consumer, discoverability, crash-adjacent]
@@ -26,3 +26,4 @@ lived in.
 
 ## History
 - `#1-third-fix-item-not-taken` `OPEN` reporter -- Recorded by the agent that added the rebuild guard.
+- `#2-scan-lifted-to-main-module` `IN-REVIEW` developer -- "Lifted the guard's scan half (candidate class table, live-consumer walk, target-loaded probe) out of PinWrightGeometry's MeshRebuildRenderGuard.h into Source/PinWright/Private/Utils/MeshRenderConsumerScan.h so the main module can read it without a PinWright -> PinWrightGeometry dependency; StaticMeshDescribeHandler.cpp now returns rebuildRenderConsumers {scannedClasses, components} from that same scan, and PinWright.static_mesh.describe.ReportsLiveRenderConsumers pins the report against the guard's own walk."
