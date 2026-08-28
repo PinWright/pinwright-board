@@ -1,10 +1,10 @@
 ---
 id: B-niagara-compile-wait-does-not-wait
-title: "niagara.compile returns compiled:true in ~10ms without waiting; wait:true is ignored and status says 'requested'"
-status: IN-REVIEW
-severity: High
+title: "niagara.compile wait:true holds the game thread for a hard 90 s and never observes the compile, so {compile:true, save:true} stalls the whole shared editor and then persists nothing (originally: returned compiled:true in ~10 ms without waiting)"
+status: OPEN
+severity: Critical
 category: bug
-tags: [niagara, compile, async, silent-noop, race, corrupts-saved-asset, data-interface-mismatch, editor-crash, wait-never-lands, reopened]
+tags: [niagara, compile, async, silent-noop, race, corrupts-saved-asset, data-interface-mismatch, editor-crash, wait-never-lands, reopened, game-thread-stall, shared-editor-outage, blocks-concurrent-agents, fix-absent-from-this-checkout]
 encounters: 4
 lastSeen: 2026-08-28T08:30:00+05:00
 ---
@@ -124,6 +124,16 @@ Same for the two sibling systems built the same way — `NS_FishSchool_Orange` (
 
 ## Working recipe until this is fixed
 
+> **This recipe is stale on this checkout (2026-08-28) — see the section below and `#8`.**
+> The `compile: false, save: true` per-edit half still stands. The
+> `niagara.compile {force: true, wait: true}` line does **not**: it no longer costs "one
+> client round trip", it holds the game thread for a hard 90 s and returns
+> `compiled: false, status: "timedOut"`, and every other agent on the editor is frozen for
+> that whole time. Today's shape is `{compile: true, save: false}` per edit — which skips the
+> wait entirely, `NiagaraEditTypes.cpp:1649` scopes it to `bCompile && bSave`, and costs
+> 0.028 s — then confirm the compile from the engine log's `Compiling System ... took` line,
+> then `asset.save` as its own call. Do not pass `wait: true` on this tree.
+
 Never pass `compile: true` and `save: true` on the same `niagara.*` edit. Instead:
 
 ```
@@ -155,6 +165,74 @@ grep -c "Data interface count mismatch" Saved/Logs/EAContentExamples58.log   # b
    disagree rather than writing the invalidated result.
 
 
+---
+
+# Current state on this checkout (2026-08-28, plugin HEAD `b79ba53e`): the wait is a 90 s whole-editor stall that persists nothing
+
+Both halves above are historical. The `compiled: true` beside `status: "requested"` contradiction is
+fixed (`#3`, re-confirmed by `#4`, `#5` and `#7`), and the `{compile: true, save: true}` corruption
+route is closed — but it is closed by the verb no longer working, and the replacement failure costs a
+shared editor more than the reporting bug ever did.
+
+`WaitForSystemCompile` (`Handlers/Niagara/NiagaraCompileWait.cpp:38-56`) busy-polls
+`HasOutstandingCompilationRequests()` with `PollForCompilationComplete(true)` +
+`FPlatformProcess::Sleep(0.01)` **on the game thread**. Every step that *consumes* a Niagara compile
+result also runs on the game thread, so the loop starves the thread it is waiting on: the predicate
+cannot clear from inside the loop, the 90 s ceiling is always reached, and
+`MayPersistAfterCompileWait` (`NiagaraEditTypes.cpp:1663`) then correctly refuses the save behind a
+compile that never landed.
+
+## Measured — same verb, same asset, minutes apart
+
+| call | result | longest game-thread stall | engine log for that compile |
+|---|---|---|---|
+| `{compile: true, save: false}` | `compiled: true` | **0.028 s** | `took 0.067841` / `0.137554` / `1.089133 sec` |
+| `{compile: true, save: true}` | `compiled: false, saved: false` | **90.04 s** | `took 90.080238 sec`, `took 90.113518 sec` |
+| `niagara.compile {force: true, wait: true}` | `waitedMs: 90003.9`, `status: "timedOut"`, `outstandingCompilationRequests: true` | **90.05 s** | as above |
+
+The compile does not take 90 s; the wait makes it take 90 s. The same asset compiles in
+`0.067841 sec` with the wait out of the way, and `#5` recorded one completing in `0.000721 sec` while
+no loop was running. `time since issued` tracking the wait duration to within 100 ms is the signature.
+
+Stalls are measured, not inferred from `waitedMs`: a `register_slate_post_tick_callback` probe
+recorded the game thread not ticking **at all** for 90.05 s, 90.08 s and 90.04 s across those calls.
+
+## Why this is Critical and not High
+
+- **It loses the edit.** `{compile: true, save: true}` is the ordinary, documented way to make a
+  `niagara.*` edit stick. It returns `saved: false` and writes nothing, so the author's change exists
+  only in editor memory and dies with the process.
+- **It is an outage, not a slow call.** 90 s of dead game thread per call freezes *every* concurrent
+  agent on a shared editor, not just the caller — and the response reports only `waitedMs`, so the
+  bystanders get no signal at all. This is the cost the board's severity table has no row for, and it
+  is the reason the rating is not `High`.
+- **Reach is every-session.** The pair is the default call shape across the whole `niagara.*` edit
+  namespace, which is the board's one-level reach bump on its own.
+- **Board precedent.** `B-blueprint-search-wedges-game-thread` — the same defect class, a verb
+  monopolising the game thread — is rated `Critical`.
+- **It replaces a Critical.** This same flag pair previously wrote an invalidated compile and
+  asserted in the VectorVM (`B-niagara-di-count-mismatch-vectorvm-assert-kills-editor`, Critical).
+  Trading a crash for a 90 s whole-editor outage that *also* loses the work is not a severity
+  reduction.
+
+## Fix notes for whoever picks this up
+
+`#6` already names the mechanism and a one-line remedy — pump
+`FAssetCompilingManager::Get().ProcessAsyncTasks(/*bLimitExecutionTime=*/true)` at the top of each
+loop iteration, before the poll and before the sleep. **That code is not in this checkout**; see
+`#7` and `#8`, and check your own tree before assuming otherwise.
+
+Fixing the wait **re-opens the save path** that `{compile: true, save: true}` currently declines,
+which is the exact path `B-niagara-di-count-mismatch-vectorvm-assert-kills-editor` (Critical,
+IN-REVIEW) covers. Re-verify that ticket's guard once the save resumes; its corruption route is
+currently closed only because the verb does not work.
+
+Whatever the fix, the wait must not be able to hold the game thread for 90 s again. A bounded pumped
+wait, a much lower default ceiling with an explicit opt-in for longer, or handing back a poll handle
+instead of blocking would each satisfy this ticket; silently freezing a shared editor for 90 s does
+not, even if it eventually returns `compiled: true`.
+
+
 ## History
 - `#1-initial-repro` `OPEN` reporter — Found while authoring `/Game/Atlantis/VFX/NS_Plankton_Drift`
   and `/Game/Atlantis/VFX/NS_Bubbles_Ambient` on the Atlantis map build. Seven `niagara.compile`
@@ -175,3 +253,12 @@ grep -c "Data interface count mismatch" Saved/Logs/EAContentExamples58.log   # b
   **New, and not in `#5`: the wait is a hard stall of the shared editor, and it is now measured.** A `register_slate_post_tick_callback` probe recorded the game thread not ticking at all for **90.05 s** and **90.08 s** across those calls, and again for **90.04 s** on a `{compile:true, save:true}` edit. In a shared editor that is a full outage for every other agent, once per call, and it is invisible to the caller — the response reports only `waitedMs`.
   **The contrast that isolates it, same verb, same asset, minutes apart.** `{compile:true, save:false}` skips the wait entirely (`NiagaraEditTypes.cpp:1649` scopes it to `bCompile && bSave`) and reports `compiled: true` with a longest stall of **0.028 s**, engine log `took 0.067841 / 0.137554 / 1.089133 sec`. `{compile:true, save:true}` on the same asset reports `compiled: false, saved: false` with a **90.04 s** stall. The compile does not take 90 s; the wait makes it take 90 s, because it holds the thread the compile needs to finalise on.
   **Caller-visible consequence today**, worth stating because two other tickets depend on it: `{compile:true, save:true}` — the ordinary way to make a `niagara.*` edit stick — costs 90 s of dead shared editor and then persists nothing, since `MayPersistAfterCompileWait` correctly refuses a save behind a compile that never landed. Nothing invalid is written, so `B-niagara-di-count-mismatch-vectorvm-assert-kills-editor`'s corruption route really is closed; it is closed by the verb no longer working.
+- `#8-reopened-fix-absent-here-and-wedge-escalated-to-critical` `OPEN` verifier — 2026-08-28. **Reopening, and raising severity `High` -> `Critical`.** Both actions rest on `#7`'s evidence, which `#7` deliberately did not act on because this ticket was outside its assignment.
+  **(1) Status: `IN-REVIEW` asserts there is a fix here to review, and there is not.** Re-confirmed independently at plugin HEAD `b79ba53e` with a clean plugin working tree (`git status` empty, so no uncommitted `#6` work is in flight here either). Absent: `AdvanceAsyncCompilationOnGameThread` — zero hits anywhere in the plugin source; the test `PinWright.niagara.CompileWait.WaitPumpsAssetCompilation` — `Tests/Niagara/TestNiagaraCompileWait.cpp` declares only `PinWright.niagara.CompileWait.CompletionIsMeasuredNotAssumed`. `NiagaraCompileWait.cpp`'s loop is still `#5`'s exactly — `HasOutstandingCompilationRequests` (`:38`) -> `PollForCompilationComplete(true)` (`:54`) -> `FPlatformProcess::Sleep(0.01)` (`:56`), with no pump anywhere — and the last commit touching the file is `c480bc4e`, this ticket's `#3`.
+  **Correcting one over-broad line in `#7` before it misleads someone:** `FAssetCompilingManager` and `ProcessAsyncTasks` are *not* absent from the whole plugin. They occur in `Handlers/Animation/AnimSequenceCreate.cpp:53,66`, `Handlers/Asset/ThumbnailFrameEvidence.cpp:61` and `Tests/TestAssetTeardown.h:94`. The accurate and still-decisive statement is that **neither symbol occurs anywhere under `Source/PinWright/Private/Handlers/Niagara/` — zero hits.** A fixer who greps the whole plugin will hit those unrelated matches and must not read them as `#6` having landed.
+  **This is not a claim that `#6` is wrong, nor that its author failed.** Four hosts (`fuzz1`..`fuzz4`) work this board against separate plugin clones. `#6` is plausibly committed and building on another host's tree, and its reasoning — that the poll loop starves the game thread the compile finalises on — matches what `#5` and `#7` independently measured, so it is very likely the right fix. What is established is only that the code has not reached *this* checkout, which is what makes `IN-REVIEW` wrong here. **Before trusting `#6`, confirm which tree you are in:** `git -C Plugins/PinWright log -1 --oneline -- Source/PinWright/Private/Handlers/Niagara/NiagaraCompileWait.cpp` (expect a commit later than `c480bc4e` if `#6` is present) and `grep -rn FAssetCompilingManager Source/PinWright/Private/Handlers/Niagara/`. If `#6` is on your tree, this reopen does not apply to it — say so and re-run the `#5` repro rather than rewriting the fix. This is the second ticket found today sitting `IN-REVIEW` on code absent from this checkout (the other being a `MeshRebuildRenderGuard.h` guard file), so the cross-host pattern, not this ticket, is what wants a process fix.
+  **(2) Severity `High` -> `Critical`, and the wedge is recorded here rather than as its own ticket.** `#7` measured that `{compile: true, save: true}` — the ordinary way to make a `niagara.*` edit stick — blocks the game thread for the full 90 s ceiling and then persists nothing (`compiled: false, saved: false`), while `{compile: true, save: false}` on the identical asset minutes apart returns `compiled: true` with a longest stall of **0.028 s**. Engine log for the same compile on the same asset: `took 0.067841 sec` in the fast case against `took 90.080238 sec` and `took 90.113518 sec` in the wedged one, `time since issued` tracking the wait to within 100 ms. `niagara.compile {force: true, wait: true}` behaves identically (`waitedMs: 90003.9`, `status: "timedOut"`, `outstandingCompilationRequests: true`, 90.05 s stall). The stall figures come from a `register_slate_post_tick_callback` probe — the game thread did not tick at all for 90.05 / 90.08 / 90.04 s — not from `waitedMs`. Full write-up in the new **Current state on this checkout** section above.
+  **Why here and not a new ticket.** The wedge is not a second mechanism; it is the one `#5` already reported (`WaitForSystemCompile` starving the very thread that finalises the compile) seen from the bystanders' side, and `#6` closes both symptoms with a single change to a single function. Splitting would produce two OPEN tickets with one fix site and one fix, so one host would land it and the other would burn a claim discovering it was already gone — exactly what the lease exists to prevent — and neither ticket alone would carry the whole picture. Kept as this ticket's impact section instead, with severity taking the max of the two halves, which is the correct work-ordering answer when one change resolves both.
+  **The severity argument, against the board's own table.** No impact row fits exactly: this is not a crash and it corrupts nothing, so by impact class alone it reads `High` ("hard blocker with no workaround" — and a workaround does exist: `{compile: true, save: false}` plus a separate `asset.save`). It is rated `Critical` for three things the table does not price. (a) **The work is lost** — the caller's edit is never written; `saved: false` is honest, but the outcome on disk is the same as a losing write. (b) **The blast radius is the whole process** — 90 s of dead game thread per call freezes every other agent on a shared editor, invisibly, since the response reports only `waitedMs`; the board's direct precedent for that class, `B-blueprint-search-wedges-game-thread`, is `Critical`. (c) **Reach is every-session** — this is the default call shape across the whole `niagara.*` edit namespace, which is the board's own one-level bump, and `High` + that bump is `Critical` by the table's own rule. Cross-check: the state this replaced — the same flag pair writing an invalidated compile and asserting in the VectorVM — is `Critical` on `B-niagara-di-count-mismatch-vectorvm-assert-kills-editor`; a crash traded for a 90 s outage that also loses the edit is not a severity reduction.
+  **Cross-links, so no one closes the wrong thing.** `B-niagara-compile-while-live-component-vectorvm-assert` is correctly `DONE` — its own guard is verified in source and was exercised clean — and its `#4` records the same wedge measurements as a regression pointing here; that pointer stands and that ticket does not need reopening. `B-niagara-di-count-mismatch-vectorvm-assert-kills-editor` (Critical, IN-REVIEW) is the one to re-verify **after** this is fixed: its corruption route is currently closed only because the save path declines, and fixing the wait restores that path.
+  **Not re-run here, on purpose.** The wedge repro costs 90 s of shared editor per attempt and `#7`'s measurement is sound; only the source-absence claim was re-checked, which needs no editor. Title amended to describe the live defect instead of the fixed one — the original wording is kept in the new title's parenthetical and throughout `#1`-`#4`. `encounters` deliberately left at 4: this entry is a status and severity decision on `#7`'s observation, not a new observation.
