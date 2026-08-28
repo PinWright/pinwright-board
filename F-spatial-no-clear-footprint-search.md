@@ -1,7 +1,7 @@
 ---
 id: F-spatial-no-clear-footprint-search
 title: "No occupancy query — 'does a WxH footprint fit near here, and if not where does it' has to be hand-rolled as OBB math against a scraped actor list"
-status: OPEN
+status: IN-REVIEW
 severity: Medium
 category: feature
 tags: [spatial, placement, occupancy, clearance, footprint, level-building, verify_placement, workaround]
@@ -127,3 +127,5 @@ placement task -> Medium
   `sphere_trace_multi` returns `Array[HitResult] or None` — `None`, not an empty array, on a clean
   sweep. Ask for `minClearance` + the binding actor name on a **polyline** input, not only a
   footprint search.
+
+- `#3-find-clear-placement-verb` `IN-REVIEW` developer — "Added the read-only `spatial.find_clear_placement` verb in MeasureHandler.cpp, backed by two new instance-aware occupancy primitives in SpatialTraceUtils (ProbeFootprintOccupancy, a box OverlapMultiByChannel that reports the blocking component and, via GetInstancesOverlappingBox, the ISM/HISM INSTANCE index; and MeasureFootprintClearance, which bisects that probe to measure free space rather than answering yes/no at one distance). It sweeps an XY x yaw grid over a `region` from a `footprint` or an `assetPath`'s own bounds, honours `yawStep`/`step`/`minClearance`/`ignoreActors`/`onlyClasses`/`keepOut` polyline/`seatOnGround`, ranks clear poses by measured clearance or distance, and returns a `binders[]` aggregate keyed on the blocking COMPONENT with instance indices and a blocked-pose count - so a zero-result answer says which scatter bound it. Design notes: occupancy is a physics overlap, so an obstacle needs collision to be seen (documented, same rule as spatial.raycast); minClearance is probed DIRECTLY rather than compared against the bisected lower bound, which would false-reject a pose sitting exactly on the threshold; keep-out uses the clamped FMath::PointDistToSegment against the footprint's circumscribed radius (conservative, and structurally immune to the unclamped-projection bug encounter #2 reported); each column seats on the highest of five ground probes and excludes its own ground actors from the occupancy query; an over-budget grid is refused, never partially swept. Covered by three tests in Tests/Spatial/TestPlacementHandlers.cpp - FindsTheGapBesideAnObstacle (poses checked against the fixture's geometry, clearance asserted to reproduce the real 50 cm gap), SeesInstancedScatter (HISM fixture; asserts the binder is an instanced component with instance indices, not just the holder actor) and TypedRefusals. Wiki section added to Docs/wiki-src/spatial.md. NOT COMPILED OR RUN."
