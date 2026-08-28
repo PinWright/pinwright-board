@@ -1,7 +1,7 @@
 ---
 id: B-property-set-container-empty-change-event
 title: "property.set / property.reset / 11 container.* verbs notify with a bare PostEditChange(), whose empty event skips every name-matched engine branch"
-status: IN-REVIEW
+status: DONE
 severity: High
 category: bug
 tags: [property, container, property-write, derived-state, post-edit-change, camouflaged, silent-noop, misleading-success]
@@ -344,3 +344,63 @@ it, both verbs fail and there is no workaround left.
   by association with that one; it is not, and this entry does not close it.
 
   Footprint: the probe actor was deleted. `/Game/Maps/Atlantis` is left dirty and was NOT saved.
+- `#6-verified-fixed-derived-state-and-pixels` `DONE` verifier — 2026-08-28. Verified on the editor
+  rebuilt at `b79ba53e`, on `/Game/Maps/Atlantis`, against a throwaway `/Engine/BasicShapes/Cube`
+  StaticMeshActor `PWVERIFY_NOTIFY_01` (Movable) spawned for the purpose and deleted afterwards — no
+  shipping actor was written to and the level was not saved. Every observation below is a value or a
+  pixel the engine derives, never a read-back of the property that was written.
+  **(a) The event now names the LEAF.** `property.set LDMaxDrawDistance = 777` on the component's
+  object path -> `CachedMaxDrawDistance` **2222 -> 777** (read with `actor.get_component_property`).
+  That field is written in the editor only by `SetCachedMaxDrawDistance` inside
+  `UPrimitiveComponent::PostEditChangeProperty`, behind `if (PropertyThatChanged)` +
+  `PropertyName == GET_MEMBER_NAME_CHECKED(UPrimitiveComponent, LDMaxDrawDistance)`
+  (`PrimitiveComponent.cpp:1546-1553`, `:1600-1628`) — the exact branch the bare empty event could
+  not reach, since `Property` was null.
+  **(b) `property.reset` notifies too.** `property.reset LDMaxDrawDistance` ->
+  `{oldValue:777, defaultValue:0, wasOverridden:true, isOverridden:false}`, and
+  `CachedMaxDrawDistance` followed **777 -> 0**. So the bare call at the old `:1321` is gone and the
+  reset path dispatches a named event exactly once (nothing double-applied: the cached value tracks
+  the default rather than overshooting).
+  **(c) The event names the MEMBER, through a container verb.**
+  `container.array.append {propertyName:"CustomPrimitiveData.Data", value:0.75}` ->
+  `CustomPrimitiveDataInternal` **`{Data:[]}` -> `{Data:[0.75]}`**; then
+  `container.array.clear` on the same path -> **back to `{Data:[]}`**. The mirror is written only by
+  `ResetCustomPrimitiveData()`, and in `PostEditChangeProperty` that is reached only from the
+  `MemberProperty` block — `if (FProperty* MemberPropertyThatChanged = PropertyChangedEvent.MemberProperty)`
+  + `MemberPropertyName == GET_MEMBER_NAME_CHECKED(UPrimitiveComponent, CustomPrimitiveData)`
+  (`PrimitiveComponent.cpp:1583-1593`). Its other four callers in the engine
+  (`:804` component-instance-data apply, `:1347` `Serialize` on load, `:1902` `PostEditImport`,
+  `:2697` the typed `SetDefaultCustomPrimitiveData`) cannot run for a live reflection write, so this
+  is the member-named event and nothing else. That closes this ticket's "Name the member, not just
+  the leaf" requirement and covers the `ArrayAdd` and `ArrayClear` change-type grades on a real
+  container verb, not only on the fixture object.
+  **(d) The encounter-2026-08-27 finding — a named event is necessary but NOT sufficient for a
+  renderer-backed component — is closed by a pixel measurement, which is the acceptance test this
+  ticket named.** Probe property `LightingChannels.bChannel0`, chosen because
+  `UPrimitiveComponent` has **no** `PostEditChangeProperty` branch for `LightingChannels` at all (the
+  only engine writer is the typed `SetLightingChannels`, `PrimitiveComponent.cpp:4682-4693`, which
+  this path does not call) and `property.set` still never calls `PreEditChange`, so there is no
+  reregister — the ONLY route to the renderer is the new `MarkComponentRenderStateDirty` push. Fixed
+  pose, cube filling the frame (`location {x:-9000,y:2070,z:200}`, `rotation {pitch:0,yaw:90,roll:0}`,
+  fov 50, 512x512, `exposure {mode:"fixed", ev100:0}`, `adaptedSource:"fixedPin"` on all shots,
+  `hideEditorSprites:true`):
+  | # | call | `meanLuminance` |
+  |---|---|---|
+  | A | (baseline, first shot at this pose) | 0.088885 |
+  | A2 | *(no call — recapture)* | 0.063978 |
+  | A3 | *(no call — recapture)* | 0.064383 |
+  | B | `property.set LightingChannels.bChannel0 = false` | **0.017421** |
+  | C | `property.set LightingChannels.bChannel0 = true` | 0.064171 |
+  A -> A2 is a one-time settle after the camera moved (Lumen converging); **A2 -> A3 is the real
+  control at 4.05e-4**, and C returns to within 2.1e-4 of A3. The write moves the frame by
+  **0.0470, about 116x that floor, and it moves back**. Looked at, not only measured: A3 shows the
+  cube's lit world-grid checker, B shows the same checker crushed to near-black. Saved as
+  `Saved/Screenshots/OpenLevel/pwverify_prop_set_{A_baseline,A2_control,A3_control,B_chan0_off,C_chan0_back_on}.png`.
+  **Not verified here, and named rather than assumed:** (i) `#5` states the `markDirty:false` tests
+  must be re-run because a named event runs strictly more overrides, and I could not decide that on
+  this host — the only package I was allowed to write to is the shipping level, which other agents
+  had already dirtied, so a dirty-flag observation there proves nothing. `B-property-set-markdirty-false-still-dirties`
+  should be re-checked on a clean package before this fix is trusted for `markDirty:false` callers.
+  (ii) The `renderStateRefreshed` response field this ticket asked for was NOT added (`#5` says so);
+  the response still reports only what was requested, and a caller still cannot tell from the reply
+  alone that the renderer moved. (iii) The map/asset targets in § *Scope note* were not audited.
