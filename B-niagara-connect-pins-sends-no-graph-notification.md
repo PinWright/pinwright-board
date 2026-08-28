@@ -1,7 +1,7 @@
 ---
 id: B-niagara-connect-pins-sends-no-graph-notification
 title: "niagara.graph.connect_pins mutates LinkedTo and returns without any graph notification, so an open editor's pin caches and splines go stale"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: bug
 tags: [niagara, graph, connect_pins, notification, stale-cache, OverridePinCache, slate]
@@ -27,3 +27,11 @@ dangles. It still means the editor shows a wiring that is not what the graph hol
 - `#1-named-by-the-notification-fix` `OPEN` reporter — Named by the agent that added
   `NotifyNiagaraGraphChanged` to the two override-pin verbs, having audited every mutator in the four
   Niagara handler files for the same shape. Source reading, not reproduced.
+- `#2-notify-graph-changed-on-connect` `IN-REVIEW` developer — "Ended the successful
+  `niagara.graph.connect_pins` branch in `NiagaraGraphHandler.cpp` with the same bare
+  `TargetGraph->NotifyGraphChanged()` the file's `create_node` verb already uses, so
+  `OnGraphChanged` reaches `SGraphPanel::PurgeVisualRepresentation` and the stack's
+  `OverridePinCache`. Confirmed in engine source that `UEdGraphSchema_Niagara::TryCreateConnection`
+  reaches only `UNiagaraNode::PinConnectionListChanged`, whose `NotifyGraphNeedsRecompile`
+  broadcasts `OnGraphNeedsRecompile` and returns before `Super::NotifyGraphChanged`. Regression
+  test `PinWright.niagara.graph.connect_pins.NotifiesGraphChanged` in `TestNiagaraHandlers.cpp`."
