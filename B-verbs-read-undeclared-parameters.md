@@ -1,7 +1,7 @@
 ---
 id: B-verbs-read-undeclared-parameters
 title: "66 verbs read parameters their RPC_PARAMS never declares, so the dispatcher rejects those keys before the handler runs"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: bug
 tags: [dispatcher, unknown-params, undeclared-parameter, param-spec, unreachable-code, sweep]
@@ -48,8 +48,21 @@ the read. What is not defensible is the current state, where the handler reads a
 `PinWright.infra.declared_params.HandlersOnlyReadDeclaredParams` now fails on any pair outside this
 66-entry baseline and warns when a baseline entry stops reproducing, so the list can only shrink.
 
+**What is left.** 60 of the 66 are decided and the baseline is down to 6, all of them
+`sequencer.set_playhead` (`sequencePath`, `sequence_path`, `openIfNeeded`, `open_if_needed`,
+`force_update`, `update_method`), deliberately untouched here because `Sequencer/SequenceHandler.cpp`
+was owned by a concurrent workstream. The ~88 medium-confidence helper-read pairs are still out of
+scope and still unmeasured by the test (they are the KNOWN LIMITS section's first bullet, not baseline
+entries). Two adjacent instances the scanner cannot see, found while fixing these and left alone:
+`actor.set_collision` reads `collision_enabled` straight off `GetRawPayload()` and does not declare
+it, and `behavior_tree.attach_decorator` / `attach_service` reach the same
+`{assetPath, behaviorTreePath, path}` list through `HandleAttachBTSubNode` while declaring only
+`assetPath`.
+
 ## History
 - `#1-mechanized-sweep` `OPEN` reporter — Swept while fixing `B-test-invokehandler-bypasses-param-gate`,
   which explains why the class survived: `TestUtils.h`'s `InvokeHandler` skips the dispatcher's
   parameter gate, so tests written that way cannot observe it. Verified by porting the C++ scanner to
   Python and running it: 1,208 registrations recovered, exactly 66 pairs, zero extras.
+- `#2-namespace-sweep-resolved` `IN-REVIEW` developer — "Resolved 60 of 66 pairs across 21 files;
+  baseline shrunk from 66 to 6"
