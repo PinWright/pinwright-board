@@ -122,6 +122,148 @@ identify the leaking object. Once the pair is known, `-gcdebug` / `gc.CollectGar
 on that pair should surface the dangling reference near where it is created rather than in a
 worker-thread collection minutes later.
 
+## Bisection attempt: did not reproduce, and the premise does not hold
+
+Four runs. **None reproduced the fault**, including a re-run of run A's configuration in run A's
+own host project with run A's own plugin binary, which registered the identical 2335 tests.
+
+| run | host project | filter | GC elimination | verdict |
+|---|---|---|---|---|
+| 1 | `PDS.uproject` | `actor+blueprint` (343) | off (project default) | `COMPLETED_CLEAN` 343/343 |
+| 2 | `PDS.uproject` | run A's fifteen groups (2338) | off (project default) | drained 2338/2338, 2 unrelated failures |
+| 3 | `PDS.uproject` | run A's fifteen groups (2338) | **forced on** (`-EnableGarbageElimination`) | drained 2338/2338, same 2 failures |
+| 4 | `EAContentExamples58.uproject`, run A's DLL | run A's fifteen groups (2335) | on (engine default) | `COMPLETED_WITH_SKIPS` 2335/2335, **0 failures** |
+
+Logs: `<scratchpad>\gcbisect-1.log`, `gcbisect-2.log`, `gcbisect-3.log`, `gcbisect-4-eacontent.log`.
+The two failures in runs 2 and 3 are `PinWright.infra.declared_params.HandlersOnlyReadDeclaredParams`
+and `PinWright.infra.wiki_src.SourcePagesFollowRenderingRules` — source-tree lint tests, failing
+because ~20 agents were mid-edit on that tree. Not GC-related.
+
+## The suggested halving bisect could not have worked
+
+Automation orders the queue **alphabetically by full test path, case-insensitively** — not by
+filter order. Reconstructing run A's selection from a full-suite log reproduces `found=2335`
+exactly and puts these at ordinals 303/304/305, the same three tests run A names as its last
+started:
+
+```
+303 PinWright.blueprint.scs.add_component.MaterialTraversalIsSecurityViolation
+304 PinWright.blueprint.scs.add_component.MeshPreflight
+305 PinWright.blueprint.scs.add_component.NoMaterialIsUnchanged
+```
+
+So of the fifteen filtered groups only **two ever executed** before the fault: `actor` (149 tests
+— `PinWright.actor` prefix-matches `actor_utils` too) and the first 156 of `blueprint`/`Blueprint`.
+`bpir`, `container`, `infra`, `lighting`, `material`, `Model`, `niagara`, `property`, `render`,
+`Sequencer`, `system`, `texture` and `widget` all sort **after** `blueprint` and never ran. The
+proposed "first seven + blueprint, then the second seven + blueprint" split would have put
+`blueprint` first in the second arm and measured nothing.
+
+Run 1 tested the only pair that could be implicated — `actor+blueprint`, 343 tests, identical
+ordering with the same tests at 303/304/305 — and drained clean.
+
+## The crash is nondeterministic; there was already evidence of that
+
+Three archived full-suite runs on this tree used the **identical** filter (`PinWright`, 4576
+tests) and disagree with each other:
+
+```
+Saved/PinWright/test-runs/batch4/automation.log  DID_NOT_COMPLETE      started 4009
+Saved/PinWright/test-runs/batch5/automation.log  DID_NOT_COMPLETE      started 2225
+Saved/PinWright/test-runs/batch6/automation.log  COMPLETED_WITH_SKIPS  4576/4576
+```
+
+Three different stopping points for one filter is a flaky host, not a deterministic cross-group
+dangling reference. **A group-halving bisect cannot converge on that**, which is why the section
+above supersedes "Suggested next step".
+
+## Two corrections to the original measurement
+
+**Run B dropped two groups, not one.** Its recorded filter omits `PinWright.system` as well as
+`PinWright.blueprint` — thirteen filters, not fourteen. 2335 − 194 (blueprint+Blueprint) − 44
+(system) = 2097, exactly run B's `found`.
+
+**Runs A/B/C were not run against this project.** They used
+`X:\src\unreal\EAContentExamples58\EAContentExamples58.uproject` and that project's own plugin
+copy (the 40,644,096-byte / 08:11:48 DLL the ticket names). Their logs live under
+`X:\src\unreal\EAContentExamples58\Saved\PinWright\test-runs\`, not under this checkout.
+
+## The two hosts run different garbage-collection semantics
+
+`X:\src\unreal\unreal-fpv-new\Config\DefaultEngine.ini:420` (in place since at least 2025-11-29):
+
+```ini
+[/Script/Engine.GarbageCollectionSettings]
+gc.GarbageEliminationEnabled=False
+```
+
+EAContentExamples58 sets no GC options at all and takes the engine default (**enabled**).
+Runtime-confirmed: PDS logs `Set CVar [[gc.GarbageEliminationEnabled:0]]`; run A's log has no such
+line.
+
+This matters independently of this ticket. With elimination disabled, `MarkAsGarbage()` cannot
+destroy an object anything still references, so the plugin's dominant test-teardown idiom —
+`MarkAsGarbage()` then `CollectGarbage(GARBAGE_COLLECTION_KEEPFLAGS)` — cannot produce a stale
+`UObject*`. With it enabled (the engine default) the object is torn down regardless of remaining
+raw references. **PDS masks this entire bug class**, so a suite that is only ever green on PDS is
+not evidence it is green elsewhere. Force the engine default with `-EnableGarbageElimination`
+(a first-class engine command-line override, `ObjectBaseUtility.cpp:195-204`) when validating.
+Run 3 did exactly that and still did not reproduce, so the config difference alone is not
+sufficient — but it remains a real gap in what PDS can detect.
+
+## Crash site
+
+Not an incidental collection. Run A's game thread goes silent for **18 s** after
+`LogBlueprint: Compiling Blueprint '/Game/__PW_GatewayTests/BP_ScsNoMaterial_…'` (03:27:44.288)
+and the worker faults at 03:28:02.153. The collection is forced by the test's own teardown:
+`Tests\Blueprint\TestSCSAddComponentMaterialStrict.cpp:57-106` (`CleanupScsMatStrictAsset`,
+reached through `ON_SCOPE_EXIT`) ends both branches with `MarkAsGarbage()` +
+`CollectGarbage(GARBAGE_COLLECTION_KEEPFLAGS)` at lines 81 and 104. The blueprint group is the
+**detector**, not the cause — it is where a forced collection first walks the graph after the
+actor group has run. Siblings do the same: `TestSCSDuplicateComponentHandler.cpp:55,80`,
+`TestSCSGetLocalChildParentLink.cpp:61`, `TestSCSSetSplinePoints.cpp:63`,
+`TestBlueprintListExcludesInMemoryInstances.cpp:104`.
+
+`EXCEPTION_ACCESS_VIOLATION reading 0x0c` is `UObjectBase::InternalIndex` (offset 0xC) off a
+destroyed base — consistent with the reachability batcher walking a freed `UObject`.
+
+## Where a dangling reference could originate (source review; not observed)
+
+There is **no `FGCObject` subclass, no `AddReferencedObjects` override and no
+`Collector.AddReferencedObject` anywhere in `Plugins\PinWright\Source`**, so the stale reference
+is not held by a plugin-owned GC root.
+
+Strongest structural candidate in the actor group:
+`Tests\Actor\TestSpawnMaterialSurvivesConstructionScript.cpp:145-167` (`DiscardFixtureBlueprint`)
+force-marks a compiled Blueprint, clears its keep-alive flags, marks its **`UPackage`** garbage and
+collects — in the one actor test that first spawns a live instance of that class into the open
+persistent level and then reinstances it (`RenameComponentMemberVariable` + `CompileBlueprint`).
+Anything still holding the pre-compile instance survives the collect with its class's package
+purged.
+
+Secondary: `Tests\World\TestActorDuplicateMeshIntegrity.cpp:94-101` and `:134-138` are the only
+actor-group tests spawning into the live editor world without `FScopedEditorWorldActorGuard`,
+tearing down with a bare `AActor::Destroy()` — skipping the deselect that
+`Tests\TestWorldUtils.h:93-99` documents as mandatory.
+
+Latent, unrelated to this repro, same shape, worth its own ticket:
+`Handlers\Niagara\NiagaraSystemViewModelCache.cpp:20-24` pins `FNiagaraSystemViewModel` (an engine
+`FGCObject`) in a process-lifetime `TMap` with weak keys, so a pinned view model whose system was
+collected keeps reporting references from `AddReferencedObjects`.
+
+## What the next investigator should do
+
+Stop bisecting by group; a flaky crash will not bisect. Instead:
+
+1. Loop the full suite N times on a host with `-EnableGarbageElimination` and record the stop point
+   each time. Crash location is the dependent variable, not a constant to bisect toward.
+2. Run `gc.CollectGarbageEveryFrame 1` on `actor` **alone** (149 tests) — that moves the detector
+   into the suspect group instead of waiting for the blueprint group's forced collect.
+3. Instrument rather than infer: `gc.AllowParallelGC 0` moves the fault onto the game thread, where
+   the stack names the referencing object instead of a worker.
+4. Keep `check_suite_log.py` mandatory regardless of cause. The false-green shape it catches is
+   real and is the actual operational risk.
+
 severity rationale: impact=a scoped suite run, which is the project's prescribed way to test a
 change, silently fails to complete while presenting as 0-failures; the only tell is a missing
 marker x reach=any run combining enough groups, i.e. the normal case for a change touching more
@@ -137,3 +279,14 @@ than one area -> High
   `Saved/PinWright/test-runs/528eb171a19441489136c26e55bf1674/automation.log` (run A),
   `Saved/PinWright/test-runs/verify-changed/automation.log` (run B) and
   `Saved/PinWright/test-runs/verify-blueprint/automation.log` (run C).
+- `#2-bisect-did-not-reproduce` `OPEN` reporter — "Not bisected to a group: four runs, none
+  reproduced, including run A's exact filter in run A's own host project with run A's own DLL
+  (2335/2335 drained, 0 failures). Crash site is the forced
+  `CollectGarbage(GARBAGE_COLLECTION_KEEPFLAGS)` in `CleanupScsMatStrictAsset`
+  (TestSCSAddComponentMaterialStrict.cpp:81,104), so the blueprint group is the detector, not the
+  cause. Automation orders tests alphabetically, so only `actor` + the first 156 blueprint tests
+  ever ran before the fault and the proposed halving bisect could not have worked; `actor+blueprint`
+  alone drains clean. batch4/5/6 show one identical full-suite filter stopping at 4009, 2225 and
+  4576 — the crash is nondeterministic, not a group combination. Also: run B dropped `system` as
+  well as `blueprint` (2335-194-44=2097), runs A/B/C were on EAContentExamples58 not PDS, and PDS
+  sets `gc.GarbageEliminationEnabled=False` which masks this whole bug class."
