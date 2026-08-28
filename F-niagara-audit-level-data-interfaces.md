@@ -131,6 +131,32 @@ measurement and the remedy both already exist, only level-scope discovery is mis
 (live component against stale compile state,
 `B-niagara-compile-while-live-component-vectorvm-assert`) land as a row rather than a second verb.
 
+## Addendum: scrubbing forces a world tick by explicit engine design
+
+Later research found a second, stronger mechanism than the realtime-override one recorded above,
+and it makes the binding-scoped pre-flight unsound rather than merely incomplete.
+
+`Editor/Sequencer/Private/LevelEditorSequencerIntegration.cpp` registers `OnSequencerEvaluated`
+on `OnGlobalTimeChanged`, so it fires on **every** playhead move, scrub and evaluation. After an
+early-out for PIE/Simulate it calls `ReRenderLevelViewports()`, whose engine-authored comment
+states the intent outright: *"Request a single real-time frame to be rendered to ensure that we
+tick the world and update the viewport."* It calls `RequestRealTimeFrames(1)` on every level
+viewport that is not already realtime; that sets `RealTimeUntilFrameNumber`, which makes
+`IsRealtime()` true for the next frame, which makes `UEditorEngine::Tick` select
+`LEVELTICK_ViewportsOnly` over `LEVELTICK_TimeOnly` (the latter runs no tick groups at all),
+which runs a full tick-group pass, which reaches `FNiagaraWorldManagerTickFunction::ExecuteTick`
+and then `ExecuteSimulations` — iterating **every** system simulation in the world with no
+reference to Sequencer bindings.
+
+The sibling call site comment (*"If realtime is off, this needs to be called to update the pivot
+location when scrubbing"*) confirms the path exists specifically for the realtime-off case.
+`RequestRealTimeFrames` has no overrides anywhere in `Engine/Source`.
+
+Consequence: a corrupt system sitting in the level but **not bound by the sequence** is ticked and
+crashes on any scrub. The pre-flight must enumerate every `UNiagaraComponent` in the editor world;
+`Sequencer->FindBoundObjects(...)` is the wrong set. This is independent of, and additional to,
+the persistent `AddRealtimeOverride(true, "Sequencer")` taken when the sequence is opened.
+
 ## History
 - `#1-no-level-scope-preflight` `OPEN` reporter — Filed from the refusal recorded in
   `E-niagara-validate-no-data-interface-check` `#2`, after verifying its two load-bearing claims.
@@ -140,3 +166,4 @@ measurement and the remedy both already exist, only level-scope discovery is mis
   `UNiagaraComponent`'s constructor setting that flag. What ticks is the whole level, never the
   bindings, which makes a binding-scoped pre-flight unsound rather than merely narrow — the refusal
   was right for a stronger reason than the one it gave. Not implemented; no plugin source touched.
+- `#2-scrub-forces-world-tick-by-design` `OPEN` reporter — "Engine research strengthens the level-scope argument: OnSequencerEvaluated fires on every playhead move and calls ReRenderLevelViewports -> RequestRealTimeFrames(1), whose engine comment says it exists 'to ensure that we tick the world'. That promotes the next frame to LEVELTICK_ViewportsOnly, running the full tick-group pass and ExecuteSimulations over every system in the world. A binding-scoped pre-flight is unsound, not merely narrow — the set that crashes is every UNiagaraComponent in the editor world, not the sequence's bindings."
