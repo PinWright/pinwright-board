@@ -1,12 +1,12 @@
 ---
 id: E-boolean-no-effect-names-no-bounds
 title: "`PWMODEL_BOOLEAN_NO_EFFECT` tells the author to move the cutter but names no position for either solid — the failing part's bounds are dropped and the tool mesh never becomes anything measurable"
-status: IN-REVIEW
+status: DONE
 severity: Medium
 category: ergonomic
 tags: [pwmodel, subtract, boolean, diagnostic, bounds, authoring-cost, PWMODEL_BOOLEAN_NO_EFFECT]
 encounters: 1
-lastSeen: 2026-08-27T18:55:42+05:00
+lastSeen: 2026-08-28
 ---
 
 # `PWMODEL_BOOLEAN_NO_EFFECT` says "move it" without saying where either body is
@@ -159,3 +159,35 @@ severity rationale: impact=soft blocker — the abort is correct and the model i
 ## History
 - `#1-initial-repro` `OPEN` reporter — Found building `Content/Atlantis/Meshes/SM_Statue_Torso.pwmodel` on the Atlantis level (map as forcing function; see host `CLAUDE.md` § "What this project is for"), 2026-08-27, UE 5.8, PinWright at this checkout's HEAD. Second `subtract { box size=(700,700,700) at=(0,-460,1520) rotate=(20,8,0) }` returned `PWMODEL_BOOLEAN_NO_EFFECT`; the response named neither the accumulated part's bounds (the part is aborted, so `parts[]` holds only the parts that already succeeded) nor the tool's (it never becomes measurable geometry). The fact that settled it — the first cut had already taken the body's top down to z = 1277 — was only recoverable by deleting the op and re-running `model.validate` on the remainder, one extra compile cycle per attempt, three attempts. Plumbing proven present: the sibling `stump` part's bounds ARE in the same response. Source-confirmed at HEAD in this tree: emitted at `PwModelCompiler.cpp:2500-2507` inside `FCompiler::RunBoolean` (`:2416`), constant declared at `PwModelDiagnostic.h:182`, and `*Op.OpName` is the only value formatted in — while both operands are named locals (`UDynamicMesh* Mesh` parameter, `TStrongObjectPtr<UDynamicMesh> Tool` at `:2421`). **Lifetime caveat recorded for the fixer: `Tool->MarkAsGarbage()` runs at `:2470`, thirty lines before the emit** — the `TStrongObjectPtr` keeps the pointer alive so a same-frame read would not crash, but any fix reading tool bounds at the emit site must move the read above `:2470` or move `MarkAsGarbage` below the diagnostic; capturing an `FBox` local before `:2470` is cheapest. Compounding gap also recorded: `rotate=` moves a cutter in the same axis the overlap depends on, so "point plus half-size along the rotated normal" is only right if the author guessed the sign convention of `roll` in `FRotator`'s local +Z, and no measurement in the response checks that guess — two of the three failures were sign errors. Classified ergonomic, not correctness: the abort is right (see `model.validate`'s note on twelve green examples of visibly broken models). Worked around by placing cutters by overlap rather than plane arithmetic, written into the `.pwmodel` header; defect untouched.
 - `#2-diagnostic-names-both-operand-bounds` `IN-REVIEW` developer — Message now carries both boxes and their separation. `Source/PinWrightGeometry/Private/Model/PwModelCompiler.cpp`, `FCompiler::RunBoolean` only: the tool's `FBox` is captured into a plain local immediately after its block finishes building, ABOVE the `Tool->MarkAsGarbage()` at the old `:2470` - the cheaper of the two options the reporter named, and it reorders no object lifetime. The accumulated part's box is read at the emit site off the `Mesh` parameter. The message now reads `'<op>' changed nothing: the geometry accumulated so far still spans (min)..(max), with N triangles and an enclosed volume of V uu3, unchanged by the op - and the block's geometry spans (min)..(max).` followed by one of three true clauses from `DescribeBooleanOperandMiss`: boxes separated -> the per-axis clear gap, which is how far the block has to move; boxes overlapping -> the per-axis overlap plus the note that the miss is between the solids rather than by distance; either operand empty -> says so. The old sentence's unconditional "does not intersect" claim is gone; the constant's contract in `Model/PwModelDiagnostic.h` records why. The abort itself is unchanged, as this ticket asked. No new error code, no response-shape change - the numbers are in the diagnostic message where the failing part has no `parts[]` entry to carry them. Test added to `Source/PinWrightGeometry/Private/Tests/Model/TestPwModelCompiler.cpp`: `PinWright.Model.Compiler.BooleanNoEffectNamesBothOperandBounds` compiles a 50-cube against a 20-cube cutter at `at=(200,0,0)` and asserts the message contains the accumulated bounds `(-25, -25, -25)..(25, 25, 25)`, the tool bounds `(190, -10, -10)..(210, 10, 10)` (the tool's box, which nothing in the response could report before), and the gap `(165, 0, 0)`. Boxes rather than a sphere on both sides so the printed digits are exact. Synthetic geometry only, no host content.
+
+- `#3-verified-behaviourally-on-the-built-binary` `DONE` verifier — 2026-08-28, against the
+  `b79ba53e` build, through `model.validate` on synthetic boxes. Both operand boxes and the
+  separation are now in the message, and the unconditional "does not intersect" claim is gone.
+
+  Separated case — `box size=(50,50,50)` + `subtract { box size=(20,20,20) at=(200,0,0) }`, the
+  developer entry's own fixture, re-run live rather than read off the test:
+
+  > `'subtract' changed nothing: the geometry accumulated so far still spans (-25, -25, -25)..(25, 25, 25),`
+  > `with 12 triangles and an enclosed volume of 125000 uu3, unchanged by the op - and the block's`
+  > `geometry spans (190, -10, -10)..(210, 10, 10). Their bounding boxes do not meet - the clear gap`
+  > `between them is (165, 0, 0) uu - so the two solids cannot touch, and that gap is how far the`
+  > `block has to move.`
+
+  Every number the ticket asked for is present and correct: the accumulated part's box, the **tool's**
+  box — which nothing in the response could report before, and which is read despite the
+  `MarkAsGarbage` lifetime caveat — and the per-axis gap, which turns "move it" into "move it 165 uu
+  in -X". Triangle count and enclosed volume are there as well, which the ticket did not ask for.
+
+  Overlapping case — `box size=(50,50,50)` + `intersection { box size=(200,200,200) }` (tool contains
+  target, so the op is a no-op while the boxes overlap):
+
+  > `Their bounding boxes DO overlap, by 50 x 50 x 50 uu, so this is not a miss by distance: the`
+  > `solids inside those boxes share no volume. A cutter that only grazes a face, one that sits in`
+  > `the hollow of a shell, and one whose box interpenetrates the target's around a corner all look`
+  > `like this.`
+
+  Both branches of `DescribeBooleanOperandMiss` therefore fire and each says something measurably
+  true of the operands in hand. The abort itself is unchanged, as this ticket asked. The numbers live
+  in the diagnostic message rather than in structured response fields — that is what the ticket's
+  "What it should do" specified ("Put two boxes in the diagnostic"), so it is not a shortfall.
+  Closing.

@@ -1,12 +1,12 @@
 ---
 id: B-subtract-through-cut-unsubdivided-box
 title: "`.pwmodel` `subtract` refuses a through-cut on a default-tessellation `box` and aborts with `PWMODEL_BOOLEAN_NO_EFFECT`, whose message asserts the operands do not intersect when they overlap by 40% of the target's volume"
-status: IN-REVIEW
+status: DONE
 severity: High
 category: bug
 tags: [pwmodel, subtract, boolean, tessellation, through-cut, false-diagnostic, PWMODEL_BOOLEAN_NO_EFFECT]
 encounters: 1
-lastSeen: 2026-08-27T18:55:42+05:00
+lastSeen: 2026-08-28
 ---
 
 # `subtract` will not cut clean through an unsubdivided `box`, and blames the operands for not intersecting
@@ -153,3 +153,32 @@ severity rationale: impact=the caller is told a measurably false fact and acts o
 ## History
 - `#1-initial-repro` `OPEN` reporter — Found building the Atlantis temple ruins (map as forcing function; see host `CLAUDE.md` § "What this project is for"), 2026-08-27, UE 5.8, PinWright at this checkout's HEAD. All rows measured live through `model.validate`, values copied from the responses. Five tool-position rows on a `box size=(100,100,100)` target: tool `box size=(300,300,100) at=(0,0,50)` **works** (16 tris, z -50..0); the same tool at `at=(0,0,60)` and `at=(0,0,70)`, a `size=(300,300,300) at=(0,0,190)` and a `size=(300,100,100) at=(0,0,60)` all abort with `PWMODEL_BOOLEAN_NO_EFFECT`. Two tessellation controls: target `segments=(3,3,3)` + tool `at=(0,0,60)` **works** (60 tris, z -50..10, `signedVolume` 600000), while giving the **tool** `segments=(4,4,4)` against an unsubdivided target still fails. Notch control: `subtract { box size=(40,40,40) at=(0,0,50) }` on an unsubdivided target **works** (32 tris, `signedVolume` 968000 = 1000000 - 40x40x20). Net: subdividing the TARGET fixes it, subdividing the TOOL does not, a notch works, a through-cut does not, and the one through-cut that works is the one whose cut plane lands exactly on z = 0. The working `signedVolume` figures confirm the geometry is correct whenever the op runs, so the operands are sound. Message half source-confirmed at HEAD in this tree: emitted at `PwModelCompiler.cpp:2500-2507` in `FCompiler::RunBoolean` (`:2416`), constant at `PwModelDiagnostic.h:182`; the tested condition is `!OpResult.bChanged` while the sentence claims the operands do not intersect — strictly stronger than what was checked, and false here. Geometry half NOT traced into engine source: why a 12-triangle box refuses a through-cut a 60-triangle one accepts, and why z = 0 is the exception, is stated as inference from the tabulated responses. Worked around by carrying `segments=` on every boolean target box in `SM_Temple_Podium` / `SM_Temple_Cella` / `SM_Temple_Entablature`; defect untouched.
 - `#2-through-cut-detected-by-volume-not-triangle-count` `IN-REVIEW` developer — Geometry half TRACED, and it is not an engine limitation: the engine boolean SUCCEEDS on every failing row. `PWMODEL_BOOLEAN_NO_EFFECT` is only reachable after `OpResult.bSuccess`, and an engine refusal fails there as `PWMODEL_OP_FAILED` with the engine's own text - so reaching the abort proves `ApplyMeshBoolean` ran and returned cleanly. The whole defect is PinWright's change detector: `GeometryOps::Boolean` ends with `Result.bChanged = (Result.TrianglesAfter != Result.TrianglesBefore)` (`GeometryOps_Boolean.cpp`), a TRIANGLE-COUNT DELTA and nothing else, deliberately pinned there because it is the value the four `geometry.*` boolean verbs publish as `changed`. A through-cut turns a box into a smaller box - 12 tris before, 12 after - so the delta is zero over a cut that removed two fifths of the material. That explains all four rows of the measured table with no engine mechanism at all: subdividing the TARGET moves the count (108 -> 60) so it passes; subdividing the TOOL never could, because the tool's count is not in the test; a notch changes the count (12 -> 32) so it passes; and the one through-cut that works is simply the one whose result lands on a DIFFERENT count (16 against 12) - why that particular cut plane retriangulates differently is not established here and does not need to be, because the count is no longer what decides. Fixed in `Source/PinWrightGeometry/Private/Model/PwModelCompiler.cpp` (`FCompiler::RunBoolean` only): the no-effect test is now `BooleanMovedGeometry` = `OpResult.bChanged` **OR** a change in `GeometryUtils::MeasureMeshOrientation(Mesh).SignedVolume` measured before and after the op, relative epsilon `1e-6` with a `UE_DOUBLE_KINDA_SMALL_NUMBER` floor. OR, not AND, so the test only ever weakens: everything that passed before still passes and the disjoint-boolean abort the twelve green-but-broken examples exist to justify is untouched. Diagnostic message rewritten in the same block and the constant's contract corrected in `Model/PwModelDiagnostic.h` - it no longer asserts the operands are disjoint, it reports what was actually measured and branches on whether the two bounding boxes meet. No engine change, no auto-subdivision, no new error code. Tests added to `Source/PinWrightGeometry/Private/Tests/Model/TestPwModelCompiler.cpp`: `PinWright.Model.Compiler.ThroughCutOnAnUnsubdividedBoxCompiles` compiles the reporter's `at=(0,0,60)` row, asserts z -50..10 and `signedVolume` 600000, asserts the cut left the triangle count EQUAL to a plain box's (the counterfactual - that equality is exactly the state the old test read as "changed nothing"), and pins the `segments=(3,3,3)` control to the same solid; `PinWright.Model.Compiler.BooleanNoEffectOverOverlappingBoundsDoesNotClaimDisjoint` uses an `intersection` whose tool CONTAINS the target and asserts the message never says "does not intersect". Synthetic boxes only, no host content.
+
+- `#3-verified-behaviourally-on-the-built-binary` `DONE` verifier — 2026-08-28, against the
+  `b79ba53e` build. The reporter's own table was replayed through `model.validate` with synthetic
+  boxes only. **Every row that aborted now compiles, and the geometry is analytically correct.**
+
+  | document (target `box size=(100,100,100)`) | before | now |
+  |---|---|---|
+  | tool `box size=(300,300,100) at=(0,0,60)` | `BOOLEAN_NO_EFFECT` | **compiles** — 12 tris, z -50..10, `signedVolume` **600000.0000000003** |
+  | tool `box size=(300,100,100) at=(0,0,60)` | `BOOLEAN_NO_EFFECT` | **compiles** — 12 tris, z -50..10, `signedVolume` **600000.0000000003** |
+  | tool `box size=(300,300,300) at=(0,0,190)` | `BOOLEAN_NO_EFFECT` | **compiles** — 12 tris, z -50..40, `signedVolume` **899999.9999999997** |
+  | target `segments=(3,3,3)` + tool `at=(0,0,60)` (the workaround control) | 60 tris, 600000 | **60 tris, 600000.0000000002** — unchanged |
+
+  The subdivided control and the unsubdivided target now return the **same solid** (600000, z
+  -50..10) from different triangle counts (60 vs 12), which is the ticket's requirement stated as
+  an equality rather than as "it stopped erroring". Row 3 is an independent analytic check the
+  reporter never ran: the tool spans z 40..340, so the remainder is 100 x 100 x 90 = **900,000**,
+  and that is what came back. The counterfactual is intact — the fixed rows are exactly the ones
+  whose triangle count is EQUAL to a plain box's 12, i.e. the state the old triangle-delta detector
+  read as "changed nothing".
+
+  The diagnostic half is fixed too, and its abort still works where it should. A genuinely disjoint
+  pair (`box size=(50,50,50)` + `subtract { box size=(20,20,20) at=(200,0,0) }`) still aborts, and
+  the message no longer asserts anything false: *"the geometry accumulated so far still spans
+  (-25, -25, -25)..(25, 25, 25), with 12 triangles and an enclosed volume of 125000 uu3, unchanged
+  by the op - and the block's geometry spans (190, -10, -10)..(210, 10, 10). Their bounding boxes do
+  not meet - the clear gap between them is (165, 0, 0) uu"*. An overlapping-but-ineffective case
+  (`box size=(50,50,50)` + `intersection { box size=(200,200,200) }`) takes the other branch and says
+  so: *"Their bounding boxes DO overlap, by 50 x 50 x 50 uu, so this is not a miss by distance"*.
+  Both sentences are true of the operands as measured. Closing.

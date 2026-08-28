@@ -1,12 +1,12 @@
 ---
 id: B-pwmodel-health-blind-to-interior-membrane
 title: "The published health gate cannot see a surface spanning a solid's interior: two oppositely wound fans cancel in signedVolume and every other field reads clean"
-status: IN-REVIEW
+status: DONE
 severity: High
 category: bug
 tags: [pwmodel, health, isClosed, signedVolume, false-green, membrane, revolve, model.validate]
 encounters: 1
-lastSeen: 2026-08-27
+lastSeen: 2026-08-28
 ---
 
 # `isClosed && signedVolume > 0` returns green on a solid with a membrane through it
@@ -60,3 +60,41 @@ two together rather than bolting on two independent checks.
   must stay at zero (nested hollow shell, the correctly spelled ring, a lathe whose axis cap is
   coplanar with its own base annulus, an open sheet) and the two documents through
   `model.validate`.
+
+- `#3-verified-behaviourally-on-the-built-binary` `DONE` verifier — 2026-08-28, against the
+  `b79ba53e` build, `model.validate` only, synthetic `append_buffers` documents, no host content.
+  **The signal exists, is measured, and fires on the exact false green this ticket describes.**
+  Probe: a crossed ("bowtie") square prism — 8 vertices, 12 triangles, the two diagonal walls
+  passing through each other at the axis. Control: the SAME 12-triangle index list with the same
+  8 positions reordered into a plain prism, so topology, triangle count and bounds are identical
+  and only the crossing differs.
+
+  | document | tris | isClosed | boundaryEdges | orientCons. | degenTris | nonManifold | signedVolume | **selfIntersections** |
+  |---|---|---|---|---|---|---|---|---|
+  | crossed prism | 12 | true | 0 | true | 0 | 0 | 0 | **4** (1 shell) |
+  | same topology, uncrossed control | 12 | true | 0 | true | 0 | 0 | -8,000,000 | **0** |
+  | crossed prism + a disjoint 200-cube part | 24 | true | 0 | true | 0 | 0 | **+8,000,000** | **4** (1 shell) |
+  | nested hollow shell (200-box + 100-box) | 24 | true | 0 | true | 0 | 0 | 9,000,000 | **0** |
+
+  Row 3 is the ticket's case verbatim: **every** field of the old documented gate reads green —
+  `isClosed: true` and `signedVolume: 8,000,000 > 0`, with `boundaryEdges`, `degenerateTriangles`,
+  `nonManifoldVertices` and `inconsistentEdges` all zero and `orientationConsistent: true` — while
+  `selfIntersections: 4` / `selfIntersectingComponents: 1` report the interior surface. Row 4 is the
+  declined-by-design control: two nested shells are separate components, so the per-shell measure
+  correctly stays 0 and `PWMODEL_UNUNIONED_OVERLAP` covers it instead.
+  `PWMODEL_SELF_INTERSECTING_SURFACE` fires as a warning with the witness coordinate **(-0, 0, 100)**
+  — the analytic crossing point of the two diagonal walls is exactly (0, 0, 100) — and names the
+  three usual causes plus why appended siblings are a different code.
+
+  Not a warning-in-place-of-a-fix: the measurement is new state on `health`, not narration of
+  unchanged output, and it separates a self-intersecting mesh from a topologically identical clean
+  one that no pre-existing field distinguishes.
+
+  **One input path could not be exercised, recorded so nobody re-reads this as fully covered:** the
+  ticket's literal geometry — two *exactly coincident* oppositely wound fans — cannot be authored
+  through `append_buffers` at all. The engine refuses the duplicate triangles up front:
+  `[MESH_APPEND_FAILED] ... the engine refused 4 of 24 triangle(s) ... Triangle cannot be added
+  because it would create invalid Non-Manifold Mesh Topology (x4)`. So the coplanar-coincident
+  branch (`SetReportCoplanarIntersection(true)`) is verified only by the crossing case above and by
+  the shipped tests, not by a live coincident-fan document. Closing on the crossing evidence, which
+  is the generalisation the ticket asked for ("any future op that produces an interior surface").

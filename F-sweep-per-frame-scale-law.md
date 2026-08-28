@@ -1,12 +1,12 @@
 ---
 id: F-sweep-per-frame-scale-law
 title: "sweep / extrude_along_spline interpolate the cross-section LINEARLY between scale_start and scale_end, so no radius law that is not a straight line can follow a path — the engine's per-frame FTransform scale slot was always there, only the caller's two scalars were not"
-status: IN-REVIEW
+status: DONE
 severity: Medium
 category: feature
 tags: [pwmodel, geometry, sweep, extrude_along_spline, scales, taper, scale-curve, cross-section]
 encounters: 2
-lastSeen: 2026-08-27T18:57:03+05:00
+lastSeen: 2026-08-28
 ---
 
 # A swept tube could taper only straight
@@ -167,3 +167,41 @@ Consequence for a tester: "`signedVolume` catches it after the fact" is a sound 
   Recorded here so a tester disposing of this ticket does not over-read the claim. Filed
   separately as `B-pwmodel-health-no-self-intersection`. `encounters` 1 -> 2, `lastSeen`
   refreshed.
+
+- `#4-linked-and-verified-behaviourally` `DONE` verifier — 2026-08-28. `#2` closed with **"NOT
+  LINKED and the suite has NOT been run"**; the `b79ba53e` build has it linked, and it was exercised
+  through `model.validate` rather than through the suite. Fixture: `sweep` on a 5-frame straight
+  path `[(0,0,0,0,-90,0) … (0,0,400,0,-90,0)]` with a square `profile=[(-50,-50),(50,-50),(50,50),(-50,50)]`,
+  seeded by a 1-uu box (sweep cannot be a part's first op). All figures are `health.signedVolume`,
+  checked against the closed-form sum of four square frusta, `h/3 * (A1 + A2 + sqrt(A1*A2))`.
+
+  | `scales` / scalars | measured `signedVolume` | analytic | tris / verts |
+  |---|---|---|---|
+  | `scale_start=1 scale_end=0.2` | 1,653,332.359 | **1,653,332** | 48 / 28 |
+  | `scales=[(0,1),(1,0.2)]` | 1,653,332.387 | **1,653,332** | 48 / 28 |
+  | `scales=[(0,1),(0.5,0.3),(1,1)]` (a WAIST) | 1,853,332.281 | **1,853,332** | 48 / 28 |
+
+  Row 3 is the capability: knot scales evaluate to 1 / 0.65 / 0.3 / 0.65 / 1 at the five frames and
+  the solid measures the frustum sum to **0.3 uu3 in 1.85 million**. That is a non-monotonic radius
+  law, which no pair of endpoint scalars can express at all — the thing the ticket was filed for.
+  Rows 1 and 2 are the scalar-equivalence claim: same triangle and vertex counts, same bounds
+  (-50..50, -50..50, 0..400), volumes agreeing to **1.7e-8 relative**. That is float-level agreement,
+  not the literal vertex-for-vertex byte equality `#2` asserts in the test — worth knowing, and far
+  inside any tolerance that matters.
+
+  All five refusals fire, each naming the value and the remedy: `scales` beside `scale_start`
+  (*"only one can be honoured … write the endpoints as its first and last knot"*); one knot
+  (*"needs at least 2 knots to be a law, but carries 1"*); `alpha 1.5` (*"outside [0, 1] … not a
+  distance in uu"*); non-ascending `0.8` then `0.4` (*"does not come after knot 1's 0.8"*);
+  `scale -0.3` (*"a negative one reflects it, which reverses the swept tube's facing normals while
+  every count and health field stays identical"*). All arrive as line-anchored
+  `PWMODEL_OP_FAILED` / `[INVALID_PARAMS]`, as specified.
+
+  Published on both ops: `model.describe_ops` returns the `scales` `point_list2` parameter for
+  `sweep` AND for `extrude_along_spline`, the latter's description carrying the loop-drop note.
+
+  The `#3` encounter's separate finding stands and is not closed by this: `signedVolume` still moves
+  smoothly under partial self-intersection. That is now covered by the shipped
+  `health.selfIntersections` field (see `B-pwmodel-health-blind-to-interior-membrane` `#3`), which
+  was verified in the same pass — a genuine interior crossing reports 4 pairs while
+  `isClosed`/`signedVolume` read green.
