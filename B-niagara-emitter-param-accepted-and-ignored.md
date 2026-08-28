@@ -1,7 +1,7 @@
 ---
 id: B-niagara-emitter-param-accepted-and-ignored
 title: "The three system-wide parameter scopes accept an emitter argument and silently ignore it, across set_parameter, set_curve_keys and add_data_interface"
-status: OPEN
+status: IN-REVIEW
 severity: Medium
 category: bug
 tags: [niagara, set_parameter, set_curve_keys, add_data_interface, parameter-store, accepted-and-ignored]
@@ -29,9 +29,19 @@ stray `emitter` does not send the compile somewhere unexpected. The effect reall
 ignored.
 
 Documented in the meantime -- `set_parameter`'s `emitter` description now says the system-wide scopes
-ignore it -- which is a mitigation, not a fix.
+ignore it -- which is a mitigation, not a fix. Superseded by the refusal in `ResolveParameterStore`
+(see History `#2`); the descriptions on all seven parameter-store verbs now say `INVALID_ARGUMENT`.
 
 ## History
 - `#1-found-while-declaring-the-param` `OPEN` reporter -- Found by the agent fixing
   `B-niagara-set-parameter-emitter-scope-unreachable`, which declared the parameter the resolver had
   always required and then checked what the other scopes do with it. Source-level claim.
+- `#2-refused-in-the-shared-resolver` `IN-REVIEW` developer -- "Added a system-wide-scope guard to
+  `ResolveParameterStore` in `NiagaraEditTypes.cpp` so `user` / `systemSpawnRapidIteration` /
+  `systemUpdateRapidIteration` refuse a non-empty `emitter` with `INVALID_ARGUMENT` instead of
+  resolving it and writing the system store; landed on all seven verbs that route through the
+  resolver at once, refreshed their `emitter` descriptions in `NiagaraEditHandler.cpp`,
+  `NiagaraCurveHandler.cpp` and `NiagaraAdvancedEditHandler.cpp`, corrected the now-false
+  `docs/wiki-src/niagara.md` sentence, and added
+  `PinWright.niagara.set_parameter.SystemScopeRejectsEmitter` in
+  `Tests/Niagara/TestNiagaraSetParameterEmitterScope.cpp`, which fails before the guard."
