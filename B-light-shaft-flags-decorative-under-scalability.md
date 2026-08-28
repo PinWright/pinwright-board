@@ -1,12 +1,12 @@
 ---
 id: B-light-shaft-flags-decorative-under-scalability
 title: "A directional light's light-shaft flags are decorative whenever [PostProcessQuality@1] has zeroed r.LightShaftQuality, and no read-back distinguishes that from a working setup"
-status: IN-REVIEW
+status: DONE
 severity: High
 category: bug
 tags: [lighting, light-shaft, scalability, cvar, silent-noop, measured-vs-requested, directional-light]
-encounters: 1
-lastSeen: 2026-08-27
+encounters: 2
+lastSeen: 2026-08-28T09:10:00+05:00
 ---
 
 # `r.LightShaftQuality` vetoes light shafts the same way `r.VolumetricFog` vetoed volumetric fog
@@ -82,3 +82,4 @@ shape at the same time rather than one cvar per ticket.
   `ULightComponent::bUseRayTracedDistanceFieldShadows`, `r.CapsuleShadows=0` vetoes
   `bCastCapsuleDirectShadow` / `bCastCapsuleIndirectShadow`, and `r.LightFunctionQuality=0` vetoes
   `LightFunctionMaterial`.
+- `#3-verified-fixed-behaviourally` `DONE` verifier — 2026-08-28. The verb the fix added exists on the rebuilt binary at HEAD `b79ba53e` and behaves as claimed, verified live on `/Game/Maps/Atlantis` against `Sun_Filtered` (`DirectionalLight_0`, the level's only directional light). Both component flags were read first — `property.get bEnableLightShaftBloom` and `bEnableLightShaftOcclusion` on `…DirectionalLight_0.LightComponent0` both `true` — and the same values were written back, so the level was not changed and was not saved. **Differential, same call either side of a cvar toggle.** At `r.LightShaftQuality 1`: `lighting.setup_light_shafts {actorName:"Sun_Filtered", bloom:true, occlusion:true}` → `{bloomEnabled:true, occlusionEnabled:true, componentFlags:{bloom:true, occlusion:true}, lightShaftQualityCVar:{cvar:"r.LightShaftQuality", found:true, value:1}}`, no warning. At `r.LightShaftQuality 0`, identical call → `{bloomEnabled:false, occlusionEnabled:false, componentFlags:{bloom:true, occlusion:true}, lightShaftQualityCVar:{… value:0}}` plus `cvarWarning` naming `BloomScale` / `BloomThreshold` / `BloomMaxBrightness` / `BloomTint` / `OcclusionMaskDarkness` / `OcclusionDepthRange` / `LightShaftOverrideDirection` as inert, the white dummy occlusion texture, the fact that the `LightShafts` show flag stays lit so the editor UI does not show the veto either, and all three remedies. `componentFlags` reads `true` in both runs while the measured fields disagree, which is the whole point of the ticket. **The veto is real and was seen, not inferred:** identical pose `{x:-10500,y:-3800,z:1500}` / `{pitch:4,yaw:40,roll:0}` / `fov 70`, 448x448, game view on, pinned `exposure {mode:"fixed", ev100:0}` — `verify_shafts_on.png` against `verify_shafts_off.png` shows the tall column's hard dark light-shaft-occlusion band appearing only at cvar 1, with `maxLuminance` 0.649292 vs 0.539691, `luminanceVariance` 0.009528 vs 0.005766, and the mean DARKENING 0.258631 → 0.246327 with shafts on — the same counter-intuitive direction the sibling ticket's encounter `#3` measured (0.616936 → 0.443637), because occlusion is what supplies the contrast between shafts. **The two further silent no-ops the fix closed were confirmed as refusals, not writes:** `{actorName:"Sun_Filtered"}` with neither flag → `[INVALID_ARGUMENT] At least one of bloom or occlusion is required. With neither there is nothing to write, and a success carrying the light's current state would read as a write that happened`; and `{actorName:"Portal_Light", bloom:true}` on the level's point light → `[ACTOR_NOT_FOUND] No actor named 'Portal_Light' with a UDirectionalLightComponent in the level`, rather than the inert `bEnableLightShaftBloom` write the engine tooltip invites. `r.LightShaftQuality` was restored to `1`. The audit items the developer entry named but did not fix (`configure_shadows`, `spawn_light`'s `castShadows`, `set_ambient_occlusion`, `spawn_sky_light`'s scaled intensity) were NOT verified here and remain open work wherever they are tracked.
