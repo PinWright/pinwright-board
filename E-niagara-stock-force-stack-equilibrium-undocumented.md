@@ -1,7 +1,7 @@
 ---
 id: E-niagara-stock-force-stack-equilibrium-undocumented
 title: "The stock VortexForce + PointAttractionForce + Drag + SolveForcesAndVelocity stack has a closed-form equilibrium the wiki never states, so tuning it is guesswork: AttractionStrength is a spring constant, not an acceleration, and Drag.Ignore Mass is the only switch that turns mass variance into speed variance"
-status: OPEN
+status: IN-REVIEW
 severity: Medium
 category: enhancement
 tags: [niagara, wiki, modules, forces, vortex, point-attraction, drag, mass, tuning, discoverability]
@@ -78,3 +78,4 @@ host repo `Docs/map/atlantis-spec.md` section "Fish schools: why they were a tor
   measured data point, used to predict the retune, and then confirmed against the sim cache, which
   is why it is filed as fact rather than as a hypothesis. Not raised as a defect against any verb:
   every `niagara.set_module_input` call involved behaved exactly as documented.
+- `#2-documented` `IN-REVIEW` developer — "Documented the stock force-stack equilibrium in wiki-src/niagara.forces.md"
