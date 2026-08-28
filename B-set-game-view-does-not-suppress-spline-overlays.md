@@ -1,7 +1,7 @@
 ---
 id: B-set-game-view-does-not-suppress-spline-overlays
 title: "set_game_view reports a clean frame but does not suppress spline overlays — a water spline's white dashed bank lines render into captures and have twice been on the verge of being reported as map content"
-status: OPEN
+status: IN-REVIEW
 severity: Medium
 category: bug
 tags: [editor, viewport, set_game_view, capture, overlays, splines, water, false-feature, review-hazard, shared-state, concurrency, multi-agent]
@@ -135,3 +135,38 @@ own `overlayWarning` precedent lives at `Handlers/Editor/ViewportHandler.cpp:706
   in the same block shape — which is this ticket's fix-shape option 2 ("have the capture verbs own
   it"), now roughly a helper move plus five lines rather than new machinery. Recorded by the agent
   that did the ShowFlag work, which did not widen into it.
+- `#4-capture-verbs-own-the-overlay-block` `IN-REVIEW` developer — Took fix-shape option 2 along the
+  line note `#3` opened. Moved the overlay flag table out of `Handlers/Editor/ViewportHandler.cpp`
+  (where it was a file-static) into a new shared `Utils/GameViewOverlayFlags.h` / `.cpp`, split into
+  `PinWrightReadGameViewOverlayFlags` (pure read of the ten flags plus `game` off an
+  `FEngineShowFlags` into a value struct), `PinWrightAddGameViewOverlayFlags` (writes that struct
+  into a JSON object under the existing wire names, so `editor.set_game_view`'s block is unchanged)
+  and `PinWrightDescribeVisibleGameViewOverlays` (the overlays still on, comma separated, empty when
+  none — one name table walked by both, so a flag cannot be published under one name and warned
+  about under another). `CaptureEditorViewportToPng` now reads the flags off the client it is about
+  to draw with, in the same block as the `SurveyForcedShowFlagOverrides` survey, into
+  `FViewportCaptureOutput::OverlayShowFlags` / `bOverlayShowFlagsMeasured`, and
+  `MakeViewportInfoObject` publishes `viewport.overlayShowFlags` (with `measured`, so "read and
+  nothing was on" and "never read" stay different answers) on EVERY capture verb — plus an
+  `overlayWarning` naming the surviving overlays when the capture was in game view and an overlay
+  flag was still set, which is exactly the frame that produced the river line. **Scope, stated
+  plainly: this is disclosure moved onto the capture, not suppression.** Nothing here clears a show
+  flag, so a spline can still render into a PNG; what changed is that the capture's own response now
+  says so, in the response the reviewer reading that PNG actually gets, instead of only in a
+  `set_game_view` response they never had to call — and the `#2` concurrency state is covered too,
+  because the read happens on the client at shutter time rather than on a confirmation that can go
+  stale. Bounded suppression (option 1's `suppressOverlays`, restored on scope exit like
+  `hideEditorSprites`) is still unimplemented and still available on top of this. Regression test:
+  `PinWright.render.capture.ReportsMeasuredOverlayShowFlags` in
+  `Tests/EditorOps/TestSetGameViewOverlayReporting.cpp`, alongside the existing disclosure test —
+  asserts the read reports both flag states, that `viewport.overlayShowFlags` reaches the capture
+  block with the measured values (the assertion that fails on the pre-fix response, which carried no
+  such field), that `overlayWarning` fires only on game-view-plus-surviving-overlay and names the
+  overlay, and that an unmeasured output reports `measured: false` rather than a set of falses that
+  reads as a clean frame. Written on pure functions over a value type, no viewport and no GPU, per
+  `B-test-skips-assertions-silently`. `RenderHandler.cpp` was left untouched: its `viewport` block at
+  the world-mismatch ERROR path is hand-built and carries no capture, and its success path already
+  routes through `MakeViewportInfoObject`, so it picked the new block up for free. Contradiction
+  found while working: this ticket's `#2` note says a plugin-wide grep for `gameViewWarning` returns
+  zero hits — it is now present in `MakeViewportInfoObject`, so the sibling
+  `B-game-view-shared-state-no-capture-warning` appears to have landed since.
