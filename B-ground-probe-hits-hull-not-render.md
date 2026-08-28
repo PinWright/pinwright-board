@@ -1,7 +1,7 @@
 ---
 id: B-ground-probe-hits-hull-not-render
 title: "`spatial` ground probes resolve against SIMPLE collision by default, so on authored architecture they report a floor the render mesh does not have — a prop seated on a phantom hull surface floats 202 cm in the air and every reported number looks right"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: bug
 tags: [spatial, raycast, ground_actors, verify_grounding, trace, collision, simple-vs-complex, hull, silent-wrong-data, review-hazard, level-building, placement, face-index, provenance, non-uniform-scale]
@@ -466,3 +466,47 @@ Note the asymmetry worth preserving in any fix: both pages already teach the cal
   cannot substitute); its stated reason — "the hull agrees everywhere the mesh is unmodified" — is
   withdrawn.** The stronger reason replaces it: small, invisible, everywhere-divergence is precisely
   what more sample points cannot distinguish from a correct reading.
+- `#4-serialize-the-provenance-the-probe-already-computed` `IN-REVIEW` developer — Implemented
+  `#2`'s recast ask and nothing beyond it: the ground column probe now keeps the three provenance
+  fields it used to drop, and both verbs publish them. **The default was NOT flipped**; the
+  `B-trace-complex-hits-render-geometry` constraint is untouched, and no extra trace is taken, so
+  the cost is unchanged (a serialization change only). `FGroundColumn` gained `GroundFaceIndex` /
+  `GroundSimpleCollisionShapes` / `bGroundRenderGeometryHit`, copied verbatim off the same
+  `FSpatialHit` the probe already read `GroundZ` from; `FGroundContactReport` gained a
+  `FGroundProvenance` folded over the SUPPORTED columns in `AggregateColumns`; `GroundRpcContactObject`
+  emits it as `contact.groundProvenance` = `{traceComplex, triangleColumns, primitiveColumns,
+  renderGeometryColumns?, minSimpleCollisionShapes?, maxSimpleCollisionShapes?, warning?}`. The
+  `warning` fires whenever any column was answered by a hull and carries `#3`'s caveat (absence of
+  a face index is a strong prior, not proof) plus the re-probe instruction. `-1` (no body setup —
+  Landscape) is omitted rather than forged into a `0`. The counts are per-representation rather
+  than one label because a footprint can straddle a heightfield column and a hull column. Placement
+  note: the edits landed in `MeasureContactForBounds`, which another agent extracted out of
+  `MeasureContact` in the same window, so any future per-instance path inherits the provenance too.
+  Both verbs share `GroundRpcContactObject`, so `spatial.ground_actors` and
+  `spatial.verify_grounding` are covered by one writer. `#5`'s divergence comparison (magnitude and
+  sign) is deliberately NOT in this change and remains the follow-on it was recast as.
+
+  **Regression test:** `PinWright.spatial.verify_grounding.GroundProvenanceNamesTheMeasuredSurface`
+  in `Source/PinWright/Private/Tests/Spatial/TestGroundPlacement.cpp`. The fixture is `#8`'s
+  mechanism, not the map's: the engine sphere — whose simple collision is exactly one `KSphereElem`
+  (verified in `Engine/Content/BasicShapes/Sphere.uasset`) — at scale `(1,1,2)` renders 200 cm tall
+  while its hull stays a 100 cm ball, because `FKSphereElem::GetFinalScaled` multiplies the radius
+  by `MinScaleAbs` (`BodySetup.cpp:2006-2019`, read at UE 5.8). A cube is parked with its underside
+  exactly on the RENDER apex and `verify_grounding` is asked about it at `samples:1`; the verb
+  reports it floating ~50 cm. The test asserts the divergence is real (`maxGapCm > 20` against a
+  render apex derived from `GetActorBounds`) and then that the response DISCLOSES which surface
+  answered — `primitiveColumns == 1`, `triangleColumns == 0`, `maxSimpleCollisionShapes == 1`, and a
+  non-empty `warning`. It fails before this change on the missing `groundProvenance` object. It does
+  **not** assert the probe must return the render surface: that would be the fix this ticket forbids.
+
+  **Two corrections to `#2`, both source-verified at HEAD in this tree.** (a) The claim that the
+  documentation half is CLOSED is **false here**: neither `4fafde6b` nor `9e17fefc` exists in this
+  plugin repo (`git cat-file` fails on both), `Docs/wiki-src/spatial.md` has no `## Which trace, for
+  which ground` section, and `Docs/wiki-src/spatial.ground-placement.md` still carries the exact
+  sentence `#2` says was removed — "`traceComplex` defaults `false` and should stay there for these
+  two verbs". Either those commits live only in another checkout or the entry recorded work that was
+  not committed. **The guidance gap is NOT closed in this tree**; this change documents the new field
+  on both pages and states the terrain/authored-architecture split around it, but the three-way
+  rewrite `#2` describes is still absent and someone should reconcile the two trees. (b) `#2` cites
+  the discard site as `GroundPlacementUtils.cpp:784-787` / `:791-799`; that block now lives inside
+  `MeasureContactForBounds`, so the line numbers are stale — the mechanism it describes was exact.
