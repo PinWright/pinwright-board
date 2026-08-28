@@ -1,12 +1,12 @@
 ---
 id: B-ground-actors-prefix-captures-foreign-actors
 title: "`spatial.ground_actors` selected by name prefix silently moved six actors belonging to another agent, and because they succeeded no `previousTransform` was echoed — the unintended move is unrecoverable"
-status: IN-REVIEW
+status: DONE
 severity: High
 category: bug
 tags: [spatial, ground_actors, placement, shared-state, concurrency, multi-agent, undo, data-loss, silent-mutation]
-encounters: 2
-lastSeen: 2026-08-27T19:45:00+05:00
+encounters: 3
+lastSeen: 2026-08-28T10:40:00+05:00
 ---
 
 # A batch seat matched 89 actors when the caller had spawned 83, moved all 89, and reported only counts
@@ -143,3 +143,37 @@ recoverable without inference, and it remains the highest-value change for a sha
   orchestrator) or the emit-registration test fails. **Not addressed here:** encounter 2's
   `HOLDER_NOT_SEATABLE` refusal for ISM/HISM holders — it belongs on both verbs, and
   `verify_grounding` is another agent's file scope this wave.
+- `#4-verified-fixed` `DONE` verifier — 2026-08-28. Both defects in the title re-tested live on the
+  editor rebuilt at `b79ba53e`, on `/Game/Maps/Atlantis`. The verb has no dry run, so the over-match
+  was staged on two throwaway cubes (`PWVERIFY_GA_Mine_01`, `PWVERIFY_GA_Foreign_01`, both spawned at
+  z=400 over the landscape, both deleted afterwards — `actor.list {filter:"PWVERIFY"}` -> 0) rather
+  than on the shipping `AVE_`/`RUB_` sets, so a guard that did not hold could only have moved my own
+  actors. **The fix is in the running binary, not just the source:** a deliberate bad param returns
+  `[UNKNOWN_PARAMS] … Valid parameters: [surface, actors, …, expectedMatches, expected_matches, …]`,
+  so `expectedMatches` is registered — and it also means that on the pre-fix DLL the tests below
+  would have been refused as an unknown param rather than moving anything.
+  **(1) The reporter's own call shape is now refused.** `spatial.ground_actors
+  {surface:{preset:"landscape"}, prefix:"PWVERIFY_GA_", samples:4, seatPercentile:0.2,
+  embedFraction:0.08, detail:"summary"}` — no `expectedMatches`, the exact shape that moved six
+  foreign actors — returns `[MISSING_REQUIRED_PARAM] … This selector matched 2. … Run
+  spatial.verify_grounding with the SAME selector to see what it matches (it moves nothing), then
+  pass expectedMatches:2 - or name the actors outright with 'actors'.` The count is named in the
+  refusal, which is the surface the ticket said did not exist at `detail:"summary"`.
+  **(2) A wrong count is refused before the first move, and names the over-match.** Same call with
+  `expectedMatches: 1` -> `[MATCH_COUNT_MISMATCH] The selector matched 2 actor(s), but
+  expectedMatches says 1. NOTHING WAS MOVED.` carrying
+  `{"expectedMatches":1,"totalMatches":2,"matchedActors":["PWVERIFY_GA_Mine_01","PWVERIFY_GA_Foreign_01"]}`
+  — the 83-vs-89 shape, with the extra actor named instead of a bare count. **"Nothing was moved" was
+  checked, not taken on trust:** `actor.get_transform` after both refusals still reported
+  `[-9000,1600,400]` and `[-9000,1900,400]`, i.e. the spawn z, unchanged.
+  **(3) The undo record now exists for successes.** The honest call (`expectedMatches: 2`,
+  `detail:"summary"`) returned `placed:2, failed:0, moved:2` — no failures at all — and still carried
+  `movedActors[]` with a `previousTransform` per actor: `PWVERIFY_GA_Mine_01` `{location:{x:-9000,
+  y:1600,z:400}, rotation 0, scale 1}` and `PWVERIFY_GA_Foreign_01` `{…y:1900,z:400…}`. Those match
+  the transforms I had independently read before the call, and the actor really did move
+  (`Mine_01` z 400 -> 42.70), so the receipt is a true pre-move record and not an echo of the
+  post-move state. `detail:"summary"` used to carry counts and nothing else; it now carries the undo.
+  **Still open elsewhere, deliberately:** encounter 2's `HOLDER_NOT_SEATABLE` refusal for ISM/HISM
+  holders is not part of this fix and was NOT tested here — testing it would mean seating a shipping
+  HISM holder. It is tracked separately as `F-grounding-holder-not-seatable`, so closing this ticket
+  does not close it by association.
