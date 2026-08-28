@@ -1,7 +1,7 @@
 ---
 id: B-python-execute-private-scope-leaks-sys-modules
 title: "python.execute scope:'private' does not isolate sys.modules, so an edited helper module keeps executing its previous bytecode and the call reports success"
-status: OPEN
+status: IN-REVIEW
 severity: Medium
 category: bug
 tags: [python, python-execute, sys-modules, module-cache, silent-noop, scope, docs]
@@ -119,3 +119,6 @@ after building a HISM from `unreal.new_object` is an `AttributeError`. This is t
 as the `mark_render_state_dirty`-is-a-parameter trap already documented in
 `Docs/wiki-src/level-building.instancing-and-scatter.md`; that page is where the missing pair
 belongs.
+
+## History
+- `#1-sys-modules-snapshot-restore` `IN-REVIEW` developer — "Took route (a) in `Handlers/System/PythonExecuteHandler.cpp`: on the `execute_file` + `scope:"private"` path the handler now runs a snapshot script (`sys.modules` copied onto a stack on `sys`) before `ExecPythonCommandEx` and a restore script after it (drop every module the script added, put back everything it replaced or deleted), so an edited helper module is re-imported on the next call; a scrub that fails to run adds a Warning entry to the response `log` naming `importlib.reload` instead of failing silently. Documented the semantics and its two costs (re-import per call, `sys.path` not restored) on `Docs/wiki-src/python.md` under `### python.execute` plus the `scope` param description, and added (c)'s missing pair — `register_component()` / `is_registered()` carry no UFUNCTION and `AddComponentByClass` is `ScriptNoExport` on 5.8 — to `Docs/wiki-src/level-building.instancing-and-scatter.md`. Regression test `PinWright.python.execute.PrivateScopeReimportsEditedHelperModule` (`Tests/Infra/TestPythonPrivateScopeModuleIsolation.cpp`) writes a GUID-named helper module, runs an entry script through the handler, edits the module on disk and runs it again, asserting the second run reports `cached=False` and the edited value; the counterfactual was measured on UE's bundled CPython 3.11 and reports `cached=True value=FIRST`. Not compiled or run in-editor — build and suite are the verification."
