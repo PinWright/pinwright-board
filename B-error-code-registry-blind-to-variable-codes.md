@@ -1,7 +1,7 @@
 ---
 id: B-error-code-registry-blind-to-variable-codes
 title: "core.error_codes.AllEmittedCodesAreRegistered cannot see a code sent through a variable, so unregistered codes ship green"
-status: OPEN
+status: IN-REVIEW
 severity: Medium
 category: bug
 tags: [test-gap, error-codes, registry, AllEmittedCodesAreRegistered, guard-inefficacy]
@@ -38,3 +38,15 @@ assert each is registered.
   `B-niagara-literal-over-linked-override-pin`, both of which checked whether their new code needed
   registering and discovered the existing ones were not. Source-level claim against
   `Tests/.../TestErrorCodeRegistry.cpp`'s three patterns and `Handlers/ErrorCodes.h`.
+- `#2-widen-the-source-scan` `IN-REVIEW` developer — "Added a fourth emission pattern
+  (an Err/Fail-named callee taking the code literal as its first argument) to
+  `TestErrorCodeRegistry.cpp` so a code handed to an
+  error-VALUE factory and forwarded to `SendError` through a variable is collected, kept it disjoint
+  from the SendError patterns so the per-pattern liveness guard still means something, neutralized
+  `ScanEmittedCodes`'s input so a commented-out call is no longer scored as an emission, and
+  registered the 34 codes the widened scan exposed in `Handlers/ErrorCodes.h` — 32 Niagara plus
+  ANALYSIS_FAILED / NO_TIMING_DATA from `Debug/TraceExportCore.cpp`; not 5 as the report estimated.
+  Chose the source scan over the wire-side alternative: a runtime recorder only ever sees codes the
+  suite happens to exercise, so its coverage would be a function of test coverage and an empty
+  recording would look like a pass. New test
+  `PinWright.core.error_codes.EmissionScanFollowsForwardedCodes`."
