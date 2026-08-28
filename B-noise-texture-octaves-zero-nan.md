@@ -1,12 +1,12 @@
 ---
 id: B-noise-texture-octaves-zero-nan
 title: "texture.create_noise_texture octaves:0 divides by a zero MaxValue and produces NaN pixels"
-status: IN-REVIEW
+status: DONE
 severity: High
 category: bug
 tags: [texture, create_noise_texture, octaves, divide-by-zero, nan, unvalidated-input]
 encounters: 1
-lastSeen: 2026-08-27
+lastSeen: 2026-08-28
 ---
 
 # An unvalidated zero produces a texture of NaN
@@ -45,3 +45,17 @@ scope.
   range and the value passed, that no asset is left behind (so no laundered-NaN buffer exists), and
   that the `octaves:1` boundary produces a finite, varying half-float field. Adjacent and not fixed:
   a caller can still reach `MaxValue == 0` with `persistence: -1` and an even octave count.
+
+- `#3-verified-behaviourally-on-the-built-binary` `DONE` verifier — 2026-08-28, against the
+  `b79ba53e` build. `octaves: 0` is refused before anything is created:
+  `[TEXTURE_ERROR] octaves must be between 1 and 16, got 0. An FBM with no octaves has no value to
+  normalise by, and beyond 16 an octave can no longer change a pixel.` The message names the range
+  AND the value passed, as `#2` claimed. Reading the target path back afterwards returns
+  `[ASSET_NOT_FOUND]`, so **no asset is left behind** and the laundered-NaN white buffer cannot
+  exist. `octaves: 17` is refused with the same sentence, so the upper bound `#2` flagged for review
+  is live. `octaves: 1` and `octaves: 3` both produce ordinary varying fields (the `octaves:3`
+  256x256 control measures mean 130.70, min 37, max 219, `grayscale: true`, hash `ff5990de`) — the
+  bound refuses only what it says it refuses. This is a refusal, not a substitution, which is what
+  the ticket asked for. Closing. The adjacent case `#2` recorded as still reachable —
+  `MaxValue == 0` via `persistence: -1` with an even octave count — was not exercised here and is
+  not covered by this closure.

@@ -1,12 +1,12 @@
 ---
 id: B-noise-texture-hdr-writes-bgra8
 title: "texture.create_noise_texture hdr:true initialises a TSF_RGBA16F source but the pixel loop still writes BGRA8 bytes"
-status: IN-REVIEW
+status: DONE
 severity: High
 category: bug
 tags: [texture, create_noise_texture, hdr, TSF_RGBA16F, wrong-pixels, format-mismatch]
 encounters: 1
-lastSeen: 2026-08-27
+lastSeen: 2026-08-28
 ---
 
 # The HDR path allocates one format and fills it with another
@@ -43,3 +43,30 @@ before deciding whether the fix is to write half-floats or to stop advertising `
   `CreateEmptyTexture(..., bHDR)` call is TextureHandler.cpp:586 post-fix), and `CreateEmptyTexture`
   sizes its hand-built platform mip at 16 bytes/pixel for
   `PF_FloatRGBA`, which is 8 -- harmless only because `UpdateResource()` rebuilds it from Source.
+
+- `#3-verified-behaviourally-on-the-built-binary` `DONE` verifier — 2026-08-28, against the
+  `b79ba53e` build. Two 256x256 textures from identical parameters (`scale:5`, `octaves:3`,
+  `seed:42`), one `hdr:true` and one `hdr:false`.
+
+  Format is real, not echoed from the request: `texture.get_texture_info` on the HDR asset reports
+  `format: "FloatRGBA"`, `sRGB: false`, `compression: "TC_HDR"`, 9 mips, and the create response
+  echoes `hdr: true`. The LDR control reports `sourceFormat: "TSF_BGRA8"`.
+
+  **The pixels are correct, which is the half a format check cannot answer.** The predicted pre-fix
+  symptom was garbage colour over a half-unwritten buffer with alpha built from a neighbouring
+  pixel's bytes — a 4-byte fill into an 8-byte/pixel surface. Both textures were rendered to PNG and
+  read as images: the HDR frame is a complete, smooth, fully-covered greyscale cloud field with no
+  black region, no colour fringing and no alpha artefact, and it is visibly the SAME field as the
+  BGRA8 control — same cloud shapes in the same places, differing only in overall brightness and
+  contrast, which is what `SRGB` being off on the linear path should do. Measured on the two decoded
+  frames: **Pearson r = 0.99251, Spearman rho = 0.99785** over all 65,536 pixels, with means 187.89
+  (HDR) against 130.97 (BGRA8) — one field under two transfer curves. `imageStats` on the HDR frame:
+  `litPixelFraction 1`, min 0.447, max 0.933, 115 tone levels, `blank: false`.
+
+  **A gap found while verifying, not a defect in this fix:** `texture.get_pixel_stats` refuses the
+  format it now has to read — `[PIXEL_STATS_UNAVAILABLE] Unsupported source format TSF_RGBA16F for
+  pixel stats (only TSF_BGRA8 and TSF_G8 are read)`. So the shipped test reads the source mip from
+  C++, and a **caller** has no way to read HDR pixels back at all; the only route left is rendering a
+  thumbnail, which is what this verification had to do. That is worth its own ticket and is not a
+  reason to hold this one open. `create_gradient_texture`'s identical byte-fill-into-RGBA16F
+  mismatch, which `#2` explicitly left unfixed, was not exercised here. Closing.

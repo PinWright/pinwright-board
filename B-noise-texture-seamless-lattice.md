@@ -1,12 +1,12 @@
 ---
 id: B-noise-texture-seamless-lattice
 title: "`texture.create_noise_texture {seamless:true}` collapses its 4 torus coordinates into 2 by addition, so the only tiling-safe path emits a periodic diagonal lattice instead of noise"
-status: IN-REVIEW
+status: DONE
 severity: High
 category: bug
 tags: [texture, create_noise_texture, noise, seamless, tiling, wrong-pixels, silent-noop]
 encounters: 1
-lastSeen: 2026-08-27T18:47:15+05:00
+lastSeen: 2026-08-28
 ---
 
 # `texture.create_noise_texture {seamless:true}` produces a woven diagonal lattice, not tileable noise — the seamless path collapses a 4D torus into 2D by summing coordinate pairs
@@ -125,3 +125,39 @@ severity rationale: impact=silent wrong output on a normal path (the flag whose 
 ## History
 - `#1-initial-repro` `OPEN` reporter — Found building the Atlantis level (map as forcing function; see host `CLAUDE.md` § "What this project is for"), 2026-08-27, UE 5.8, PinWright at this checkout's HEAD. One-flag-apart repro at seed 909 / scale 3 / octaves 5: `seamless:true` gives a 4x4 grid of one ring motif with hard diagonal bands, `seamless:false` gives correct cloudy FBM. Reproduced at scale 26 as a fine regular grid over flat grey with a healthy global range (`min 54`, `max 199`), so it is structural, not tonal. Isolating control: `seed` IS honoured on the seamless path (seed 1 vs 99999 → hashes `6e47dee2` / `c1dafc4f`), pinning the fault to the tiling branch rather than the generator. Source-confirmed statically at HEAD in this tree: `TextureHandler.cpp:282-292` builds the four torus coordinates `cos/sin(2*pi*NX)` and `cos/sin(2*pi*NY)`, then sums them pairwise into two arguments for a **2D** `FBMNoise` — `cos(a)+cos(b)` / `sin(a)+sin(b)` are symmetric and non-injective, so distinct (X,Y) collapse onto the `X±Y` diagonals, which is precisely the observed banding and motif repetition. The comment on `:282` claims "domain wrapping"; none occurs. Worked around on the Atlantis build by shipping `seamless:false` and dual-scale sampling in `M_Seafloor`; defect untouched.
 - `#2-tile-by-wrapping-the-noise-lattice` `IN-REVIEW` developer -- the coordinate collapse is gone. `seamless:true` no longer builds torus coordinates at all: there is no 4D noise function in this file to sample a torus with, so tiling is done on the construction the 2D lattice generator CAN express exactly -- wrapping the lattice cell index modulo an integer period (`WrapLatticeIndex`), which makes the field repeat exactly at the tile edge with no other structure. `Noise2D` and the new `WorleyF1` both take that period; `FBMNoise` gives each octave its own integer period and snaps that octave's frequency to it, because a lattice only repeats on whole cells and an unsnapped frequency would put the wrap mid-cell and reopen the seam. Consequence, reported rather than silently applied: `scale` snaps to a whole cell count when seamless, echoed back as `effectiveScale` alongside `seamless` on the response. Files: `Source/PinWright/Private/Handlers/Material/TextureHandler.cpp`. Test added in `Source/PinWright/Private/Tests/Material/TestNoiseTextureAlgorithmAndTiling.cpp`: `PinWright.texture.create_noise_texture.SeamlessTilesWithoutLattice`, which reads the source mip and asserts BOTH halves -- tile-edge continuity (mean wrap step on both axes within 1.5x the worst interior boundary step of the same image, with a `seamless:false` control proving the metric can see a seam) AND that the interior is not a repeating lattice: >25% of pixels differ from their mirror across the main diagonal and >25% differ from the pixel `width/scale` to their right. Both of those were exactly 0% on the pre-fix generator, because `cos(a)+cos(b)` / `sin(a)+sin(b)` are symmetric under swapping NX and NY and advance by exactly 2*pi over `width/scale` pixels; continuity alone does not distinguish the fix from the bug, since the collapsed version tiled too -- it just was not noise.
+
+- `#3-verified-behaviourally-on-the-built-binary` `DONE` verifier — 2026-08-28, against the
+  `b79ba53e` build. The reporter's one-flag-apart repro was re-run verbatim (512x512, `scale:3`,
+  `octaves:5`, `persistence:0.62`, `lacunarity:2.1`, `seed:909`), both frames rendered to PNG, and
+  the PNGs decoded and **measured** as well as looked at.
+
+  **Looked at.** `seamless:true` is now organic cloudy FBM — no 4x4 grid, no repeated ring motif, no
+  hard diagonal bands. Side by side with the `seamless:false` control from the same seed it reads as
+  the same *kind* of image, which is the whole point: the flag no longer changes what the noise IS.
+  The `scale:26` case that used to be "a fine regular grid over flat grey" is now fine irregular
+  grain with `luminanceVariance` 0.0117, nearly double the scale-3 image's 0.0065 — not flat, and not
+  a screen door.
+
+  **Measured, both halves, with a control that proves each metric can fire.** Wrap step is the mean
+  absolute difference across the tile boundary; interior step is the mean absolute difference between
+  adjacent rows/columns inside the image. A tiling image has a wrap step no worse than its interior;
+  a seam is the largest step in the picture.
+
+  | image | mean interior step (v / h) | **wrap step (v / h)** | worst interior boundary (v / h) | pixels differing from diagonal mirror |
+  |---|---|---|---|---|
+  | `seamless:true`, scale 3 | 0.562 / 0.597 | **0.414 / 0.475** | 0.887 / 1.043 | **97.72%** |
+  | `seamless:false`, same seed (control) | 0.580 / 0.630 | **2.678 / 3.887** | 2.990 / 4.061 | 97.91% |
+  | `seamless:true`, scale 26 | 1.904 / 1.991 | **1.240 / 1.076** | 3.920 / 3.750 | 98.10% |
+  | `seamless:true`, Worley, scale 6 | 1.702 / 1.543 | **1.762 / 1.719** | 2.650 / 2.488 | 98.14% |
+
+  Every seamless row wraps at or below its own interior step, so the tile edges are continuous. The
+  `seamless:false` control seams at **4.6x (v) and 6.2x (h)** its interior mean, and that wrap is the
+  single worst boundary in the image — so the metric demonstrably sees a seam when one exists, and
+  the seamless rows are not passing by being blurry.
+
+  The second half matters as much as the first, because the collapsed generator tiled too. The
+  degeneracy was that `cos(a)+cos(b)` / `sin(a)+sin(b)` are symmetric under swapping the two
+  coordinates, so the pre-fix image was **exactly 0%** different from its own diagonal mirror.
+  Every row above is 97.7-98.1% different. The symmetry is gone, and the new construction is honest
+  about its cost: `scale` snaps to a whole cell count and comes back as `effectiveScale` (3 -> 3,
+  26 -> 26, 6 -> 6 in these runs, so nothing moved at these values). Closing.

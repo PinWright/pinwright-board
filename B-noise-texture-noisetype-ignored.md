@@ -1,12 +1,12 @@
 ---
 id: B-noise-texture-noisetype-ignored
 title: "`texture.create_noise_texture` parses `noiseType` into a dead local and never branches on it — every value produces the same Perlin FBM, and an unknown algorithm name is accepted with success"
-status: IN-REVIEW
+status: DONE
 severity: High
 category: bug
 tags: [texture, create_noise_texture, noise, parameter-ignored, silent-noop, false-success, unvalidated-input, voronoi]
 encounters: 1
-lastSeen: 2026-08-27T18:47:15+05:00
+lastSeen: 2026-08-28
 ---
 
 # `texture.create_noise_texture` declares `noiseType`, parses it, and never reads it again — all values produce identical Perlin FBM and a nonsense value is accepted
@@ -129,3 +129,30 @@ severity rationale: impact=silent false-success on a normal path (a documented p
 ## History
 - `#1-initial-repro` `OPEN` reporter — Found building the Atlantis level (map as forcing function; see host `CLAUDE.md` § "What this project is for"), 2026-08-27, UE 5.8, PinWright at this checkout's HEAD. Three `create_noise_texture` calls differing only in `noiseType` (`Voronoi` / `Perlin` / `ZZZNotARealNoise`): the first two returned byte-identical content via `texture.get_pixel_stats` (`hash 5c4b7e25`, `mean.r 116.64346313476562`, `min 44`, `max 240`), and the third was created with no error or warning. Source-confirmed statically at HEAD in this tree: `TextureHandler.cpp:244` parses `noiseType` into a local that occurs nowhere else in the file except its `RPC_PARAM_DEF` at `:2517`; the pixel loop at `:275-311` calls `FBMNoise(...)` unconditionally on both branches. Capability gap confirmed separately: `material.graph.search_expression_types {query:"Voronoi"}` returns 0 results and the only cellular node is the per-pixel `MaterialExpressionVectorNoise`, so no cellular/Worley texture route exists at all. The correct rejection pattern already ships in `PCGAddNoiseFilter.cpp:135` (`"Unknown spatial noiseType: %s"`). Worked around on the Atlantis build with a Perlin base plus a V-shaped `texture.adjust_curves` master curve (recipe in the body); defect untouched.
 - `#2-branch-on-noisetype-and-refuse-unknown` `IN-REVIEW` developer -- `texture.create_noise_texture` now resolves `noiseType` into an `ENoiseTextureAlgorithm` before anything is created and branches on it: `Perlin` keeps the existing smoothed value-noise FBM, `Worley` (alias `Voronoi`) is a new cellular F1 distance field sharing the same lattice hash and octave loop, and any other name is refused with `Unknown noiseType '<name>'. Supported: Perlin, Worley, Voronoi` before `CreateEmptyTexture` runs, so a rejected call leaves no asset behind. The response now echoes the resolved algorithm as `noiseType` so an alias spelling is visible. The `Summary` and the `noiseType` / `scale` / `seamless` `RPC_PARAM_DEF` descriptions were corrected too, since `docs/wiki-src/texture.md` carries no `###` section for this verb and those strings ARE its wiki prose. No new error code: the whole `texture.*` sub-action surface routes failures through the file's shared `TEXTURE_ERROR_RESPONSE` macro and the file hand-spells raw code literals, so adding an `ErrorCodes::ERR_*` reference would flip it to "adopting" and fail `RegistryAdoptingFilesUseConstantsOnly`. Files: `Source/PinWright/Private/Handlers/Material/TextureHandler.cpp`. Tests added in `Source/PinWright/Private/Tests/Material/TestNoiseTextureAlgorithmAndTiling.cpp`: `PinWright.texture.create_noise_texture.NoiseTypeSelectsAlgorithm` (reads the generated source mips and asserts Perlin and Worley differ on >50% of pixels from identical parameters -- 0% pre-fix -- that `Voronoi` is byte-identical to `Worley`, and that the response echoes the resolved name) and `PinWright.texture.create_noise_texture.UnknownNoiseTypeIsRefused` (asserts the call fails, the message names all three accepted spellings, no `UTexture2D` exists at the target path afterwards, and the registered `noiseType` param description advertises exactly the accepted set).
+
+- `#3-verified-behaviourally-on-the-built-binary` `DONE` verifier — 2026-08-28, against the
+  `b79ba53e` build. The reporter's three-call repro was re-run verbatim (512x512, `scale:6`,
+  `octaves:1`, `seed:7`, `seamless:true`) into a scratch folder, then the pixels were **looked at**,
+  not just hashed.
+
+  | `noiseType` | outcome | `texture.get_pixel_stats` |
+  |---|---|---|
+  | `Voronoi` | created, response echoes `noiseType: "Worley"` | hash **`baa05b42`**, mean 109.868, min 0, max 249 |
+  | `Perlin` | created, response echoes `noiseType: "Perlin"` | hash **`e5b9c178`**, mean 103.225, min 1, max 242 |
+  | `ZZZNotARealNoise` | **refused** — `[TEXTURE_ERROR] Unknown noiseType 'ZZZNotARealNoise'. Supported: Perlin, Worley, Voronoi` | asset absent afterwards (`ASSET_NOT_FOUND` on read-back) |
+
+  Pre-fix, rows 1 and 2 were byte-identical at hash `5c4b7e25` / mean 116.643 / min 44 / max 240 and
+  row 3 returned success. All three readings have moved.
+
+  **The pixels were inspected, because different hashes only prove "not identical", not "cellular".**
+  Both textures were rendered to PNG at 512x512 and read as images. The `Worley` frame is an
+  unmistakable cellular F1 distance field: irregular dark blobs at the feature points with bright
+  ridges tracing the boundaries between them, cells of visibly varying size and shape. The `Perlin`
+  frame from the identical seed is soft blocky value noise on the 6x6 lattice — no cell centres, no
+  boundary ridges. They are two different algorithms, not one algorithm twice.
+
+  The alias is visible rather than silent (`Voronoi` in, `Worley` echoed back), which is what the
+  response was asked to do. The capability gap the ticket recorded is closed too: a tiling cellular
+  texture now has a route through the plugin, and the Worley output tiles (wrap step 1.76/1.72
+  against a 1.70/1.54 interior mean — see `B-noise-texture-seamless-lattice` `#3` for the method).
+  Closing.
