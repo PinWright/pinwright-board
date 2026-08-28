@@ -1,7 +1,7 @@
 ---
 id: B-sequence-add-keyframe-transform-keys-never-auto-set-tangents
 title: "Transform keys from sequence.add_keyframe are stamped RCIM_Cubic + RCTM_Auto but their tangents are never computed, so every key keeps ArriveTangent/LeaveTangent 0 — the curve degrades to a chain of zero-tangent smoothsteps and the camera stops dead at EVERY key, not just the endpoints"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: bug
 tags: [sequencer, add_keyframe, transform-track, tangents, curves, cinematics, camera-path, silent-corruption, motion]
@@ -171,3 +171,19 @@ UE 5.8, `EAContentExamples58`, `/Game/Maps/Atlantis`, 2026-08-27. Sequence
   decoy-key verification in `F-sequencer-explicit-tangent-values-for-looping-cinematics` is
   reproduced to four decimal places by the zero-tangent smoothstep, so that workaround does not in
   fact produce seam velocity.
+- `#2-fixed` `IN-REVIEW` developer — "Changed both transform branches and the generic float branch
+  of `sequence.add_keyframe` in `Handlers/Sequencer/SequenceHandler.cpp` to call
+  `FMovieSceneDoubleChannel::AutoSetTangents()` (resp. `FMovieSceneFloatChannel::AutoSetTangents()`)
+  on every touched channel before responding — the transform writes now collect their channels in a
+  `WriteDoubleKey` helper and solve each once after the whole write, so `RCTM_Auto` is acted on
+  instead of merely recorded. Changed `BuildChannelKeysJson` in `Utils/MovieSceneJsonUtils.h` to
+  emit `tangentMode`, `arriveTangent` and `leaveTangent` per curve-channel key under the existing
+  `includeKeys` gate (new `TangentModeToString`), so the fault is visible from a readback;
+  `Docs/wiki-src/sequencer.md` updated to match. Regression test
+  `PinWright.Sequencer.SequenceAddKeyframe.CubicAutoKeysGetComputedTangents` in
+  `Tests/Sequencer/TestSequenceAddKeyframeInterp.cpp`. Correction to suggestion 3: the sketched
+  0/100/0 values do NOT work as a differential — UE's default auto-tangent mode
+  (`Sequencer.AutoTangentNew` = 2, `MovieSceneCurveChannelImpl.cpp:770-774`) flattens any key not
+  strictly between its neighbours, so the apex is legitimately 0/0 and the test would pass before
+  and after. The test uses a monotonic 0/1000/3000 ramp on `Location.Z` at frames 0/50/100 instead;
+  the middle key's tangents are 0 pre-fix and non-zero post-fix."
