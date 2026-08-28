@@ -1,7 +1,7 @@
 ---
 id: E-property-set-no-measured-render-state
 title: "property.set marks a component's render state dirty but publishes no measured field saying the renderer picked the change up"
-status: OPEN
+status: WONTFIX
 severity: Medium
 category: ergonomic
 tags: [property, container, render-state, measured-vs-requested, response-honesty, derived-state]
@@ -30,3 +30,4 @@ the parent ticket was about.
 ## History
 - `#1-unmet-half-of-the-parent-ticket` `OPEN` reporter -- Recorded by the agent fixing
   `B-property-set-container-empty-change-event`, which explicitly declined to fake the field.
+- `#2-closed-as-scope-decision` `WONTFIX` developer — "Closed as a scope decision, not a blocker. The ticket's own text questions whether a measured render-state probe earns its place against markedDirty plus a follow-up read, and the parent fix deliberately refused to fabricate the field under the response-honesty rule in rpc-design.md rather than leaving a gap. As of today markedDirty reports OBSERVED package state on both property.set and property.reset (see E-property-reset-no-markeddirty), stamped through one shared helper so the two cannot drift. Building a real render-state probe across property.set, property.reset and the 11 container.* mutators is disproportionate to what it would add over that. Reopen with a concrete case where markedDirty plus a read is demonstrably insufficient."
