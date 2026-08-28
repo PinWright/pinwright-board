@@ -344,7 +344,11 @@ it, both verbs fail and there is no workaround left.
   by association with that one; it is not, and this entry does not close it.
 
   Footprint: the probe actor was deleted. `/Game/Maps/Atlantis` is left dirty and was NOT saved.
-- `#6-verified-fixed-derived-state-and-pixels` `DONE` verifier — 2026-08-28. Verified on the editor
+- `#7-render-half-decided-by-pixels` `DONE` verifier — 2026-08-28. **This entry closes the half `#6`
+  left undecided, and it does so without touching the shipping fog** — `#6` was right to refuse that,
+  and the answer did not need it. Independently re-ran `#6`'s three grades first (different values,
+  so the two runs are not one another's echo) and then added the pixel measurement `#5` recorded as
+  "still owed". Verified on the editor
   rebuilt at `b79ba53e`, on `/Game/Maps/Atlantis`, against a throwaway `/Engine/BasicShapes/Cube`
   StaticMeshActor `PWVERIFY_NOTIFY_01` (Movable) spawned for the purpose and deleted afterwards — no
   shipping actor was written to and the level was not saved. Every observation below is a value or a
