@@ -1,7 +1,7 @@
 ---
 id: F-ism-per-instance-transforms
 title: "No verb reads, writes, or grounds a per-instance transform on an ISM/HISM — and the obvious property-layer write stores silently without moving anything"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: feature
 tags: [spatial, actor, ism, hism, instanced-static-mesh, per-instance, transform, scatter, ground_actors, find_clear_placement, silent-noop, missing-verb]
@@ -192,3 +192,46 @@ defensible once there is a verb to name.
   `UpdateInstanceTransform`, and grounding has no route at all. Proposed `actor.get_instances`,
   `actor.set_instance_transforms`, `spatial.ground_instances` reusing `FindInstancedHolder`, the
   `surface` spec, `TraceGroundBelow`, and a bounds-driven `MeasureContact` extraction.
+- `#2-three-verbs-shipped` `IN-REVIEW` developer — All three verbs landed, in the proposed shape.
+  `actor.get_instances` `{actorName, component?, indices?, limit?, offset?, space:world|local}` ->
+  `instances[{index, location, rotation, scale}]` + `instanceCount`; scale carried.
+  `actor.set_instance_transforms` `{actorName, component?, instances[{index, location?, rotation?,
+  scale?}], space, expectedCount?}` — all-or-nothing pre-flight (one stale index, one duplicated
+  index, or an `expectedCount` disagreeing with `GetInstanceCount()` refuses the whole batch before
+  the first write), `movedInstances[]` echoes each pre-write transform, and `updated` is derived
+  from a post-write READBACK rather than from the call returning true.
+  `spatial.ground_instances` `{actorName, component?, indices?, surface (required), samples,
+  seatPercentile, embed*, apply}` — not split into a verify/apply pair, `apply:false` is the dry
+  run and reports `proposedDeltaZCm` / `status:"dry_run"` with the identical solve and thresholds.
+  Extracted `MeasureContactForBounds(World, FBox, UndersideGeometry, ExtraIgnoreActors, Surface,
+  Grid, Inset, UndersideModel, Thresholds, OutColumns)` as proposed; `MeasureContact` is now a thin
+  wrapper over it (the holder probe moved after the delegate call and re-evaluates only for a
+  holder). Two additions the ticket's signature did not anticipate: a nullable `UndersideGeometry`
+  actor, because the per-column underside probe needs one and an instance has none — so an instance
+  is measured with `EUndersideModel::BoundsPlane` and the response says so, since
+  `UInstancedStaticMeshComponent::LineTraceComponent` answers from every instance body at once
+  (`InstancedStaticMesh.cpp:5442-5444`) and cannot attribute a hit; and `ExtraIgnoreActors`, since
+  the function cannot know what it is measuring. New `GroundPlacement::SeatInstance` +
+  `FGroundInstanceSeatResult` (composes `FGroundSeatResult`), new `EGroundSeatStatus::DryRun`, and
+  `GroundStatusForMeasurementFailure` extracted so the actor and instance paths cannot classify the
+  same measurement differently. Writes go through `UpdateInstanceTransform` only, with
+  `bMarkRenderStateDirty=false` per call and one `InstancedMeshUtils::FinishInstanceWrites` per
+  batch (`MarkRenderStateDirty` -> HISM `BuildTreeIfOutdated(false,true)` under
+  `FApp::CanEverRender()` -> `MarkPackageDirty`) — needed because HISM's own override queues an
+  ASYNC non-forced rebuild per moved instance. **Transaction decision: no `FScopedTransaction`**;
+  `Modify()` on an ISM serialises the whole `PerInstanceSMData` array per call, so a batch would
+  cost O(written x total) of undo record, and the echoed `movedInstances[]` pre-write transforms are
+  the undo of record (they round-trip straight back through `actor.set_instance_transforms`) —
+  rationale recorded in `Handlers/Actor/InstancedMeshUtils.h`. `DescribeInstancedHolder`'s
+  `HOLDER_NOT_SEATABLE` text and `Docs/wiki-src/spatial.md` now route callers at the new verbs
+  instead of "re-scattered by whatever built it". Files: new
+  `Handlers/Actor/InstancedMeshHandler.cpp`, new `Handlers/Actor/InstancedMeshUtils.h`, edited
+  `Handlers/Spatial/GroundPlacementUtils.{h,cpp}`, `Handlers/Spatial/GroundPlacementHandler.cpp`,
+  `Handlers/ErrorCodes.h` (+`INSTANCE_INDEX_OUT_OF_RANGE`, +`NO_INSTANCED_COMPONENT`),
+  `Docs/wiki-src/spatial.md`, `Tests/Spatial/TestGroundPlacement.cpp`. Four new tests on the
+  existing HISM fixture, every transform assertion re-read from the component rather than from the
+  response: `actor.get_instances.ReadsDecomposedWorldAndLocalTransforms`,
+  `actor.set_instance_transforms.WriteReachesTheComponent`,
+  `spatial.ground_instances.SeatsEachInstanceWithoutMovingTheHolder`,
+  `spatial.ground_instances.DryRunSolvesAndWritesNothing`. NOT COMPILED AND NOT RUN — the wave
+  forbade building; a tester must compile and run `PinWright.spatial.*` + `PinWright.actor.*`.
