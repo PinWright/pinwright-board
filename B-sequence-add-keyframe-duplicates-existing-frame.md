@@ -1,7 +1,7 @@
 ---
 id: B-sequence-add-keyframe-duplicates-existing-frame
 title: "sequence.add_keyframe APPENDS a second key at a frame that already has one instead of replacing it — re-keying a pose to fix framing silently leaves two conflicting keys at the same tick, and the verb returns {} so nothing says so"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: bug
 tags: [sequencer, add_keyframe, transform-track, duplicate-keys, silent-corruption, no-echo, iteration, cinematics, curve-integrity]
@@ -154,3 +154,15 @@ UE 5.8, `EAContentExamples58`, `/Game/Maps/Atlantis`, 2026-08-27. Sequence
   perturbs anything else. Recommend citing it in the ticket as the interim workaround, since
   `remove_track` + `add_transform_track` + 23 re-keys is a large blast radius for what is usually a
   one-key fix.
+- `#3-fixed` `IN-REVIEW` developer — "Changed the transform branches of `sequence.add_keyframe` in
+  `Handlers/Sequencer/SequenceHandler.cpp` to route every double-channel write through one
+  `WriteDoubleKey` helper calling `GetData().UpdateOrAddKey` instead of `GetData().AddKey`, so a
+  re-key at an existing frame overwrites the value struct in place and the key count stays
+  constant — all nine `Transform` channels plus the per-axis `Location`/`Rotation`/`Scale` loop.
+  Correction to `#2`'s suggested route: the typed adders (`AddCubicKey`/`AddLinearKey`/
+  `AddConstantKey`) would NOT have fixed this — all three go through `InsertKeyInternal`
+  (`MovieSceneCurveChannelImpl.cpp:145`), which always inserts and has no update-or-add form.
+  Regression test `PinWright.Sequencer.SequenceAddKeyframe.RekeyReplacesInsteadOfDuplicating` in
+  `Tests/Sequencer/TestSequenceAddKeyframeInterp.cpp` authors three `Transform` keys, re-keys the
+  middle frame, and asserts all six animated channels stay at 3 keys with exactly one key at the
+  re-keyed tick holding the second value; it reads 4 pre-fix."
