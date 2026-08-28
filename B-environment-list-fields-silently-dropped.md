@@ -1,12 +1,12 @@
 ---
 id: B-environment-list-fields-silently-dropped
 title: "environment list verb drops unknown fields[] keys and returns empty rows, the same defect just fixed on actor.list"
-status: IN-REVIEW
+status: DONE
 severity: High
 category: bug
 tags: [environment, fields, field-projection, silent-drop, allow-list, ReadFieldProjection]
-encounters: 1
-lastSeen: 2026-08-27
+encounters: 2
+lastSeen: 2026-08-28T10:05:00+05:00
 ---
 
 # The same unvalidated `fields` allow-list, one file over
@@ -45,3 +45,22 @@ the offending key and the valid set.
   `PinWright.core.error_codes.RegistryAdoptingFilesUseConstantsOnly`. Test:
   `PinWright.system.inspect.list_objects.FieldProjection.UnknownFieldIsRejected` in
   `Tests/Environment/TestListObjectsFieldProjection.cpp`.
+
+- `#3-verified-fixed` `DONE` verifier — 2026-08-28. Repro run live against the editor rebuilt at
+  `b79ba53e`, on `/Game/Maps/Atlantis`, against the verb `#2` names (`system.inspect.list_objects`).
+  Both grades of the defect are closed, and the good case is unaffected.
+  **All-unknown grade** (the one that used to return success with `{}` rows):
+  `system.inspect.list_objects {filter:"ExponentialHeightFog", fields:["folder"]}` ->
+  `[INVALID_PARAMS] Unknown fields[] entry(s) for 'system.inspect.list_objects': [folder]. Valid
+  fields: [label, name, path, class]. Rejected rather than dropped: a projection made only of
+  unrecognised keys returns rows that are empty objects. For the Outliner folder use actor.list with
+  fields=["folder"]; for properties, transform or components use system.inspect.inspect_object.`
+  **Partial-drop grade:** `fields:["name","bogusKey"]` -> the same `INVALID_PARAMS`, naming
+  `[boguskey]` and the same valid set — so a mixed projection no longer succeeds while silently
+  losing a column. **Differential control:** `fields:["name","class"]` -> `success:true`,
+  `{"name":"ExponentialHeightFog_0","class":"ExponentialHeightFog"}`, `count:1`, `totalMatches:1` —
+  populated rows, no error, so the rejection is scoped to unrecognised keys and is not a blanket
+  refusal of projection. This is a behaviour change, not a diagnostic one: the failing call used to
+  return `success` with empty row objects and now returns no rows at all. The rejection message
+  routes `folder` to `actor.list` rather than widening this verb, exactly as `#2` states; `actor.list
+  {fields:["folder"]}` is separately verified on `B-actor-list-fields-unknown-key-silently-dropped`.
