@@ -1,7 +1,7 @@
 ---
 id: B-widget-variable-guid-map-is-not-a-variable-set
 title: "WidgetVariableNameToGuidMap holds every source widget, so widget.describe reports isVariable=true for all of them on 5.6+"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: bug
 tags: [umg, widget-describe, bIsVariable, WidgetVariableNameToGuidMap, import-xml, silent-wrong-data]
@@ -55,3 +55,4 @@ version gate and found it unsound. That agent did not touch `WidgetDescribeHandl
   `B-widget-bind-accepts-non-variable-widget`. Cites `ValidateAndFixUpVariableGuids`,
   `ForEachSourceWidgetImpl` and the compiler's own `bShouldGenerateVariable` /
   `CPF_BlueprintVisible` gates.
+- `#2-read-bisvariable-unconditionally` `IN-REVIEW` developer -- "Deleted the 5.6+ `WidgetVariableNameToGuidMap` branch in `WidgetDescribeHandler.cpp` so `isVariable` reads `UWidget::bIsVariable` unconditionally, and dropped the `RemoveWidgetVariableGuid` prune loop (and its now-dead `NonVariableWidgets` set) from `WidgetXmlImportHandler.cpp`; added regression test `PinWright.widget.describe.NonVariableWidgetReportsFalseAfterCompile`."
