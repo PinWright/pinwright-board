@@ -33,24 +33,45 @@ evidence makes the case stronger than the argument given:
   (`Handlers/Render/AnimationShotsHandler.cpp:705`,
   `Handlers/Render/CaptureSubjectProviders_Level.cpp:324,476`). A scan there runs on every frame of
   every burst.
-- **The re-tick claim holds, and the mechanism is broader than "the sequence's bindings".** Opening
-  a Sequencer forces `AddRealtimeOverride(true, "Sequencer")` on every perspective level viewport
-  (`C:\UE_5.8\Engine\Source\Editor\Sequencer\Private\LevelEditorSequencerIntegration.cpp:1248`).
-  `UEditorEngine::Tick` then ticks the editor world with `LEVELTICK_ViewportsOnly` instead of
-  `LEVELTICK_TimeOnly` (`C:\UE_5.8\Engine\Source\Editor\UnrealEd\Private\EditorEngine.cpp:1958`,
-  world tick at `:1968`), and `FActorComponentTickFunction::ExecuteTickHelper` runs *every*
-  component whose `bTickInEditor` is set under that mode
-  (`C:\UE_5.8\Engine\Source\Runtime\Engine\Classes\GameFramework\Actor.h:4887`) — which is every
-  `UNiagaraComponent`, bound or not, since the class sets the flag in its constructor
-  (`C:\UE_5.8\Engine\Plugins\FX\Niagara\Source\Niagara\Private\NiagaraComponent.cpp:684`). What the
-  sequencer promotes is the **whole editor world**, and with a realtime viewport already on it was
-  ticking before the sequence opened at all. The parent ticket's `#4` occurrence A reached the same
-  fault with no sequencer in the picture (an autosave presave with three live components,
-  14-minute game-thread wedge).
-- So a **binding-scoped** pre-flight is not merely narrow, it is unsound: the set that ticks is
-  every loaded `UNiagaraComponent`, not the sequence's bindings. And even a whole-level scan bolted
-  onto `set_playhead` would give false safety, because in a shared editor the arming write can land
-  between the scan and the next frame.
+- **The re-tick claim holds, and what ticks is the whole world — never the bindings.** Two
+  independent paths, neither of them binding-aware. Paths below are under `C:\UE_5.8\Engine\`.
+  - *The batched path, and the one that matters.* `FNiagaraWorldManager::Init` registers a
+    `FNiagaraWorldManagerTickFunction` on the persistent level of **every** world including the
+    editor world (`Plugins\FX\Niagara\Source\Niagara\Private\NiagaraWorldManager.cpp:463`, world
+    hookup `:1143-1154`); `ExecuteTick` ignores `TickType` entirely (`:379-383`); and
+    `FNiagaraWorldManager::ExecuteSimulations` ticks **every** `FNiagaraSystemSimulation` registered
+    in that world (`:1799-1823`). Placed systems reach it by auto-activation:
+    `UActorComponent::OnRegister` calls `Activate(true)` when the world is not a game world
+    (`Source\Runtime\Engine\Private\Components\ActorComponent.cpp:1606-1613`) and
+    `UNiagaraComponent` sets `bAutoActivate = true` (`NiagaraComponent.cpp:685`).
+  - *The component path.* `UNiagaraComponent` sets `bTickInEditor = true`
+    (`NiagaraComponent.cpp:684`) and `FActorComponentTickFunction::ExecuteTickHelper` runs such a
+    component under `LEVELTICK_ViewportsOnly`
+    (`Source\Runtime\Engine\Classes\GameFramework\Actor.h:4887`).
+  - *The switch for both is realtime.* `UEditorEngine::Tick` picks `LEVELTICK_ViewportsOnly` over
+    `LEVELTICK_TimeOnly` from `IsRealtime` (`Source\Editor\UnrealEd\Private\EditorEngine.cpp:1958`,
+    world tick `:1968`), and `LEVELTICK_TimeOnly` runs no tick groups at all
+    (`Source\Runtime\Engine\Private\LevelTick.cpp:1650`). Opening a Sequencer forces
+    `AddRealtimeOverride(true, "Sequencer")` on every perspective level viewport
+    (`Source\Editor\Sequencer\Private\LevelEditorSequencerIntegration.cpp:1248`, from `AddSequencer`
+    at `:1486`), which **overrides** the user's own realtime toggle
+    (`Source\Editor\UnrealEd\Public\EditorViewportClient.h:414-417`). So opening the sequence can
+    start the whole level ticking. Sequencer itself never calls `UWorld::Tick` — there is no such
+    call anywhere in Sequencer, MovieScene or LevelSequence — so the promotion *is* the mechanism.
+
+  With a realtime viewport already on, the level was ticking before the sequence opened at all. The
+  parent ticket's `#4` occurrence A reached the same fault with no sequencer in the picture (an
+  autosave presave with three live components, 14-minute game-thread wedge).
+- **A binding-scoped pre-flight would inspect the *safest* subset.**
+  `FNiagaraSystemUpdateDesiredAgeExecutionToken::Execute` touches only
+  `Player.FindBoundObjects(Operand)` and calls `SetForceSolo(true)` on them
+  (`Plugins\FX\Niagara\Source\Niagara\Private\MovieScene\MovieSceneNiagaraSystemTrackTemplate.cpp:127,142`),
+  which pulls a bound system **out** of the batched world simulation and onto its own component
+  tick — and `UNiagaraComponent::TickComponent` early-returns when the component is not solo
+  (`NiagaraComponent.cpp:936-940`). The systems such a gate would check are precisely the ones
+  removed from the path that ticks everything else. It is unsound, not merely narrow. And even a
+  whole-level scan bolted onto `set_playhead` would give false safety, because in a shared editor
+  the arming write can land between the scan and the next frame.
 
 The right shape is a read-only sweep the caller runs **once**, deliberately — before a capture
 session, or after a `niagara.*` write — not a gate on a hot verb.
