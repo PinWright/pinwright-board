@@ -1,12 +1,12 @@
 ---
 id: B-niagara-compile-while-live-component-vectorvm-assert
 title: "compile:true on any niagara.* edit recompiles a system whose ANiagaraActor is still ticking, and the live emitter instance executes the new bytecode against its old DataSets: VectorVM asserts on a worker thread and the editor dies"
-status: IN-REVIEW
+status: DONE
 severity: Critical
 category: bug
 tags: [niagara, compile, editor-crash, assertion, vectorvm, live-instance, kill-system-instances, worker-thread, shared-editor]
 encounters: 2
-lastSeen: 2026-08-27T20:50:00+05:00
+lastSeen: 2026-08-28T09:22:00+05:00
 ---
 
 # `compile: true` does not kill the live system instances first, so the simulation asserts inside the VectorVM
@@ -249,3 +249,11 @@ severity rationale: impact=`appError` on a worker thread killing the shared edit
   concurrently, not a lost entry — both are intact and this is the third entry.
   **Not merged with `B-niagara-di-count-mismatch-vectorvm-assert-kills-editor`**, which describes the
   same crash *event* but is a different defect with a different fix site; see that ticket's `#3`.
+- `#4-source-claim-verified-behaviour-clean-and-a-regression-on-the-same-path` `DONE` verifier — 2026-08-28, rebuilt DLL at plugin HEAD `b79ba53e`, editor pid 14932.
+  **The source claim this ticket survives on (per `#3`, after the 14:41 crash attribution was disproven) is fixed.** The kill is one frame down from where `#2` says: not literally inside `FinalizeNiagaraEdit` (`NiagaraEditTypes.cpp:1624`) but inside the helper `RequestNiagaraCompile` (`:1571`) that it calls at `:1632` under `if (Options.bCompile)`. There, `PinWrightNiagara::KillSystemInstances(*Target.System)` at **:1581** is the first statement of the `if (Target.System)` branch and precedes `RequestCompile(bForce)` at **:1602**. The ordering claim holds; only `#2`'s stated location is inexact. The emitter half is present too — `KillSystemInstancesUsingEmitter` (`NiagaraInstanceUtils.h:33`, `.cpp:25`) is called at `:1616`, immediately before `RequestCompileForEmitter` at `:1617` — which is the wider blast radius `#2` identified. `add_emitter` carries its own kill at `NiagaraHandler.cpp:293` before `RequestCompile` at `:294`.
+  **Behaviour.** Eight `compile:true` edits (`niagara.add_simulation_stage` / `niagara.remove_simulation_stage`, which route through the shared finalizer, so this covers every edit verb) against a system with a live activated `ANiagaraActor` component, with `is_active()` re-confirmed `true` between calls so a real instance existed each time. Zero `Assertion failed: DataSetIdx < ExecCtx->DataSets.Num()`, zero `appError`, zero `Runnable thread Background Worker ... crashed`, no process death, same pid throughout. As with the sibling ordering ticket, intra-call ordering is not externally observable, so this is the guard verified in source plus the hazard exercised repeatedly without fault — not a proof of ordering.
+  **A regression on this same call path, found while verifying it, and larger than this ticket's remaining risk.** Combining `compile: true` with `save: true` now blocks the game thread for the full 90 s ceiling and then persists nothing. Measured on one system, same verb, minutes apart, with a `register_slate_post_tick_callback` probe:
+  - `{compile:true, save:false}` -> `compiled: true`, longest game-thread stall **0.028 s**; engine log `LogNiagara: Compiling System ... took 0.067841 / 0.137554 / 1.089133 sec`.
+  - `{compile:true, save:true}` -> `compiled: false, saved: false`, longest stall **90.04 s**; engine log `took 90.080238 sec` and `took 90.113518 sec` for the identical compile on the identical asset.
+  - `niagara.compile {force:true, wait:true}` behaves the same: `waitedMs: 90003.9`, `status: "timedOut"`, `outstandingCompilationRequests: true`, 90.05 s stall.
+  The compile does not take 90 s; the wait makes it take 90 s. `NiagaraCompileWait.cpp:38` busy-polls `HasOutstandingCompilationRequests` on a `FPlatformProcess::Sleep(0.01)` loop while holding the game thread, and the compile cannot finalise while that thread is held, so the ceiling is always reached and `MayPersistAfterCompileWait` then refuses the save. In a shared editor each such call is a 90 s outage for every other agent and then a silent failure to persist. **Root cause of the regression: the fix claimed in `B-niagara-compile-wait-does-not-wait` `#6` is not in this checkout** — `AdvanceAsyncCompilationOnGameThread`, `FAssetCompilingManager`, `ProcessAsyncTasks` and the test `PinWright.niagara.CompileWait.WaitPumpsAssetCompilation` are all absent from the plugin source at `b79ba53e`; the last commit touching `NiagaraCompileWait.cpp` is `c480bc4e` (that ticket's `#3`). Full measurements recorded there. Nothing invalid is written, so the corruption half is genuinely closed — but the verb no longer persists.

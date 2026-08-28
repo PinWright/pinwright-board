@@ -1,12 +1,12 @@
 ---
 id: B-safepoint-tick-gate-inert-on-simpletickobjects-path
 title: "The tick-unsafe SafePoint gate never fires when a third-party editor tickable pumps the named-thread queue: `IsSafeNow()` tests `UWorld::bInTick`, which is false during `SimpleTickObjects`, so all 34 listed verbs run inline mid-frame anyway"
-status: IN-REVIEW
+status: DONE
 severity: High
 category: bug
 tags: [safepoint, dispatch, tick-gate, rpc-dispatcher, mass-entity, crash-adjacent, guard-inefficacy, multi-agent, shared-editor]
 encounters: 1
-lastSeen: 2026-08-27T19:16:38+05:00
+lastSeen: 2026-08-28T09:35:00+05:00
 ---
 
 # A guard that reports safe on the one stack that has already produced editor kills
@@ -220,3 +220,9 @@ severity rationale: impact=the plugin's only guard for 34 verbs that are documen
   old two-term `IsSafeNow()` are left for their owners: `Tests/Infra/
   TestContractConsistency.cpp:283-284` and `Handlers/Render/CaptureSubject.h:543`
   (assertions in both still hold). Not compiled or run — the orchestrator owns builds.
+- `#3-runtime-verified-gate-now-fires` `DONE` verifier — 2026-08-28, rebuilt DLL at plugin HEAD `b79ba53e`, editor pid 14932. **The gate fires on the transport path, measured rather than argued.** Source at this HEAD: `IsSafeNow()` (`Dispatch/SafePoint.h:271-276`) is now `!ForcedUnsafeForTests() && !IsAnyWorldTicking() && !IsInsideNamedThreadPump()`, and `IsInsideNamedThreadPump()` (`:253-262`) reads `FTaskGraphInterface::IsThreadProcessingTasks` on both `GameThread` and `GameThread_Local`. The `model.compile` KNOWN GAP note at `SafePoint.cpp:304-312` is rewritten as closed and cites this ticket.
+  **Behaviour.** The deferral line is `Verbose` on a category that defaults to `Log`, so it had to be unmuted first — `editor.console_command {command:"Log LogPinWrightSafePoint Verbose"}` — and then the log was read directly. Result over one session: **123 deferrals across 11 distinct listed verbs, with no listed verb observed running inline.** The two that decide this ticket: **`render.capture_asset_preview` 14/14 deferred**, which is the verb rows 1 and 2 of the evidence table recorded running INLINE inside `SimpleTickObjects`; and **`model.compile` 2/2 deferred**, the verb whose `SafePoint.cpp` entry documented the gap. Also counted: `python.execute` x61, `asset.generate_thumbnail` x15, `system.console_command` x10, `render.capture_open_level` x10, `editor.console_command` x4, `editor.set_game_view` x3, `camera.frame_actor` x2, `widget.screenshot_designer` x1, `render.capture_annotated` x1 — several of those from sibling agents in the same shared editor, so the 100% rate is not one caller's pattern. Zero asserts and zero access violations across the session; a `register_slate_post_tick_callback` probe measured 22,870 ticks with the longest game-thread stall 2.30 s, so the one-hop deferral costs nothing observable.
+  **Not synthesised, and it does not need to be.** No repro forced `UMassEntityEditorSubsystem::Tick` to block, so the exact `SimpleTickObjects` stack was not reconstructed. That stack is a named-thread pump by construction, and the predicate now keys on the pump rather than on frame position, so covering the transport path covers it.
+  **Two things left undone, neither of them this ticket's defect, both worth a follow-up.**
+  (a) **Option 3 was skipped, as `#2` states, and it still bites.** The deferral line is `Verbose`, there is no pass-through line at any verbosity, no counter, no response field, and no RPC exposes safepoint state (`GetTickUnsafeMethods()` has test callers only; `editor.status` emits PIE fields and nothing else). A caller still cannot distinguish deferred from inline, and a default-verbosity crash log still cannot either — this verification had to raise the category by hand to see anything at all. The next crash-forensics pass will be in the same position `#1` was.
+  (b) **The deferral message is now wrong text.** `RpcDispatcher.cpp:455` still says "a world is inside `UWorld::Tick` and this method tears down levels or drives the viewport" — printed for every deferral, including the pump case, which is the case it was added for. All 123 lines above say that, and in none of them was a world necessarily ticking. A triager will go looking for a ticking world that was not there. One-line fix.
