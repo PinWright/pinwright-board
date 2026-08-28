@@ -1,7 +1,7 @@
 ---
 id: E-light-function-not-reported-from-actor-describe
 title: "actor.describe and lighting.* report LightFunctionMaterial with nothing beside it, so the atlas verdict is only reachable from the material side"
-status: OPEN
+status: IN-REVIEW
 severity: Medium
 category: ergonomic
 tags: [lighting, light-function, atlas, actor-describe, discoverability, cross-reference]
@@ -29,3 +29,16 @@ that the measurement exists.
 - `#1-follow-up-from-the-atlas-fix` `OPEN` reporter -- Raised by the agent that fixed
   `B-light-function-atlas-silently-drops-material`, noting that the files carrying the light-side reads
   were outside its ownership.
+- `#2-describe-side-atlas-verdict` `IN-REVIEW` developer — "Changed `BuildComponentJson` in
+  `Utils/ActorDescribeBuilder.cpp` to route a `ULightComponent`'s `LightFunctionMaterial` (resolved
+  to its base `UMaterial` via `GetMaterial()`) through
+  `PinWright::LightFunctionAtlas::AddReportIfLightFunction`, so `actor.describe` emits the measured
+  `lightFunctionAtlas` block on the light component entry beside the bare material path. The
+  helper's own guards keep it silent for a light with no light function, a non-LightFunction
+  material, and an engine with no atlas override. New regression test
+  `PinWright.actor.describe.LightFunctionAtlasVerdict`
+  (`Tests/Actor/TestActorDescribeLightFunctionAtlas.cpp`) spawns a point light, describes it before
+  and after assigning a texcoord-manipulating LightFunction material, and asserts the block is
+  absent before and carries the measured NOT-compatible verdict plus the remedy-verb warning after.
+  The `lighting.*` half of the title was left alone: no `lighting.*` verb reads back
+  `LightFunctionMaterial` at all, so there is no bare-path report there to widen."
