@@ -1,7 +1,7 @@
 ---
 id: E-geometry-check-health-blind-to-self-intersection
 title: "geometry.check_health cannot see the self-intersection the pwmodel health gate now reports"
-status: OPEN
+status: IN-REVIEW
 severity: Medium
 category: ergonomic
 tags: [geometry, check_health, FMeshHealth, self-intersection, parity, missing-signal]
@@ -35,3 +35,4 @@ declined.
 ## History
 - `#1-left-by-the-health-fix` `OPEN` reporter — Recorded by the agent that added the self-intersection
   signal, which scoped itself to the published `model.*` gate its two tickets named.
+- `#2-check-health-field-set-parity` `IN-REVIEW` developer — "Added an opt-in `checkSelfIntersection` param to geometry.check_health in MeshMeasureHandler.cpp: it emits `selfIntersectionsMeasured` unconditionally and `selfIntersections` / `selfIntersectingComponents` / `selfIntersectionsTruncated` only when the measurement ran, so a declined answer is stated rather than absent or zeroed; also emitted the already-measured `unreferencedVertices`, so the verb now publishes every field the `model.*` health block does. Docs/pwmodel-format.md loses its not-emitted exception; Docs/wiki-src/geometry.md gains the fields and the cost rationale. Regression: three tests in TestMeshMeasureHandler.cpp, one comparing the check_health key set against a live model.validate `health` block."
