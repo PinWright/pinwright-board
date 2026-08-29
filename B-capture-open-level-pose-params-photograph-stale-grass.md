@@ -1,7 +1,7 @@
 ---
 id: B-capture-open-level-pose-params-photograph-stale-grass
 title: "render.capture_open_level's location/rotation move the render camera but not the landscape-grass build, so a pose-driven capture photographs grass built around the persistent viewport camera — the identical pose reached via editor.set_camera shows a full grass carpet the capture reported as bare ground"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: bug
 tags: [render, capture_open_level, landscape, grass, foliage, vegetation, stale, silent-wrong-data, verification-evidence, pose, viewport-camera, set_camera]
@@ -148,3 +148,49 @@ Frequency makes it the *first* High to work, not a Critical.
   grass camera. Not instrumented at `UpdateGrass` itself — see the honest-limit note in the body.
   Proposed fix cites `ULandscapeSubsystem::RegenerateGrass`'s explicit camera-locations parameter
   (`LandscapeSubsystem.h:114-120`, `LandscapeSubsystem.cpp:632-636`).
+- `#2-pose-drives-grass-build` `IN-REVIEW` developer — "Took fix option 1 AND option 2, because the
+  ticket is right that reporting alone leaves the caller with only the workaround. New
+  `Handlers/Render/LandscapeGrassSettle.{h,cpp}` (namespace `PinWrightCaptureGrass`):
+  `SettleGrassForCapturePose(World, CameraLocation)` hands the capture's own MEASURED eye
+  (`FViewportCaptureOutput::EffectiveLocation`, the same value the response publishes as
+  `cameraLocation`) to `ULandscapeSubsystem::RegenerateGrass(bInFlushGrass=false,
+  bInForceSync=true, {location})`. Called from `CaptureEditorViewportToPng` after the pose is
+  applied and measured and BEFORE the first `PumpViewport`, so the instances exist when the pixels
+  are read. `bForceSync` is what makes it complete inside the call —
+  `ProcessAsyncGrassInstanceTasks` -> `FAsyncTask::EnsureCompletion` (UE 5.8 LandscapeGrass.cpp:3352
+  -> :3361). NO viewport camera is moved for the grass and none is left moved: the location
+  travels as data, and grass components are RF_Transient (LandscapeGrass.cpp:3159) so the editor's
+  own amortised update rebuilds around the user's camera on the next world tick. Verified the
+  engine citations here rather than trusting the ticket's: the tick gather is
+  LandscapeSubsystem.cpp:733-739 and the `UpdateGrass` call :900; the camera-locations branch is
+  :633-635; `RegenerateGrass` is declared at LandscapeSubsystem.h:120 with the same signature on
+  5.3 through 5.8, so no version gate is needed. Honesty half: an unconditional, MEASURED
+  `viewport.grass` block on every capture (`measured`, `landscapes`, `builtForPose`, `settled`,
+  `cameraLocation`, `components` / `componentsBefore`, `instances`, `pendingComponents` /
+  `pendingTasks`, `buildMs`) read off `ALandscapeProxy::FoliageCache.CachedGrassComps` +
+  `AsyncFoliageTasks` after the build, plus a `grassWarning` when the pose did not drive the build
+  (naming an open transaction when `GUndo` is what stopped it — UpdateGrass no-ops there,
+  LandscapeGrass.cpp:2854-2857) or when the build did not finish. `settled: true` with
+  `instances: 0` is now the measured statement 'this ground is bare'; `settled: false` is 'not
+  built yet' — the two readings the response previously could not tell apart. Regression tests in
+  `Private/Tests/Render/TestCaptureLandscapeGrassSettle.cpp`: three pure tests over
+  `MakeGrassBuildInfoObject` (bare-ground vs unfinished differ in `settled` and only one warns; a
+  pose that never drove the build is warned and names the transaction case separately; an
+  unmeasured report publishes no zeros) and one live test that builds a 1x1 landscape in-code
+  through `landscape.create`, asserts `SettleGrassForCapturePose` reports `builtForPose` with
+  `CameraLocation == pose` and nothing pending, then drives a real `render.capture_open_level` and
+  asserts `viewport.grass.cameraLocation` equals the response's top-level `cameraLocation` — the
+  pixels' own pose. The capture half emits `PINWRIGHT_ASSERTIONS_SKIPPED` with reason
+  `level-viewport-capture-unavailable` on a host with no live Level Editor viewport rather than
+  passing silently. NOT done, and stated rather than implied: the ticket's luminance A/B is not
+  reproduced as a test — it needs an authored grass material no in-code fixture can build, and
+  re-deriving it from mean luminance would make the assertion depend on GPU, lighting and
+  exposure. What is asserted instead is the exact routing property plus the honesty contract.
+  Wiki: a `grass` row and three paragraphs in `docs/wiki-src/render.md`. Not compiled or run here —
+  the orchestrator builds and runs the suite. Cross-ticket note for
+  `B-ortho-capture-renders-no-landscape-grass`: that ticket's frame goes through this same
+  `CaptureEditorViewportToPng` path, so it now gets the same build and the same block; but its own
+  evidence (grass absent at a pose the persistent camera already sat at) is not explained by this
+  mechanism alone, and a top-down ortho puts the eye thousands of cm above terrain whose grass
+  varieties cull at a default 10000 cm — the new `instances` / `cameraLocation` fields are what
+  will separate 'never built for this eye' from 'built and culled' on the next measurement."
