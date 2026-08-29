@@ -358,3 +358,61 @@ an unqualified success (predicted from source, not observed), and whether
   `B-declared-param-guard-blind-to-helpers` because that ticket's Fix (one-hop call resolution still
   diffed against the top-level accepted-name set) cannot see a nested key even when perfect, and
   because the two ask the scanner for opposite things about the same reads.
+- `#2-nested-schema-guard-landed-runtime-half-open` `OPEN` developer — **Partial. The "checked by no
+  test in either direction" half is closed; the "validated by nothing" half is not, so the ticket
+  stays OPEN.** Landed in `Source/PinWright/Private/Tests/Infra/TestDeclaredParamCoverage.cpp`:
+  Fix option **B'** (both directions) and the mandatory documentation half of option **D**. Option
+  **A stays rejected and is now asserted against**, and option **C is not done**.
+  **What landed.** (1) `CollectNestedReads` collects `(owner top-level key, nested key)` pairs into
+  a SEPARATE `FScannedVerb::NestedReads` set that is never diffed against `RPC_PARAMS` — owners bind
+  from `Ctx.Get{Object,Array}` / `Ctx.Require{Object,Array}` / a raw-payload
+  `(?:Try)?Get(?:Object|Array)Field`, and array elements and range-`for` variables inherit their
+  owner. (2) `PromisedNestedKeys` reads the nested schema out of the parameter's own DESCRIPTION —
+  a `{a, b, c}` braced list — because a nested key has no declaration to diff against and the
+  description is what the wiki renders and what a caller and an agent actually read. Three
+  deliberate narrowings, each removing a false-positive class: a brace group containing another
+  brace or a quote is skipped (so `Map of {ParamName: {r,g,b,a}}` yields the inner group, never
+  `ParamName`), an item must be a bare identifier optionally followed by `": prose"`, and an
+  identifier must be ≥2 characters so a vector's `x`/`y`/`z` are not mined as per-verb schema.
+  (3) New test `PinWright.infra.declared_params.NestedKeysMatchTheirParameterDescriptions`, both
+  directions, each ratcheted against its own baseline: **promised-but-unread** (the description
+  promises a nested key whose literal occurs NOWHERE in `Source`, so nothing reads it — the strict
+  formulation, structurally free of every false-positive class) and **read-but-unpromised** (the
+  body reads a nested key the owning parameter's description never names, in a braced list or in
+  prose; the owner is resolved through `Aliases`/`TypedAliases`, so `keep_out` finds `keepOut`'s
+  description). (4) Two vacuity guards, because a collector that stopped matching would turn the
+  whole baseline stale — a warning, which reads as progress. (5) `ScannerSeesEveryCoveredReadShape`
+  now pins BOTH halves of the exclusion: `probe_raw_nested` is still absent from the top-level set
+  AND is present in the nested set, so a future widening cannot quietly move a nested key across
+  the wall — the failure that produced the 15 false `level.structure.*` pairs. (6) KNOWN LIMITS now
+  states what this ticket says it must: that `ValidateHandlerParams` walks `Params->Values` one
+  level only, that the exclusion therefore leaves nested input unchecked by anything rather than
+  merely unscanned, that the reads-without-declarations direction must NOT be widened into it, and
+  that only one of the two directions is checked at the top level (with the
+  `gas.set_ability_input:abilitySetPath` measurement recorded as the reason the inverse is cheap but
+  nearly empty).
+  **RE-MEASURED ON THIS TREE: 317 of 1,220 verbs declare an object/array parameter** (ticket:
+  325/1218 — the 8 delta is tree drift, not method), **50 verbs read 216 (verb, nested key) triples
+  in the handler body** (ticket: 53/245). Baselines: **4 promised-but-unread** —
+  `animation.create_state_machine:states.isExit`, the ticket's clean instance, plus the three
+  `material.authoring.set_material_instance_parameters:{scalar,staticSwitch,texture}.ParamName`
+  METAVARIABLES the ticket already rejected on inspection, exempted by name with the reason written
+  beside them rather than by weakening the extractor into missing real promises. An
+  over-approximation over every string literal in every `RPC_PARAMS` region tree-wide confirms the
+  universe of `{...}`-promised identifiers absent from `Source` is exactly `isExit` and `ParamName`,
+  so this direction is genuinely nearly empty and not merely under-measured. **35 read-but-unpromised
+  over 7 verbs**: `volume.create_post_process_volume:postProcessSettings.*` (6),
+  `audio.authoring.configure_mix_eq:eqSettings.*` (9), `niagara.modify_parameter:value.*` (7),
+  `lighting.spawn_light:properties.*` (5), `effect.set_niagara_parameter:value.{x,y,z}`,
+  `landscape.sculpt:position.{x,y,z}` (its description is literally `"Alias for 'location'."`),
+  `blueprint.build_api_index:classFilter.{className,functions}`.
+  **WHAT REMAINS — this is why the ticket is still OPEN.** Option **C** is untouched:
+  `RejectUnknownKeys` is still duplicated three times (`ImageOps.cpp:807`, `PwMusicScore.cpp:738`,
+  `PwSynthRecipe.cpp:786`), is still applied by only 2 verb families out of 317, and the five
+  confirmed verbs still accept a nested key and discard it silently. Nothing at runtime validates a
+  nested key, so the severity rationale on this ticket is unchanged by this commit — what changed is
+  that the class is now measured and ratcheted instead of invisible. C was deliberately not
+  attempted here: it is a compatibility break that the ticket itself says must land one verb at a
+  time with the doc in the same commit, it touches ~9 files across five namespaces, and this agent
+  could not compile or run anything to verify it. NOT COMPILED and NOT RUN — the orchestrator owns
+  the build and the suite.
