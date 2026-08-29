@@ -53,14 +53,19 @@ notice the throw and drop the line, and the value write still succeeds with the 
 
 So the plugin knows the hazard, states it well, and states it only in terms of `property.set`.
 
-**And the wiki's own examples print the spelling that fails.** Several pages show `bOverride_*`
-verbatim — `water.md:95`, `:104` (`"bOverride_SceneColorTint": true,`), `material.authoring.md:209`,
-`:214`, `render.capture-subjects.md:134`, `render.capture-exposure.md:98`,
-`render.preview-scene-rig.md:116`, `widget.md:245`. Those are correct: `property.set` resolves
-against `FProperty` names, so the C++ spelling is the right one there. The problem is that the same
-string is unresolvable from `python.execute`, and nothing anywhere marks the boundary. A caller
-copying a working `bOverride_SceneColorTint` from `water.md` into a Python block gets an exception
-and no clue that the string was surface-specific rather than wrong.
+**And the wiki prints the spelling that fails.** `Docs/wiki-src/water.md:104` shows it inside a
+`property.set`-shaped payload — `"bOverride_SceneColorTint": true,` — and four more pages name
+`bOverride_*` flags in prose as things to read or set: `material.authoring.md:209` and `:214`,
+`render.capture-exposure.md:98`, `render.preview-scene-rig.md:116`, `widget.md:245`. Every one of
+those is correct: `property.set` resolves against `FProperty` names, so the C++ spelling is the
+right one on that surface. The problem is that the same string is unresolvable from
+`python.execute` and nothing marks the boundary. A caller copying a working
+`bOverride_SceneColorTint` out of `water.md` into a Python block gets an exception and no clue that
+the string was surface-specific rather than wrong.
+
+**One page was checked and does not carry it**, recorded so nobody re-derives the list:
+`render.capture-subjects.md` has no `bOverride_` occurrence, and `water.md:95` is prose about
+`FPostProcessSettings` nesting rather than a flag.
 
 **The `python` page is the one with the gap.** `Docs/wiki-src/python.md` already collects exactly
 this class of engine-binding trap — § *Marking packages dirty from Python* (`:13`), § *Calls that
@@ -138,11 +143,15 @@ which is the Low-band item filed here.
   TICKET AND NOT A SHRUG: the failure is loud and correct, but the flag is half of a pair, and
   swallowing the exception leaves the value write succeeding with the override still false — the
   documented silent no-op that `Docs/wiki-src/post_process.md:9` already warns about, in terms of
-  `property.set` only. Compounding it, several wiki pages print the C++ spelling verbatim in
-  examples (`water.md:95`, `:104`, `material.authoring.md:209`, `:214`,
-  `render.capture-subjects.md:134`, `render.capture-exposure.md:98`,
-  `render.preview-scene-rig.md:116`, `widget.md:245`) — correct for `property.set`, which resolves
-  `FProperty` names, and unresolvable from `python.execute`, with no page marking the boundary.
+  `property.set` only. Compounding it, the wiki prints the C++ spelling: `water.md:104` inside a
+  `property.set`-shaped payload (`"bOverride_SceneColorTint": true,`), plus four pages naming
+  `bOverride_*` flags in prose (`material.authoring.md:209`, `:214`,
+  `render.capture-exposure.md:98`, `render.preview-scene-rig.md:116`, `widget.md:245`) — all
+  correct for `property.set`, which resolves `FProperty` names, and unresolvable from
+  `python.execute`, with no page marking the boundary. Every citation in this entry was resolved
+  against the file before filing; two candidates from the first sweep did **not** survive and are
+  named in the body so nobody re-derives them (`render.capture-subjects.md` carries no
+  `bOverride_` at all, and `water.md:95` is prose about `FPostProcessSettings` nesting).
   `Docs/wiki-src/python.md` already collects this class of trap (`:13` dirtying, `:60` crashes,
   `:83` freezes) and has no naming section; `safe-mutation-save.md` mentions `bOverride_` nowhere.
   Context for reach: the pass used the typed `post_process.set_*` setters from
