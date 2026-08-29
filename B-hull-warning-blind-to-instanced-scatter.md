@@ -1,7 +1,7 @@
 ---
 id: B-hull-warning-blind-to-instanced-scatter
 title: "`groundProvenance.warning` is gated on the ABSENCE of a face index, so any surface that answers with triangles — a complex-traced HISM scatter, a collisionless foliage mesh, a `UseComplexAsSimple` body — lands in `triangleColumns` and cannot raise it; the response's only affirmative statement about surface trustworthiness is structurally silent on the case it is most needed for, while `surfaceComponents[]` beside it already names the HISM"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: bug
 tags: [spatial, ground_actors, verify_grounding, ground_instances, provenance, face-index, hull, warning, hism, instanced-static-mesh, scatter, silent-wrong-data, level-building, placement, review-hazard]
@@ -267,3 +267,52 @@ one predicate, not a missing measurement, and it can be fixed without touching t
   already builds a one-instance HISM surface and is the obvious place to hang it).
   **Concurrency note:** `B-ground-probe-hits-hull-not-render.md` is being edited by another agent
   and was read-only here — quoted, never modified.
+- `#2-warning-rederived-from-the-component-roster` `IN-REVIEW` developer — "Re-gated the alarm on
+  what the surface IS rather than on the absence of a face index, and published an affirmative
+  verdict beside it. `MakeProvenanceJson` (`Handlers/Spatial/GroundPlacementUtils.cpp`) now builds
+  a warning LIST: the existing hull sentence is kept verbatim as the first entry (the ticket's
+  'second condition, not a replacement'), and three more can fire — an instanced scatter answered
+  (`instancedScatterColumns`), render triangles answered because the struck component has no simple
+  collision (`renderGeometryColumns`, which was counted and never warned about), and a
+  `UseComplexAsSimple` body answered a `traceComplex:false` probe (`complexAsSimpleColumns`, gated
+  on `!bTraceComplex` because under a complex probe per-triangle geometry is what was requested).
+  All entries are joined into the SAME `warning` key rather than a new one, because `warning` is
+  the field a caller stops at and a sibling key would have been as unread as the silence. Each
+  sentence NAMES the offending surfaces from `surfaceComponents[]` (`actor.component [class]`), and
+  says so when the capped roster cannot name them. **Nothing about what is traced changed** —
+  `traceComplex:false` is still the default and the probe is untouched; per the fix direction this
+  is a discard of already-computed provenance, not a trace-complexity change. **The distribution is
+  not collapsed:** classification travels per row (`instancedScatter` / `renderGeometry` /
+  `complexAsSimple`, emitted only when true, since the row's existence already says 'examined'), so
+  a footprint straddling a scatter and a cliff keeps one answer per surface; the batch-level
+  aggregate is a column COUNT per condition, never a label. **Rule-12 half:** new `surfaceTrust`
+  (`trusted` / `untrusted` / `undetermined`) is published on every measured report. `undetermined`
+  is reached when a supported column's primitive never resolved (new `unclassifiedColumns`, counted
+  in `GroundNoteSurfaceComponent` where such columns were previously dropped silently) and NO
+  condition fired — and in that state `warning` is OMITTED rather than written as an all-clear, so
+  'measured and clean' and 'could not be measured' stop reading alike. Classification is done once
+  per DISTINCT primitive (`Component->IsA<UInstancedStaticMeshComponent>()` covers HISM/ISM/foliage
+  by ancestry; the trace flag goes through `PinWrightCollisionSummary::Summarize`, never the raw
+  `CollisionTraceFlag`, so `CTF_UseDefault` resolves against the project default). **Regression
+  test** `PinWright.spatial.verify_grounding.GroundProvenanceWarnsOnUntrustedSurface` in
+  `Tests/Spatial/TestGroundPlacement.cpp`, in two halves. (1) Constructed columns, no physics:
+  every column carries `GroundFaceIndex = 7`, so `primitiveColumns` is asserted 0 and the old
+  predicate provably cannot fire under any argument shape — pointed first at a real HISM component
+  and then at a real StaticMeshComponent flagged as a render-geometry hit, both of which must raise
+  the warning and name the component; the two silences are pinned in the same block (clean surface
+  -> `trusted` + no warning; unresolved primitive -> `undetermined` + no warning +
+  `unclassifiedColumns`). (2) The live verb over the one-instance HISM at `traceComplex:true` — the
+  parent ticket's own published workaround, i.e. the route that used to GUARANTEE silence — must
+  report `untrusted` and name `HISM_GroundScatter`, and excluding the component class must take the
+  scatter alarm away again so the alarm tracks what ANSWERED rather than what is in the level. Red
+  today on both halves: `surfaceTrust` and `instancedScatterColumns` did not exist and the warning
+  text never named a component. **Not verified by me:** NOT COMPILED and NOT RUN (orchestrator owns
+  the build). The `CTF_UseComplexAsSimple` route is implemented but has NO test — every
+  `/Engine/BasicShapes` mesh ships simple collision and mutating a shared engine `BodySetup` would
+  corrupt it for the rest of the session (`Tests/Spatial/TestRaycastHandlers.cpp:247-253` records
+  the same constraint), so a fixture needs a privately duplicated `UStaticMesh` that I judged
+  out-of-scope risk for a no-compile wave; the ticket's own 'What I could not verify' section still
+  stands unresolved. Wiki overlays updated for the new contract: `Docs/wiki-src/spatial.md`,
+  `spatial.ground-placement.md` (both carried the now-narrower sentence 'a `warning` fires whenever
+  any hull answered'), `foliage.md`. `check_test_ids.py`: CLEAN, 4759 ids, no dot-prefix collision.
+  No error codes touched, no dump aspect affected."
