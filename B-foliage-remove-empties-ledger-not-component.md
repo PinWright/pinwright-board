@@ -5,8 +5,8 @@ status: OPEN
 severity: Critical
 category: bug
 tags: [foliage, remove, get_instances, silent-false-success, ledger-vs-component, hism, data-loss, readback-blind-spot, behavioural-test-passes-on-defect]
-encounters: 1
-lastSeen: 2026-08-29T00:00:00+05:00
+encounters: 2
+lastSeen: 2026-08-29T18:00:00+05:00
 ---
 
 # The mutator and its readback share one blind spot, so the response and the verification agree and neither describes the level
@@ -176,6 +176,33 @@ component's `GetInstanceCount()` alongside `count`, and the behavioural test's `
 helper must read the component, not `Info->Instances` — a differential assertion is the only shape
 that fails on this defect, because every ledger-side assertion passes.
 
+## Third field reproduction, on a different type, with a caller-side repair
+
+Look-dev polish pass over `PW_VegetationTest`, 2026-08-29 (`Docs/map/vegetation-polish.md` § 5.1).
+`foliage.remove {foliageTypePath: "/Game/Foliage/Auto_SM_Trees.SM_Trees"}` returned
+`success: true, instancesRemoved: 16, existsAfter: true`. The live
+`UInstancedStaticMeshComponent::GetInstanceCount()` on `FoliageInstancedStaticMeshComponent_31`,
+read immediately afterwards through `python.execute`, was **still 16**. Same shape as `#1`, on a
+type nobody in `#1` touched, in a different level — so the defect is not specific to the six types
+or the world `#1` measured.
+
+Two things this run adds.
+
+**A caller-side repair exists and is one line: `comp.clear_instances()` on the component.** It is
+worth stating precisely *because* it is not a fix. The two halves are exactly complementary — the
+verb empties `FFoliageInfo::Instances` (`FoliageHandler.cpp:675`, `:683`) and never touches the
+component; `clear_instances()` empties the component and never touches the ledger — so calling
+both, in either order, lands on the consistent state a correct `FFoliageInfo::RemoveInstances`
+would have produced in one call. That makes the divergence recoverable for a caller who already
+knows about it, and changes nothing about the severity: the caller has no way to *learn* it,
+because § *The readback shares the blind spot* still holds and `GetInstanceCount()` appears
+nowhere in the foliage handler. A repair that only works if you have already read this ticket is
+not a workaround the rubric credits.
+
+**`existsAfter: true` came back here too**, alongside the exact count. Noted because it is a third
+true-sounding field in the same response: the caller sees `success`, an exact `instancesRemoved`
+and `existsAfter`, and all three are consistent with a component that still draws everything.
+
 ## Same shape as
 
 `B-foliage-paint-does-no-ground-projection`'s § *Same shape as* states the class: *"the call
@@ -244,3 +271,24 @@ dormant, Critical still holds on the undo path but the window is longer.
   already uses. **Crash reading rejected:** `CheckValid`'s invariant assert is compiled out
   (`DO_FOLIAGE_CHECK 0`). Rated Critical on the data-loss clause via `FFoliageStaticMesh::Reapply`
   (`:1859-1867`), which trims the component to the emptied ledger from `PostEditUndo` (`:1431`).
+- `#2-third-repro-and-clear-instances-repair` `OPEN` reporter — Third field reproduction, the
+  first from outside the run that filed this ticket: look-dev polish pass over `PW_VegetationTest`
+  (`Docs/map/vegetation-polish.md` § 5.1). `foliage.remove
+  {foliageTypePath:"/Game/Foliage/Auto_SM_Trees.SM_Trees"}` returned `success:true,
+  instancesRemoved:16, existsAfter:true`, while `GetInstanceCount()` on
+  `FoliageInstancedStaticMeshComponent_31` read back **16** immediately afterwards through
+  `python.execute`. Different type, different level, so the defect is not specific to `#1`'s six
+  types or its world. New in this encounter: a **caller-side repair**, `comp.clear_instances()` on
+  the component — exactly complementary to what the verb does, so calling both lands the
+  consistent state `FFoliageInfo::RemoveInstances` would have produced alone. Recorded in the body
+  as recoverable and explicitly NOT as a workaround, because the readback blind spot means a
+  caller cannot learn it exists; severity unchanged at **Critical** for that reason (the data-loss
+  clause via `Reapply` `InstancedFoliage.cpp:1859-1867` is untouched by a repair nobody can
+  discover). Re-derived at HEAD rather than inherited: the ledger-only writes are still
+  `FoliageHandler.cpp:675` (removeAll) and `:683` (scoped), `instancesRemoved` is still emitted at
+  `:689`, and `FFoliageInfo::RemoveInstances` still has exactly two call sites, both in
+  `foliage.paint` (`:481`, `:498`). Split out rather than folded in: the same run found that
+  `foliage.remove` **rejects `mode` as `UNKNOWN_PARAMS` while emitting `"mode"` in its own
+  response** (`:694` against the registered param list at `:592-596`), filed separately as
+  `E-foliage-remove-mode-is-output-only` because it is naming friction on a verb whose real
+  defect is this one. `encounters` 1 → 2.
