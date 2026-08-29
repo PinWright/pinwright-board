@@ -1,7 +1,7 @@
 ---
 id: B-declared-param-guard-blind-to-helpers
 title: "The declared-param guard stops at the handler body, so 444 measured undeclared (verb, key) pairs across 81 verbs sit one call frame away from an 8-entry baseline that reads as near-eradicated"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: bug
 tags: [dispatcher, unknown-params, undeclared-parameter, param-spec, unreachable-code, test-coverage, guard-blind-spot, shared-helper, alias, sweep]
@@ -311,3 +311,67 @@ the flat `niagara.*` target descriptor (`emitterName`, `scriptType`, `nodeId`, `
   (`DRIVE_COMMON_ACTION_PARAMS`) inflated `drive.*` by 96 phantom pairs, and a "call argument
   mentions the payload" rule counted nested-object reads as top-level wire keys on
   `level.structure.*`.
+- `#2-widened-scanner-one-call-hop` `IN-REVIEW` developer — Landed Fix steps 1, 2, 4 and 6 in
+  `Source/PinWright/Private/Tests/Infra/TestDeclaredParamCoverage.cpp`; steps 3 and 5 are NOT done
+  (see "what remains" below). **Step 1, the hop.** `FHelperIndex` indexes every function definition
+  under `Source` (`.h` and `.cpp`, `/Tests/` excluded) whose parameter list carries
+  `FHandlerContext&` or `TSharedPtr<FJsonObject>` — 738 definitions on this tree — collects the wire
+  keys each reads off each such parameter, closes transitively over helper→helper forwarding of the
+  same objects (bounded at 6 rounds), and attributes a helper's keys to a verb only when a call
+  argument **is** `Ctx`, **is** `Ctx.GetRawPayload()`, or **is** a local bound directly from it.
+  Resolution is by definition site exactly as the ticket prescribes: qualified calls must
+  scope-match (a `namespace A::B {` header contributes two segments, which is what resolves
+  `PinWright::MetaSound::BuildMetaSoundLiteralFromParams` — without it the four
+  `audio.authoring.*:objectPath` pairs stay invisible); a `static` or anonymous-namespace definition
+  is a candidate only for calls in the same file; same-file candidates win; **more than one
+  surviving candidate is SKIPPED, never guessed** (false negatives, never false attributions).
+  Excluding `Obj.Name(` / `Obj->Name(` receivers took ambiguous edges from 1,248 to 47 and
+  unresolved from 820 to 37 with the pair count unchanged — nearly all the "ambiguity" the ticket
+  worried about was member calls. A one-pass paren/brace table replaces per-opener `MatchDelimiter`
+  so the file-wide scan stays linear. **Step 2, the two corrections.** Free-field accessors widened
+  from `GetJson[A-Za-z]*Field` to `(?:Try)?Get[A-Za-z]*Field(obj, key)` (the wrapper spellings
+  `NiagaraEditTypes.cpp` reads everything through), and the raw-payload taint now follows
+  `TSharedPtr<FJsonObject> X = <tainted>;`. Both verified to add **zero** in-body pairs, as the
+  ticket predicted. **Step 4, the baseline.** `KnownUndeclaredHelperReads()` records the measured
+  pairs and ratchets exactly like the in-body list, with the per-family decision written above it
+  (the 287 `niagara.*` pairs are ONE decision about `ParseTargetSpec`'s flat target descriptor, not
+  287 bugs). **Step 6, KNOWN LIMITS rewritten**: the helper gap is measured, not estimated; the
+  bare-name claim is replaced by the resolution rules above; flow insensitivity is stated; the
+  non-literal-key bucket is corrected to 65/94 recoverable rather than permanent; and the nested-key
+  exclusion is spelled out with the reason it must not be widened.
+  **RE-MEASURED ON THIS TREE RATHER THAN CARRIED OVER: 434 pairs across 78 of 1,220 verbs**, vs the
+  444/81 this ticket recorded from another checkout on another day. Namespace split here: `niagara`
+  287, `drive` 31, `ai` 25, `game_framework` 20, `chooser` 19, `eqs` 18, `audio` 8, `behavior_tree`
+  8, `render` 8, `blueprint` 4, `camera` 2, `geometry` 2, `state_tree` 2 — the same families, the
+  same worked instances (`niagara.set_property`'s 13 flat target keys, `drive.*`'s
+  `instanceName`/`rootIndex`/`browser_index`, `game_framework.*`'s `name`/`path`/`blueprintPath`,
+  `chooser.*`'s `chooserPath`/`assetPath`/`tablePath`, `audio.authoring.*:objectPath`,
+  `render.capture_annotated:allowBlank`). The in-body baseline is **unchanged at 8, all
+  `environment.build`** — that honesty is not regressed.
+  **METHOD, because the guard could not be run from here.** A Python replica of the scanner was
+  written first, calibrated against the shipped guard by restricting it to the four in-body shapes:
+  it returns exactly the 8 `environment.build` pairs, zero extras, zero omissions, over 1,220
+  recovered registrations. The C++ was then written to that algorithm and the baseline generated
+  from the replica. Two replica defects worth recording because they are traps: a match-table cache
+  keyed on `id(str)` silently returned tables for recycled strings (it read 163 object/array verbs
+  instead of 317), and `>` in `->` decremented the template-depth counter in the argument splitter,
+  merging every argument list containing a member call. Both are fixed in the C++ (`SplitTopLevelList`
+  ignores the `>` of `->`).
+  **REGRESSION COVERAGE** in `ScannerSeesEveryCoveredReadShape`: a synthetic helper file plus a
+  synthetic caller file assert that a key read through a helper handed `Ctx` is collected, that
+  helper→helper payload forwarding is followed, that a helper-sourced key is NOT merged into the
+  in-body set, and three negatives — a NESTED object passed to a payload helper is not followed, a
+  qualified call whose qualifier does not scope-match resolves to nothing, and a `static` definition
+  in another file is not a candidate — plus a vacuity guard on the index itself.
+  **WHAT REMAINS, and why the baseline is 434 rather than 0.** (a) Shrinking is per-namespace work
+  with a decision behind every line and is deliberately not attempted here; the largest item is one
+  decision (`ParseTargetSpec`'s flat target form: declare it once through a shared `RPC_PARAMS`
+  factory on the ~27 niagara verbs, or delete it). (b) Step 3 (stratum C, 9 pairs) is not
+  implemented. (c) Step 5 (the sibling-agreement assertion) is not implemented. (d) No branch
+  evaluation: the four `behavior_tree.attach_decorator/attach_service` cross-spellings and
+  `blueprint.graph.{list_graphs,list_node_types}:graphName` are in the baseline as flow-insensitivity
+  artefacts and are labelled as such there rather than dropped. (e) The baseline is a snapshot taken
+  while ~20 other agents were editing handler sources in the same checkout; a pair that lands after
+  it will surface as a new failure and a pair that another agent fixes will surface as a stale-entry
+  warning. Both are the ratchet working. NOT COMPILED and NOT RUN by this agent — the orchestrator
+  owns the build and the suite.
