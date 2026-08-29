@@ -194,6 +194,19 @@ is unknowable from the response.
   have prevented the damage measured here without disclosing anything, and disclosure would have let
   the caller build the clamp themselves — so they mitigate each other and neither is the other's fix.
 
+## Same shape as
+
+The enumeration lives on `B-foliage-paint-does-no-ground-projection` § *Same shape as*
+(`B-ground-probe-hits-hull-not-render`, `B-niagara-validate-green-while-component-inactive`,
+`B-mrq-render-result-omits-bitrate-and-size`) and is not restated here. This is a **partial**
+member of it, and the difference is the reason for the severity split: in that class the deciding
+number is never reported, whereas here it *is* — `proposedDeltaZCm` on a dry run says exactly which
+way the instance will go. What is unreported is the quantity that would let a caller reason about
+it without spending the dry run, and what is asserted is `undersideReliefCm: 0` on a tumbled rock.
+So the family resemblance is to the *readback* half only, which is why this is Medium where
+`B-ground-instances-footprint-is-bounds-not-contact` — a full member, with the deciding number
+genuinely unreachable — is High.
+
 ## Severity
 
 **Medium**, on the rubric's soft-blocker band, both clauses of which apply: *"doable, but only via a
