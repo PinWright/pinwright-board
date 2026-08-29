@@ -175,12 +175,12 @@ derived render state is stale.
   **The destructive ingredient is the second argument, and the engine names it.**
   `ALandscapeProxy::FlushGrassComponents(const TSet<ULandscapeComponent*>* OnlyForComponents = nullptr,
   bool bFlushGrassMaps = true)` — `C:/UE_5.8/Engine/Source/Runtime/Landscape/Classes/LandscapeProxy.h:1165`,
-  doc comment `:1161-1163`: *"bFlushGrassMaps will delete the grass data / density maps on the components
+  doc comment `:1162-1164`: *"bFlushGrassMaps will delete the grass data / density maps on the components
   as well, **but only in editor mode**, and only if the grass maps are renderable (i.e. they can be
   regenerated)."* The two console commands differ in exactly that argument:
   `grass.FlushCache` -> `FlushGrass` -> `Landscape->FlushGrassComponents();` (defaulted **true**),
-  `C:/UE_5.8/Engine/Source/Runtime/Landscape/Private/LandscapeGrass.cpp:3441-3447`, registered `:3474-3479`;
-  `grass.FlushCachePIE` -> `FlushGrassComponents(nullptr, false)`, `:3449-3455`, registered `:3481-3486`.
+  `C:/UE_5.8/Engine/Source/Runtime/Landscape/Private/LandscapeGrass.cpp:3441-3447`, registered `:3474-3478`;
+  `grass.FlushCachePIE` -> `FlushGrassComponents(nullptr, false)`, `:3449-3455`, registered `:3480-3484`.
   Despite its name, **the PIE variant is the non-map-deleting one**, and the editor-only clause in the
   doc comment is why the destructive path is reachable only where we hit it.
   **The engine's own regeneration entry point passes `false`, and that is the deciding citation.**
