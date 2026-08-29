@@ -1,0 +1,137 @@
+---
+id: B-paint-layer-destroys-other-layer-weights
+title: "landscape.create_procedural_terrain zeroes every OTHER weight layer across the WHOLE landscape, not just the painted region — and its own verification field reads only the layer it just painted, so texelsWithWeight == paintedTexels reports clean over the destruction"
+status: OPEN
+severity: Critical
+category: bug
+tags: [landscape, create_procedural_terrain, weightmap, layer-paint, data-loss, no-transaction, verification-blind, silent-wrong-data, vegetation, terrain]
+encounters: 1
+lastSeen: 2026-08-29T00:00:00+05:00
+---
+
+# Painting one layer destroys the others, and the verb's own check cannot see it
+
+`landscape.create_procedural_terrain` (`Handlers/Environment/LandscapeHandler.cpp:1981`) paints a
+weight-blended layer over an optional heightmap-pixel region (`:1987`). Measured twice on a running
+editor against a landscape whose material declares four target layers: after one call, **every layer
+other than the one named held zero weight, across the entire landscape** — not merely inside the
+`region` that was passed. Only one layer can carry weight at a time, which makes multi-layer terrain
+painting unreachable through this verb. The vegetation test level had to ship Grass at strength 1.0
+over the full extent with colour variation driven procedurally in the material, because the second
+paint erased the first.
+
+## The verification field is structurally incapable of catching it
+
+The `verify` block reads back exactly one layer — the one just painted:
+
+```cpp
+LandscapeRead.GetWeightDataFast(LayerInfo, PaintMinX, PaintMinY, PaintMaxX, PaintMaxY,
+                                ReadBack.GetData(), /*Stride=*/0);
+```
+
+`:2344-2345`, tallied at `:2346-2350` into `sampledTexels` / `texelsWithWeight` /
+`texelsAtRequestedWeight` and reported at `:2380-2384`. `LayerInfo` is the requested layer and the
+sample rectangle is the requested region, so the readback is bounded by both of the two axes along
+which the damage escapes: it never looks at another `ULandscapeLayerInfoObject`, and it never looks
+outside `PaintMinX..PaintMaxY`. `texelsWithWeight == paintedTexels` is therefore green in exactly the
+run that wiped three other layers landscape-wide, and the warning at `:2356-2362` — which fires only
+on `TexelsWithWeight == 0` for the painted layer — stays silent.
+
+The readback is correct about what it measures. It measures the wrong set.
+
+## The write is not in a transaction, so it is not undoable
+
+`Handlers/Environment/LandscapeHandler.cpp` contains **one** `FScopedTransaction`, at `:659`, in
+`landscape.create`. The paint path opens none: `PinWright::MarkLevelActorModified(Landscape)`
+(`:2294`) is `Actor->Modify()` + `Actor->MarkPackageDirty()` (`EnvironmentDirtyUtils.h:61-66`), and a
+bare `Modify()` outside a transaction records nothing for `editor.undo` to reverse. Combined with the
+blind readback, a caller learns the other layers are gone only by opening Landscape Ed Mode, by which
+point the only recovery is discarding the level's unsaved state.
+
+## Mechanism: NOT established — two candidates, and the experiment that separates them
+
+Stated as a hypothesis, not a finding. The call site is
+`LandscapeEdit.SetAlphaData(LayerInfo, PaintMinX, PaintMinY, PaintMaxX, PaintMaxY, AlphaData.GetData(), RegionSizeX)`
+(`:2316`) — the 8-argument overload
+(`C:/UE_5.8/Engine/Source/Runtime/Landscape/Private/LandscapeEditInterface.cpp:2106`), taking the
+default `PaintingRestriction = None`.
+
+1. **Weight renormalization inside `SetAlphaData`.** The handler's own comment at `:2352-2354`
+   already knows this happens — *"`SetAlphaData` renormalizes this layer against the others in the
+   same blend"* — and cites it as the reason an intermediate strength reads back at a different
+   value. At strength 1.0 that renormalization drives every sibling layer to zero. It explains
+   destruction **inside** the region and does not by itself explain destruction outside it. Note that
+   the engine's 10-argument overload (`:2378-2381`) accepts `bWeightAdjust` / `bTotalWeightAdjust`
+   and then **discards both**, forwarding to the 8-argument form — so there is no engine-side knob to
+   turn off, whichever overload a fix reaches for.
+2. **The edit-layer recomposite.** The write is scoped to the default edit layer through
+   `FScopedSetLandscapeEditingLayer EditingLayerScope(Landscape, EditLayerGuid, [Landscape] { Landscape->RequestLayersContentUpdateForceAll(); })`
+   (`:2305-2318`), and `verify` then calls `SettleLandscapeLayers(Landscape)` (`:2333`) to drain it.
+   `RequestLayersContentUpdateForceAll` recomposites the **whole** landscape's weightmaps from the
+   edit-layer stack; if the sibling layers' weight lives in base data the recomposite treats as
+   subordinate to the edit layer, they are zeroed everywhere the recomposite runs, which is
+   everywhere. This is the candidate that explains the landscape-wide reach.
+
+**The experiment that decides it.** Paint layer A at strength 1 over a small region, then repeat with
+`verify: false` **and** `skipFlush: true` so neither `Flush()` (`:2318-2320`) nor
+`SettleLandscapeLayers` (`:2333`) runs, sampling layer B inside and outside the region with
+`GetWeightDataFast` before and after. If B survives until the settle, the cause is (2) and the fix
+belongs in the edit-layer scope. If B is already zero outside the region before any settle, the cause
+is (1) plus a component-range effect and the fix is a painting restriction.
+
+## Fix
+
+1. **Make the verb see its own destruction before making it non-destructive.** Extend the `verify`
+   block into a whole-landscape, all-layers census: sample every `ULandscapeLayerInfoObject` in
+   `LandscapeInfo->Layers` over the full extent before and after, and report `layersAffected[]`
+   (name, texels-with-weight before, after) plus an aggregate `otherLayerTexelsLost`. That is a
+   strictly larger read than the one at `:2344` and needs no new engine API. Non-zero
+   `otherLayerTexelsLost` is a `warnings[]` line at minimum; once the mechanism is known, a refusal.
+2. **Open an `FScopedTransaction` around the paint**, per the plugin convention that every mutation
+   is wrapped. Undo does not undo a bare `Modify()`, and this is the verb where that costs the most.
+3. Then fix the destruction itself, guided by the experiment above.
+
+## Same shape as
+
+`B-foliage-paint-does-no-ground-projection`, `B-ground-probe-hits-hull-not-render`,
+`B-create-grass-type-addzeroed-never-renders` — the call succeeds, every number it reports is
+correct, and the output is wrong because the deciding number was never reported. This instance is the
+sharpest of the family: the missing number is not merely unreported, the verb *has* a verification
+block, it was added deliberately, and its sampling bounds exclude the damage on both axes.
+
+## Distinct from
+
+- **`B-create-procedural-terrain-paints-nothing`** (DONE, High) — same verb, and the ticket that
+  **introduced** the `texelsWithWeight` readback this one proves insufficient. A fixer must extend
+  that block rather than write a new one, and its tests in
+  `Tests/Environment/TestLandscapePaintLayerHonesty.cpp` are where the census assertions belong. Its
+  DONE is not contradicted: nothing in it, its history, or its tests ever looks at a layer other than
+  the requested one or at a texel outside the requested region, so it verified exactly what it
+  claimed.
+- **`B-configure-layer-blend-wrong-nodes`** (IN-REVIEW, High) — the upstream verb that authors the
+  `LandscapeLayerBlend` this one paints into, and part of why multi-layer terrain was already hard to
+  reach.
+- **`E-create-procedural-terrain-no-label-set`** / **`E-create-procedural-terrain-no-material-echo`**
+  — a DIFFERENT verb despite the name (`environment.build.create_procedural_terrain`, a procedural
+  mesh actor, `EnvironmentHandler.cpp:747`). Named here because the slug collision costs a reader
+  time on every dedup pass over this area.
+- **`B-landscape-set-material-stale-mics`**, **`B-landscape-sculpt-stale-bounds`** — same handler,
+  material and height axes, no weight involvement.
+
+## Severity
+
+Impact = **Critical**. The README's Critical band is "a write that corrupts or loses asset data", and
+this is that literally: persisted weightmap data for every unrelated layer, destroyed outside the
+region the caller named, with no transaction to reverse it and no reported field that reveals it. It
+sits a band above `B-create-procedural-terrain-paints-nothing`'s High because that verb wasted a
+call; this one takes away work the caller never put at risk.
+
+**Reach modifier declined, and the decline is the part worth arguing.**
+`landscape.create_procedural_terrain` is one of eight `landscape.*` verbs and the only path to layer
+painting, so there is no case for a bump up. The bump *down* is the tempting one — most sessions
+never paint terrain — and it is declined because rarity of use is not rarity of path: every caller
+who paints a second layer hits this on the second call, which is the first call that could possibly
+reveal it. Critical stands unmodified.
+
+## History
+- `#1-other-layers-zeroed-landscape-wide` `OPEN` reporter — Measured twice against a running editor during a vegetation test-level build, on a landscape whose material declares four target layers; this is not a source reading. After one `landscape.create_procedural_terrain` call at strength 1.0 over a sub-region, every layer other than the named one held zero weight over the FULL landscape extent, and the response was clean — `paintedTexels == texelsWithWeight`, no `warnings[]`. The second observation reproduced it. Every mechanism line cited above was re-derived against HEAD in this checkout: registration `LandscapeHandler.cpp:1981`, region param `:1987`, edit-layer scope `:2305-2318`, `SetAlphaData` `:2316`, single-layer single-region readback `:2344-2350`, zero-weight-only warning `:2356-2362`, response fields `:2379-2384`, and the absence of any `FScopedTransaction` in the file except `:659`. The destruction MECHANISM is deliberately left unestablished: two candidates are named with the experiment that separates them, because guessing between a `SetAlphaData` renormalization and an edit-layer recomposite would have put an unverified cause inside a Critical ticket. Dedup: searched the board for `SetAlphaData` (1 file, the sibling ticket), `weightmap` (8 files, none about destroying other layers), `texelsWithWeight` / `paintedTexels` (2 files), `ULandscapeLayerInfoObject` and `create_procedural_terrain`, and read all fifteen landscape/terrain tickets. Nothing covers weight destruction. NOT attempted: recovery. The level was re-authored around the defect rather than repaired, so whether discarding unsaved state actually restores the other layers is untested, and the ticket does not claim it does.
