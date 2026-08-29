@@ -67,10 +67,10 @@ and **no instance index**; the only `InstanceIndex` in the module is on `FSpatia
 (`SpatialTraceUtils.h:269`), which belongs to the box-overlap footprint path, not to either
 raycast.
 
-The plugin can already do this and does it elsewhere: `SpatialTraceUtils.cpp:420-469` resolves a
-blocking instance's index via `GetItemIndex()` with a `GetInstancesOverlappingBox` fallback, and
-`spatial.find_clear_placement` reports `instanceIndices[]` alongside `GetInstanceCount()`
-(`MeasureHandler.cpp:1228-1232`). So *"which instance of this HISM did I click"* is answerable with
+The plugin can already do this and does it elsewhere: `SpatialTraceUtils.cpp:435` resolves a
+blocking instance's index via `Overlap.GetItemIndex()`, with a `GetInstancesOverlappingBox` fallback
+at `:480`, and `spatial.find_clear_placement` reports `instanceIndices[]` (`MeasureHandler.cpp:1227`)
+alongside `GetInstanceCount()` (`:1231`). So *"which instance of this HISM did I click"* is answerable with
 code that exists, on a hit result that already sets `bReturnFaceIndex`.
 
 For a level built the way the plugin's own wiki teaches — `level-building.instancing-and-scatter`,
@@ -91,7 +91,7 @@ Bring the sibling up to parity rather than inventing anything:
    natural screen-pick intent is *"tell me everything along this ray, nearest first"*, and the
    caller can then pick. The filters follow the same shape as the sibling's and share its
    implementation.
-4. **Instance index on the hit** (both verbs), reusing `SpatialTraceUtils.cpp:420-469`.
+4. **Instance index on the hit** (both verbs), reusing `SpatialTraceUtils.cpp:435` / `:480`.
 
 Items 1–2 are the honesty half and are small. 3–4 are the capability half; if they are split,
 split them there.
@@ -168,8 +168,9 @@ the rubric's down-bump is refused on principle here. Medium stands unmodified.
   sibling. SECOND HALF: neither raycast verb can name a struck instance — `FSpatialHit`
   (`SpatialTraceUtils.h:30-60`) carries `HitComponent` and no index, the module's only
   `InstanceIndex` is on `FSpatialOccupant` (`:269`) for the box-overlap path — although the plugin
-  already resolves one at `SpatialTraceUtils.cpp:420-469` (`GetItemIndex()` + overlap fallback) and
-  `spatial.find_clear_placement` reports `instanceIndices[]` (`MeasureHandler.cpp:1228-1232`). For a
+  already resolves one at `SpatialTraceUtils.cpp:435` (`Overlap.GetItemIndex()`) with a
+  `GetInstancesOverlappingBox` fallback at `:480`, and `spatial.find_clear_placement` reports
+  `instanceIndices[]` (`MeasureHandler.cpp:1227`) beside `GetInstanceCount()` (`:1231`). For a
   level built the plugin's own documented way, `component:"HISM_ZF_Oak"` is the whole answer to a
   question that was about one of fifty instances. WORKAROUND (undocumented, and what holds severity
   down): `raycast_screen` echoes the deprojected `ray.origin`/`ray.direction` at `:273-275`, so
