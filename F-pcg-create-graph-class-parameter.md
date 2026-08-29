@@ -1,0 +1,167 @@
+---
+id: F-pcg-create-graph-class-parameter
+title: "pcg.create_graph hardcodes NewObject<UPCGGraph>, so UE 5.8's Procedural Vegetation Editor — a UPCGGraph subclass whose every node is a UPCGSettings the existing pcg.add_node already resolves by path — is unreachable through PinWright for want of one optional graphClass parameter"
+status: OPEN
+severity: High
+category: feature
+tags: [pcg, create-graph, procedural-vegetation, vegetation, foliage, tree-authoring, ue58, graph-class, missing-parameter, engine-plugin]
+---
+
+# One hardcoded `NewObject` is the whole distance between PinWright and native tree authoring
+
+`pcg.create_graph` constructs exactly one class and cannot be told otherwise:
+
+```cpp
+UPCGGraph* Graph = NewObject<UPCGGraph>(
+    Package,
+    FName(*AssetName),
+    RF_Public | RF_Standalone | RF_Transactional);
+```
+
+`Source/PinWrightPCG/Private/Handlers/PCG/PCGGraphCreate.cpp:73-76`. The verb's parameter list is
+`name` + `savePath` and nothing else (`:23-24`). There is no way for a caller to ask for a
+`UPCGGraph` **subclass**.
+
+UE 5.8 ships one that matters for vegetation work.
+
+## The chain, and how much of it already works
+
+**1. The graph type is a `UPCGGraph` subclass.**
+
+```cpp
+UCLASS(MinimalAPI)
+class UProceduralVegetationGraph : public UPCGGraph
+```
+
+`C:/UE_5.8/Engine/Plugins/Experimental/ProceduralVegetationEditor/Source/ProceduralVegetation/Public/ProceduralVegetation.h:8-9`.
+Its constructor is inline in that public header and sets three editor flags
+(`bIsStandaloneGraph = false`, `bExposeGenerationInAssetExplorer = false`, and both hidden-flag
+input/output node calls, `:14-28`) — nothing that needs a factory to run. **Blocked today**, and
+this is the only blocked link in the chain.
+
+**2. Every Procedural Vegetation node is a `UPCGSettings`.**
+
+```cpp
+UCLASS(BlueprintType, Abstract, HideCategories=(Debug, AssetInfo), ClassGroup = (Procedural))
+class UPVBaseSettings : public UPCGSettings, public IPVRenderSettings
+```
+
+`.../ProceduralVegetation/Public/Nodes/PVBaseSettings.h:11-12`. Every PV node derives from it.
+
+**3. `pcg.add_node` already resolves any such class by path, with no allowlist.**
+
+`Source/PinWrightPCG/Private/Handlers/PCG/PCGGraphAuthoring.cpp`:
+
+```
+:40  RPC_PARAM_REQ("nodeClass", "string", "UPCGSettings subclass path, e.g. /Script/PCG.PCGCreatePointsSettings.")
+:62  UClass* SettingsClass = FindObject<UClass>(nullptr, *NodeClassPath);
+:65  SettingsClass = LoadClass<UPCGSettings>(nullptr, *NodeClassPath);
+:67  if (!SettingsClass || !SettingsClass->IsChildOf(UPCGSettings::StaticClass()))
+:75  UPCGNode* Node = Graph->AddNodeOfType(TSubclassOf<UPCGSettings>(SettingsClass), DefaultSettings);
+```
+
+The only gate is `IsChildOf(UPCGSettings)`. There is no module allowlist, no path prefix check, no
+registry of known node types. **Header visibility is irrelevant to this path**: UHT registers a
+`UCLASS` under `/Script/<Module>.<Class>` whether its header sits in `Public/` or `Private/`, so
+private PV node classes — `UPVGrowerAuxinSettings`
+(`.../Private/Nodes/GrowerSettings/PVGrowerAuxinSettings.h:9-10`),
+`UPVGrowerBifurcationSettings` (`.../PVGrowerBifurcationSettings.h:9-10`), and the ~30 siblings in
+`Private/Nodes/` — resolve by `/Script/ProceduralVegetation.<ClassName>` exactly like a stock PCG
+node. **Already works, unblocked, needs no change.**
+
+**4. The graph's terminal node is public.** `UPVExportSettings : public UPVBaseSettings`
+(`.../Public/Nodes/PVExportSettings.h:9-10`), so the export step is reachable, and `pcg.generate`
+already drives generation.
+
+So: link 1 is one line, links 2–4 need nothing. That asymmetry is the whole argument for this
+ticket — this is not "add Procedural Vegetation support", it is "stop hardcoding the graph class",
+and the rest of the surface has already been built.
+
+## Correction to an earlier draft of this finding
+
+An earlier write-up of this research named `/Script/ProceduralVegetation.PVGrowerPhyllotaxySettings`
+as the private-node example. **No such class exists.** Phyllotaxy in PV is a *struct*,
+`FPVHormonePhyllotaxySettings`, embedded in distribution parameters
+(`.../Private/DataTypes/PVDistributionParams.h:388-405`) — it is a settings block on a node, not a
+node. The private-node point stands on the real classes cited above; the example was wrong and is
+corrected here so nobody spends an editor session resolving a class name that was never there.
+
+## The ask
+
+One **optional** parameter on `pcg.create_graph`:
+
+    graphClass (string, optional) — UPCGGraph subclass path. Defaults to /Script/PCG.PCGGraph.
+
+Resolved with the same three-tier discipline the plugin already mandates for engine classes
+(`Utils/ClassUtils::ResolveUClass`; and `agent-conventions.md` on engine `UCLASS` types without an
+export macro — resolve by reflection, never by `StaticClass()` linkage), gated by
+`IsChildOf(UPCGGraph::StaticClass())` exactly as `pcg.add_node:67` gates its node class, and
+constructed via the `NewObject(Package, ResolvedClass, Name, Flags)` overload. **Deliberately by
+reflection and not `NewObject<UProceduralVegetationGraph>`**: the PV plugin is off by default (see
+`E-pv-graph-path-needs-optional-plugin-guard`), so a compile-time reference would put a hard link
+dependency on an optional experimental module into `PinWrightPCG`.
+
+Echo the resolved class in the response next to `graphPath`, so a caller can tell a defaulted
+`UPCGGraph` from the subclass they asked for. Not echoing it would reproduce, on a brand-new
+parameter, the response-honesty defect this board is full of.
+
+## Not RPC-verified
+
+Source-read only. The editor was not running for this pass; no `pcg.create_graph` call was made and
+no PV plugin was enabled. Two questions an editor test would settle, and this analysis cannot:
+
+1. **Is `NewObject<UProceduralVegetationGraph>` sufficient without the PV factory?** The class is
+   `MinimalAPI` and its constructor is inline, so construction should link and run; but the PV
+   editor has its own asset factory, and whether it seeds nodes, a preset, or asset-registry state
+   that a bare `NewObject` skips is unknown. If it does, this ticket's ask is still correct but the
+   resulting graph may need `pcg.add_node` calls the PV editor would have made for you.
+2. **Do PV nodes execute outside the PV editor UI?** Every PV node is a `UPCGSettings` with an
+   `FPVBaseElement : IPCGElement`, so `pcg.generate` *should* run them on the ordinary PCG
+   scheduler. Whether any of them depends on PV-editor-only state (a preview world, a growth-data
+   loader path, the `SPVExportSelectionDialog` flow at
+   `.../ProceduralVegetationEditor/Private/Widgets/SPVExportSelectionDialog.h`) is unverified. If
+   they do, the useful subset of PV through PinWright is smaller than the class hierarchy suggests
+   — which would change this ticket's *value*, not its correctness.
+
+Neither question changes the fix; both change how much the fix buys. Answer them in the same editor
+session that verifies the fix.
+
+## Distinct from
+
+- **`F-pcg-core-graph`** (DONE) — shipped the namespace this parameter would extend. That ticket
+  delivered `pcg.create_graph` in its current, single-class form; this is the follow-on, not a
+  reopening.
+- **`F-pcg-set-node-property`** (OPEN, Low) — the *other* half of the same capability. With
+  `graphClass` you can create a PV graph and add PV nodes; without per-node property writes you
+  cannot configure any of them, and a PV node with default parameters is a species you did not ask
+  for. That ticket is recommended for re-severity to High partly because of this one; the two are
+  independently valuable and independently testable, which is why they stay separate.
+- **`E-pv-graph-path-needs-optional-plugin-guard`** (OPEN, Medium) — how the PV path must behave on
+  the overwhelmingly common host where the PV plugin is disabled. That is a hard prerequisite for
+  landing this safely, so it is filed as a blocker rather than folded in here.
+- **`F-pcg-authoring-parity`** (IN-REVIEW), **`F-pcg-filters-and-subgraphs`** (DONE),
+  **`F-pcg-generate-readback`** (IN-REVIEW) — graph *content* asks. This one is about the graph
+  object's type, which is upstream of all of them.
+- **`E-pcg-add-node-echo-pin-labels`** (OPEN, Low) — response-shape gap on `create_graph` and the
+  node-create verbs. Touches the same two files. A fixer in `PCGGraphCreate.cpp` for either should
+  read the other, since both add fields to the same response.
+- **No umbrella "support Procedural Vegetation" ticket is proposed.** Support decomposes into this
+  ticket, `F-pcg-set-node-property`, and `E-pv-graph-path-needs-optional-plugin-guard` — each with
+  a concrete code site and an independent test. An umbrella would be a wish with no repro on a
+  board whose convention is repro-backed items.
+
+## Note for whoever opens `PCGGraphCreate.cpp`
+
+The whole file sits inside `#if defined(__has_include) && __has_include("PCGGraph.h")` (`:7`,
+`#endif` at `:94`), which puts the `REGISTER_RPC_HANDLER` at `:20` inside the guard — the opposite
+of `agent-conventions.md`'s "registration is ALWAYS unconditional". **This is not a defect and does
+not need fixing.** The `pcg` namespace is gated a level higher: `PinWrightPCG` is a
+`LoadingPhase: None` sub-module (`PinWright.uplugin:39-43`) loaded only when `IPluginManager`
+reports PCG enabled (`Private/IntegrationGates.cpp:31`), and `IntegrationGates::FindSkippedByNamespace`
+supplies the wiki entry and the `PLUGIN_DISABLED` error in the module's absence. Checked so the next
+reader does not re-derive it.
+
+severity rationale: impact=High within the "hard blocker with no workaround" band — a shipped UE 5.8 authoring subsystem is unreachable through the plugin's own surface, and the block is one hardcoded template argument rather than any missing capability; taking the High end rather than Medium because what is blocked is an entire engine subsystem, not one verb, and because two other tickets depend on it × reach=normal — `pcg.create_graph` is the gateway verb of its namespace (no other `pcg` verb applies until a graph exists), so the rare-edge-path bump-down is declined; a reviewer who scores `python.execute` as a general workaround (it can `NewObject` a PV graph directly) lands on Medium, and that is the specific argument being rejected here, because "the plugin had a gap so we left the plugin" is the outcome this project treats as the defect -> High
+
+## History
+- `#1-hardcoded-graph-class` `OPEN` reporter — Source-read only, editor not running; no `pcg.create_graph` call was made and the PV plugin was not enabled. `PCGGraphCreate.cpp:73` hardcodes `NewObject<UPCGGraph>` and the verb declares only `name`/`savePath` (`:23-24`), so no `UPCGGraph` subclass is reachable. UE 5.8's `UProceduralVegetationGraph` is one (`ProceduralVegetation.h:8-9`, `UCLASS(MinimalAPI)`, inline constructor), every PV node is a `UPCGSettings` via `UPVBaseSettings` (`PVBaseSettings.h:11-12`), and `pcg.add_node` already resolves any `UPCGSettings` subclass by `/Script/...` path with `IsChildOf` as its only gate and no module allowlist (`PCGGraphAuthoring.cpp:62`, `:65`, `:67`, `:75`) — including classes in private headers, since UHT registers by name not by header visibility. Ask is one optional `graphClass` parameter resolved by reflection (not `NewObject<T>`, to avoid a link dependency on an off-by-default experimental module) and echoed in the response. Corrects an earlier draft of this research: `UPVGrowerPhyllotaxySettings` does not exist — phyllotaxy is the struct `FPVHormonePhyllotaxySettings` (`PVDistributionParams.h:388`); real private node examples are `UPVGrowerAuxinSettings` and `UPVGrowerBifurcationSettings`. Dedup: checked every `F-pcg-*`, `B-pcg-*` and `E-pcg-*` file on the board — `F-pcg-core-graph` (DONE) shipped `create_graph` in its single-class form, `F-pcg-authoring-parity` (IN-REVIEW), `F-pcg-filters-and-subgraphs` (DONE) and `F-pcg-generate-readback` (IN-REVIEW) are graph-content asks, `E-pcg-add-node-echo-pin-labels` (OPEN) is a response-shape gap in the same two files, and `B-pcg-generate-deadlocks-game-thread` / `B-pcg-inspect-edge-direction-reversed` / `B-pcg-generated-graph-output-empty-after-generate` are unrelated defects. No ticket mentions `UProceduralVegetationGraph`, `graphClass`, Procedural Vegetation, or a graph-class parameter. Two questions left for an editor test and named in the body: whether `NewObject<UProceduralVegetationGraph>` suffices without the PV factory, and whether PV nodes execute outside the PV editor UI.
