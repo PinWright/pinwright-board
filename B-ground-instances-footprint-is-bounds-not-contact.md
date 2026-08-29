@@ -5,8 +5,8 @@ status: OPEN
 severity: High
 category: bug
 tags: [spatial, ground_instances, ism, hism, instanced-static-mesh, scatter, vegetation, trees, bounds, aabb, footprint, contact-patch, underside, bounds-plane, silent-wrong-data, false-pass, placement, level-building, no-workaround]
-encounters: 1
-lastSeen: 2026-08-29T20:10:00+03:00
+encounters: 2
+lastSeen: 2026-08-29T20:50:00+03:00
 ---
 
 # The footprint is the silhouette, and for a tree the silhouette is the canopy
@@ -285,3 +285,55 @@ right band without it.
   footprint parameter to its limit and measuring); Critical declined because `movedInstances[]`
   carries every original transform; reach bump declined with the argument stated, because four of six
   measured mesh classes are served correctly by the bounds footprint.
+
+- `#2-offline-contact-ring-shipped-what-the-verb-could-not-reach` `OPEN` reporter — **Outcome
+  evidence, not a new mechanism. Status deliberately unchanged — this is a second encounter, and I
+  was not asked to verify anything.** `#1` ended at a 20-instance pilot and a proposed direction;
+  the direction has now been carried to every affected instance in the level, and the result is the
+  strongest available statement of this ticket's claim: **the capability is achievable, it is just
+  not reachable through the verb.** Method and full tables in
+  `Docs/map/tree-seating-on-slopes.md` § *Bulk re-seat, applied 2026-08-29* (host
+  `EAContentExamples58`, UE 5.8); producers `dev/planting/p_bulk_prep.py`, `p_gap.py`,
+  `p_resolve.py`. All figures below re-derived from `dev/planting/out/gap_before.json` and
+  `gap_after.json` (the same ring metric on both sides) rather than relayed.
+  **Offline contact-ring seat, written with `actor.set_instance_transforms`:**
+  `HillTree_P2` 840 instances, floating **234 (27.9%) -> 19 (2.3%)**, gap p90 +27.3 -> **-4.6**,
+  max **+252.1 -> +1.9 cm**; `SM_Dead_Tree` 154 instances (defect set only, 27 written), floating
+  **27 (17.5%) -> 0 (0.0%)**, p90 +63.6 -> -7.9, max **+136.2 -> -5.4 cm**. 215 of the 840 trees
+  were moved; the rest were already bedded and were left alone. The seat is `#1`'s formula
+  unchanged: ground minimum on a ring of `contactR * meanXYscale` at 16 azimuths, minus the mesh
+  z-min times scale, minus an embed that is **10% of the contact radius** rather than any fraction
+  of bounds height.
+  **Against that, the verb's own best reachable dry run on the same class is p50 +76.9 cm of
+  LIFT** (`#1`, `footprintInset` at its 0.45 clamp, `seatPercentile 0.5`, `embedFraction 0`), with
+  9 of 177 instances within 20 cm of a no-op. So the gap between "what this verb can be asked for"
+  and "what the same solve produces over the right footprint" is a full 8 metres of tree base, and
+  it closes to zero the moment the footprint is nameable. Nothing else changed: the same landscape,
+  the same probe, the same complex trace, the same instance rotations and scales.
+  **One correction to `#1`'s scope table, which will matter to whoever fixes this.** `#1` says the
+  bounds footprint is "a good model for four of these six meshes (0.98-2.49x)". That is true of the
+  **XY** footprint and false of the **Z** term of the same box: for the four low-ratio classes the
+  seat still went wrong, in the opposite direction, because the underside plane is the
+  *rotation-inflated* AABB minimum. Measured on the same bulk pass and filed separately as
+  `B-ground-instances-rotated-aabb-underside-plane` — `seatPercentile 0.4` proposed a **lift** on
+  245 of 256 already-bedded rocks. A `contactRadius` / `footprintSource` fix as asked for here does
+  **not** address that, and neither ticket subsumes the other: this one is the XY extent the solve
+  samples over, that one is the Z the solve seats to.
+  **Two acceptance rules had to be built offline because the verb offers neither**, which is filed
+  as `F-ground-instances-move-clamps`: never lift (105 instances measured worse after the first
+  apply, 38 reverted from the pre-recorded originals — count re-derived from the five revert
+  payloads in `dev/planting/out/args/`), and never over-bury (11 reverted, one driftwood log driven
+  2.7 m further into the terrain with `pass: true` on the row). Neither rule is expressible as a
+  parameter, and the applying response publishes no per-instance number at the default `detail`,
+  so both had to be enforced by measuring the level again afterwards.
+  **Vision-verified, not only measured**, at five fresh poses the pilot never touched (1280x720,
+  fov 60, `ev100 -0.5`, `hideEditorSprites: true`). The clearest pair is `HISM_ZF_HillTree` idx 63:
+  before, the root flare ends in mid-air with lit grass visible underneath and behind it; after, the
+  trunk runs continuously into the terrain. The level's worst tree (`#1`'s +252.1 cm) went from a
+  trunk cut off above a black cavity with a rock lit underneath it, to a trunk descending into the
+  grass. Honest limits recorded with the evidence: the dead-tree pair's base is below the local
+  grass line in **both** frames, so that class's evidence is numeric only; and the rock-shelf pair
+  still shows a visible overhang on the downhill lip, which is the honest limit of a flat-plane
+  underside on 3 m of relief and is not claimed as a win here.
+  `encounters` 1 -> 2. No severity change proposed: same impact class, and a second observation is
+  an `encounters` input, never a severity input.
