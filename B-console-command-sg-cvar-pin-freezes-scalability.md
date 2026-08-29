@@ -1,7 +1,7 @@
 ---
 id: B-console-command-sg-cvar-pin-freezes-scalability
 title: "`system.console_command` / `editor.console_command` handed an `sg.*` line pin that group at ECVF_SetByConsole for the rest of the editor session, which permanently outranks the editor's own Scalability panel (ECVF_SetByScalability) — measured: seven groups became unclickable in the UI and it read as the editor force-resetting quality — while both verbs answer `success: true` with nothing about the side effect, no PinWright verb can read a CVar's SetBy priority back, and the correct typed verb `performance.set_scalability` was one call away"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: bug
 tags: [system, editor, console-command, console_command, scalability, sg-cvars, cvar-priority, ecvf-setbyconsole, ecvf-setbyscalability, silent-side-effect, session-state, user-facing, editor-degradation, set-scalability, typed-verb, readback]
@@ -208,3 +208,50 @@ unmodified; it is already the correct band on impact alone.
   user's editor rather than on the agent's numbers; Critical declined (no crash, no data loss, restart
   recovers); reach bump declined because `sg.*` is a small share of console traffic even though the
   verbs themselves are near-universal.
+- `#2-refuse-sg-console-sets-with-force-optout` `IN-REVIEW` developer — "Implemented the Ask at
+  preference 1+2: both verbs now REFUSE a leading `sg.` token and steer to the typed verb, with a
+  `force: true` opt-out. New shared header `Source/PinWright/Private/Handlers/ScalabilityConsoleGuard.h`
+  holds the whole rule in one place so the two verbs cannot drift:
+  `IsScalabilityGroupLine(CommandLine)` is `CommandLine.TrimStart().StartsWith(TEXT('sg.'),
+  ESearchCase::IgnoreCase)` — because `sg.` contains no whitespace, a prefix test on the left-trimmed
+  line IS the first-token test, so `r.Foo sg.Bar` (the prefix in a value or a quoted string) does NOT
+  match and the aggregate `scalability N` does NOT match, exactly as the ticket requires; and
+  `MakeScalabilityTypedVerbRefusal(CommandLine)` builds the one-sentence message naming
+  `performance.set_scalability`, both priorities, and the `force:true` escape. Call sites:
+  `Handlers/System/SystemControlHandler.cpp` `system.console_command` refuses right after its
+  empty-command check (before the `GEditor` guard), and `Handlers/Editor/EditorCommandHandler.cpp`
+  `editor.console_command` hoists its `command` read above the `GEditor` guard and refuses there — the
+  guard runs ahead of the environment check on purpose, because whether a line pins a group is a fact
+  about the string, and it makes the refusal deterministic in a test host with no editor. Both emit
+  `SCALABILITY_CVAR_USE_TYPED_VERB`, now registered as `ERR_SCALABILITY_CVAR_USE_TYPED_VERB` in
+  `Handlers/ErrorCodes.h`; the call sites deliberately keep the RAW literal because neither file cites
+  `ErrorCodes::ERR_` today and the first citation would flip the whole file to 'adopting' and fail
+  its existing literals (TestErrorCodeRegistry test 2) — the header entry carries that note. Both verbs
+  declare a new optional `force` boolean param, so the dispatcher's UNKNOWN_PARAMS gate accepts it and
+  `PinWright.infra.declared_params.HandlersOnlyReadDeclaredParams` stays green. Docs in the same
+  change: one paragraph appended to both registered summaries and to `docs/wiki-src/system.md`
+  §`system.console_command` and `docs/wiki-src/editor.md` §`editor.console_command`, each pointing
+  `sg.*` at `performance.set_scalability` and stating that `scalability N` is unaffected; editor.md's
+  standing claim that 'nothing refuses a dangerous one' was corrected to name this one refusal.
+  Regression test `Source/PinWright/Private/Tests/EditorOps/TestScalabilityConsoleGuard.cpp`, three
+  ids: `PinWright.core.scalability_console_guard.FirstTokenPrefixOnly` (predicate — `sg.X 3`, `SG.X 3`,
+  leading whitespace and a bare `sg.X` all match; `scalability 2`, bare `scalability`, `r.Foo sg.Bar`,
+  a trailing `sg.` token, `sgfoo 1` and the empty line all do not; refusal text names the typed verb
+  and both priorities) plus `PinWright.system.console_command.ScalabilityCvarRefusedWithoutForce` and
+  `PinWright.editor.console_command.ScalabilityCvarRefusedWithoutForce`, which drive the real verbs
+  through one shared assertion: refused with the code and a message naming
+  `performance.set_scalability`, `force: true` NOT stopped by the guard, and the aggregate command not
+  refused. **No test can leak a pin, which is load-bearing rather than fastidious:** the refusal cases
+  use a group name that does not exist (`sg.__PinWright_NoSuchGroup__ 3`), so if the guard is ever
+  reverted the line reaches Exec, finds no console object and sets nothing; the `force` case passes a
+  REAL group with NO value, which ProcessUserConsoleInput answers on its `bShowCurrentState` branch
+  without calling Set; and the not-refused case passes bare `scalability` (usage print) rather than
+  `scalability 2`, which WOULD write all eleven groups and SaveState to the host's editor ini — the
+  `scalability 2` spelling is asserted on the predicate instead, where it costs nothing.
+  `check_test_ids.py` re-run after adding them: 4784 ids, CLEAN, no dot-prefix collision. NOT
+  implemented, per the ticket's own scope line: the `SetBy` priority on `system.console.search` rows —
+  filed as `F-console-search-setby-priority` instead. Board contradiction reconciled in the same pass:
+  history appended to `E-scalability-console-escape-hatch-misleading` and `B-set-scalability-no-sg-update`
+  (statuses unchanged) recording that the per-CVar console form is a hazard with a real cost, and that
+  `force: true` is now where the deliberate escape hatch lives. Not compiled or run — the orchestrator
+  builds and runs the suite immediately after this change."
