@@ -1,7 +1,7 @@
 ---
 id: B-ground-probe-hits-hull-not-render
 title: "`spatial` ground probes resolve against SIMPLE collision by default, so on authored architecture they report a floor the render mesh does not have — a prop seated on a phantom hull surface floats 202 cm in the air and every reported number looks right"
-status: IN-REVIEW
+status: DONE
 severity: High
 category: bug
 tags: [spatial, raycast, ground_actors, verify_grounding, trace, collision, simple-vs-complex, hull, silent-wrong-data, review-hazard, level-building, placement, face-index, provenance, non-uniform-scale]
@@ -510,3 +510,47 @@ Note the asymmetry worth preserving in any fix: both pages already teach the cal
   rewrite `#2` describes is still absent and someone should reconcile the two trees. (b) `#2` cites
   the discard site as `GroundPlacementUtils.cpp:784-787` / `:791-799`; that block now lives inside
   `MeasureContactForBounds`, so the line numbers are stale — the mechanism it describes was exact.
+- `#5-provenance-verified-warning-blind-to-scatter` `DONE` tester — **Verified live on a watchtower,
+  both directions from one subject.** At `traceComplex: false` the response carried
+  `primitiveColumns 5/5`, `minSimpleCollisionShapes 2` and the hull `warning`; at
+  `traceComplex: true` the same probe carried `triangleColumns` plus `renderGeometryColumns`. So the
+  `groundProvenance` block does exactly what `#2`'s recast ask specified: the three fields the probe
+  already computed now reach the response, they track which representation actually answered, and
+  they flip together when the representation flips. `#4` is verified as implemented. No extra trace
+  is taken and the default was not flipped, so the `B-trace-complex-hits-render-geometry` constraint
+  is intact.
+
+  **A gap, named here rather than left implicit, and filed separately as
+  `B-hull-warning-blind-to-instanced-scatter`.** A mesh whose body setup carries
+  `CTF_UseComplexAsSimple` returns a valid `FaceIndex` even on a **simple** trace. The aggregation
+  counts a column as triangle-answered purely on `Column.GroundFaceIndex >= 0`
+  (`Handlers/Spatial/GroundPlacementUtils.cpp:518-524`: `if (Column.GroundFaceIndex >= 0)` at `:518`,
+  `++Report.Provenance.TriangleColumns` at `:520`, the `else` branch's
+  `++Report.Provenance.PrimitiveColumns` at `:524` — line numbers re-derived at HEAD, `#2`'s and
+  `#4`'s having moved), so those hits land in `triangleColumns`. The `warning` is gated on
+  `if (Prov.PrimitiveColumns > 0)` (`:889`, message emitted `:891-893`), so with every column
+  counted as a triangle column it **never fires**. The practical consequence: anyone using `warning`
+  or `primitiveColumns` as the "am I on the wrong surface" test misses **every HISM scatter** — the
+  exact population `E-ground-preset-excludes-only-foliage-actors` measured at 268/930 on this project
+  — because a scatter's hits present as triangle-answered. Only `#3`'s `surfaceComponents[]` (added
+  on the sibling ticket, same block) catches those, by naming the component class rather than the
+  collision representation.
+
+  **This does not reverse the verdict.** The shipped block is correct about what it measures: the
+  counts are a faithful reading of `FaceIndex` provenance, and `#4` was explicit that absence of a
+  face index is a strong prior rather than proof. What is narrower in practice than it reads is
+  `#4`'s summary sentence — *"The `warning` fires whenever any column was answered by a hull"*.
+  Quoted verbatim because a reader will use it as the contract: it is true for hulls that report no
+  face index, and false for a `CTF_UseComplexAsSimple` body, which is a hull that reports one. The
+  in-code comment at `:886-888` already anticipates the converse case ("a primitive can answer a
+  complex query too"); this is the same asymmetry running the other way, and nothing in the response
+  distinguishes it. Two signals, two questions: `primitiveColumns`/`warning` answer *which collision
+  representation answered*; `surfaceComponents[]` answers *what kind of thing that surface is*. A
+  caller needs both, and the follow-on ticket is about saying so in the response rather than only
+  here.
+
+  **Not re-measured by this entry:** the body's 16 probe pairs, the `Rubble_Step_C4` 202.02 cm float,
+  the `SM_Temple_Podium` course arithmetic from `#3`, and `#5`'s still-unshipped divergence
+  comparison (magnitude and sign), which remains the follow-on it was recast as. `#4`'s correction
+  (a) also stands unresolved and is not this ticket's to close: the `4fafde6b` / `9e17fefc`
+  documentation work `#2` reported still cannot be found in this tree.
