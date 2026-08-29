@@ -1,7 +1,7 @@
 ---
 id: B-asset-search-array-class-filter-silently-dropped
 title: "asset.search accepts an array-valued classFilter, reads it as the empty string, applies no class filter at all and still echoes classFilterMode — the correctly-spelled key fails silently while a misspelling is refused, because the dispatcher validates parameter NAMES and never parameter TYPES"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: bug
 tags: [asset, asset-search, classFilter, classFilterMode, dispatcher, type-validation, silent-drop, silent-wrong-data, unknown-params, param-shape-drift]
@@ -198,3 +198,50 @@ severity rationale: impact=High — the README's High band verbatim, "silent wro
 
 ## History
 - `#1-array-typed-filter-accepted-and-ignored` `OPEN` reporter — Measured live against a running editor: `asset.search {classFilter:["StaticMesh"]}` returned 38 results, **none** a StaticMesh, with `classFilterMode:"exact"` echoed and **no** `classFilter` echoed. All line numbers re-derived this session at HEAD. **Corrects the framing this was filed under:** `classFilter` is NOT ignored wholesale — for a `string` value it is read (`AssetManageHandler.cpp:1354`) and applied (`:1518-1524`, via the handler-local `MatchesClassByMode` lambda `:1465-1482` over the registry results, loop head `:1507`); it never touches an `FARFilter` (only `ClassPaths`/`bRecursiveClasses` `:1416-1417` and `PackagePaths`/`bRecursivePaths` `:1420-1421`/`:1455-1456` are ever populated, `ClassNames` never). The defect is TYPE, not presence: declared `"string"` (`:1337`), an array flows through `Ctx.GetString` (`HandlerContext.cpp:17-24`) -> `FJsonObject::GetStringField` (`C:/UE_5.8/.../Json/Private/Dom/JsonObject.cpp:474-477`, `GetField<EJson::None>` accepts any type) -> `FJsonValue::AsString` (`.../JsonValue.cpp:26-36`), which on `TryGetString` failure logs via `ErrorMessage` (`:414`, a `LogJson` line the handler cannot see) and **returns the empty string**. `ClassFilter == ""` makes the `else if` at `:1518` false, so no filtering runs; then `:1581-1583` gates the `classFilter` echo on non-empty (suppressed) while `:1593` emits `classFilterMode` unconditionally — the response describes a match mode for a filter that never ran, which is exactly the payload measured. ROOT is dispatcher-level: `FParamSpec::Type` is declared everywhere and validated nowhere — `grep -n "Spec.Type" RpcDispatcher.cpp` gives `:52`/`:71` (`TypedAliases`, a different field) and `:107` (the missing-required-param message text); there is no `INVALID_PARAM_TYPE` path, and the gate at `:137` is `KnownParams.Contains(key)`, name-only, sending `UNKNOWN_PARAMS` at `:159`. Hence the sting: the misspelling `classNames` is refused loudly at `:159`; the correct spelling in the wrong shape is accepted silently. This is a NORMAL path, not an edge: `blueprint.build_api_index` declares the SAME name as an array (`BlueprintApiIndexHandler.cpp:32`, read via `Ctx.GetArray` `:38`), and the board records two callers sending the array shape to `asset.search` incidentally — `B-add-montage-notify-time-dropped:26` and `E-replace-node-noncallable-no-hint:68`. Fix belongs in `ValidateHandlerParams` (`:91-160`), which already walks both the specs and the fields: add the type check to that loop and emit `INVALID_PARAM_TYPE` in the shape of the existing `:156-157` message; cheapest partial fix is to gate `classFilterMode` at `:1593` the way `classFilter` is gated at `:1581`. NOT DONE: no source modified; the string form was NOT called (its correctness is a source read of `:1518-1524` and is load-bearing for the title, so verify it before fixing); only this one verb was measured, so the general dispatcher claim is source-derived, not behaviourally surveyed; no separate dispatcher ticket filed (no umbrella per board policy, and one instance is not a survey). Dedup: `grep -ril` for `classFilter`/`classFilterMode`/`asset.search` across the board — `B-asset-list-class-filter-case-divergence` (case sensitivity; its `#2` added `asset.search`'s `INVALID_MODE` check at `:1376-1386`, so the mode STRING is validated while the filter's TYPE is not), `B-actor-list-filter-case-mismatch` (name-substring case), `B-asset-list-short-class-ensure` (ensure spam, results correct), `E-asset-list-empty-class-filter-no-diagnostic` (investigated a near-identical report on `asset.list` and did NOT reproduce it), `E-asset-search-vs-search-assets-overlap` (verb overlap; its `AssetManageHandler.cpp:945` citation is ~387 lines stale), `F-asset-search-native-subclass` (`parentClassPath`). All adjacent; none claims an accepted filter has no effect. Filed under this id rather than the proposed `B-asset-search-ignores-class-filter` because the string form demonstrably works and ids are quoted verbatim by sibling tickets.
+- `#2-array-shape-accepted-and-or-matched` `IN-REVIEW` developer — **Shape confirmed at HEAD before
+  touching anything, and it is the FIRST of the three candidates: the parameter accepted a string and
+  silently ignored an array.** Not "each element fails to resolve to a `UClass`" and not "read and
+  resolved but never applied" — `classFilter` was declared `"string"` and read by `Ctx.GetString`
+  alone, so an array became `""`, exactly as `#1` derived. **No `UClass` resolution is on this path at
+  all**, so `ClassUtils::ResolveUClass` is deliberately NOT used: the filter is a string comparison
+  against `FAssetData::AssetClassPath`'s short name and full path under `classFilterMode`, and
+  resolving would break `prefix`/`contains` and refuse class names the registry still carries for
+  unloaded assets. `parentClassPath` is the parameter on this verb that resolves a `UClass`, and it
+  already does (`ResolveUClass` + `FARFilter::bRecursiveClasses`). **NOT a nested-key instance of
+  `B-declared-param-guard-blind-to-nested-keys`, and not a sixth confirmed instance of it:**
+  `classFilter` is a TOP-LEVEL wire key whose declared TYPE was wrong for the value sent, and an
+  array's elements are values, not keys — `RejectUnknownKeys` has nothing to reject and neither
+  direction of that guard is implicated. The two are siblings under one root (the dispatcher
+  validates names, never types), not instances of each other. **Fix, handler-local and explicitly NOT
+  this ticket's recommended dispatcher-wide gate:** `classFilter` is declared `array|string` (an
+  existing in-tree type expression, cf. `plots` in `AudioAnalysisHandler.cpp:1376`) and read the way
+  that verb reads its own — `Ctx.GetArray` first, string fallback second. Entries are OR-matched
+  through the unchanged `MatchesClassByMode`, so all three modes and the case-insensitivity converged
+  by `B-asset-list-class-filter-case-divergence` are untouched. **No third silent behaviour:** a
+  non-string element, an empty-string element and an empty array are refused with `INVALID_ARGUMENT`
+  (existing `ErrorCodes::ERR_INVALID_ARGUMENT`, no new code to register). Coercion of a one-element
+  array to its string was chosen over refusal per decision 2 in Fix; refusal is what the malformed
+  shapes get. **Echo honesty, the ticket's "cheapest half":** the applied filter is echoed in the
+  shape it arrived in (string→string, array→array), and `classFilterMode` is now gated on a class
+  filter having actually run (`classFilter` or `classPathFilter`) instead of being emitted
+  unconditionally — it was the field that made the drop read as a filtered result. **Test:**
+  `Source/PinWright/Private/Tests/Assets/TestAssetSearchArrayClassFilter.cpp`, behavioural, over three
+  in-memory probes of three classes (`DataTable`/`CurveFloat`/`CurveLinearColor`) in a folder unique
+  to the file, so the excluded rows are known by construction and no host content is assumed.
+  `PinWright.asset.search.ArrayClassFilterExcludesOtherClasses` asserts the two probes of OTHER
+  classes are ABSENT under `classFilter:["DataTable"]` — it fails against the defect, where the array
+  is dropped and all three come back — plus string/array parity, the two-element OR union excluding
+  the third class, the array echo, and the absence of `classFilterMode` on an unfiltered search.
+  `PinWright.asset.search.MalformedArrayClassFilterIsRefused` pins the three refusals. A test
+  asserting only that the call succeeds would have passed against the defect, which is why neither
+  assertion is on `success`. **Docs:** `docs/wiki-src/asset.md` `### asset.search` — params line plus
+  one paragraph on the array shape, the refusals and the two echo rules. **NOT DONE:** nothing was
+  compiled and no test was run (wave policy — the caller builds and runs the suite). **The
+  dispatcher-wide `INVALID_PARAM_TYPE` gate this ticket recommends as its primary fix is NOT
+  implemented:** it is a ~500-verb compatibility change that wants its own ticket and its own
+  coercion-vs-refusal decision, so the general defect stands — `FParamSpec::Type` is still declared
+  everywhere and validated nowhere, and `#1`'s reasoning for it is untouched. This fix removes the
+  trap at its source for `asset.search` only (decision 2), which the ticket states neither substitutes
+  for the other. `classPathFilter` and `parentClassPath` keep their string-only shape; only the
+  parameter with a documented array-shaped sibling was widened. The string form still was not called
+  live, but the new parity assertion measures it under automation for the first time.
