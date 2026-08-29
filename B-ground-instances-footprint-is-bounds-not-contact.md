@@ -1,7 +1,7 @@
 ---
 id: B-ground-instances-footprint-is-bounds-not-contact
 title: "`spatial.ground_instances` samples its seat grid over the instance's world AABB and models the underside as a flat plane at that box's minimum, so for anything whose contact patch is not its silhouette it seats the BOX and not the mesh: 177/177 correctly-planted trees are proposed for a lift, p50 +196 cm and max +773 cm, while every row reports `coverage 1.00`, `pass true` and `undersideReliefCm 0` — and no combination of `footprintInset` / `seatPercentile` / `embedFraction` can reach the trunk"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: bug
 tags: [spatial, ground_instances, ism, hism, instanced-static-mesh, scatter, vegetation, trees, bounds, aabb, footprint, contact-patch, underside, bounds-plane, silent-wrong-data, false-pass, placement, level-building, no-workaround]
@@ -337,3 +337,60 @@ right band without it.
   underside on 3 m of relief and is not claimed as a win here.
   `encounters` 1 -> 2. No severity change proposed: same impact class, and a second observation is
   an `encounters` input, never a severity input.
+- `#3-contact-radius-replaces-the-sampled-footprint` `IN-REVIEW` developer — Implemented **ask shape 1
+  (`contactRadius`)** plus the mandatory footprint echo. `FGroundSeatConfig::ContactRadiusCm`
+  (mesh-local cm, 0 = bounds) is scaled in `GroundPlacement::SeatInstance` by the instance's own
+  mean XY scale and handed to BOTH `MeasureContactForBounds` calls — the pre-solve and the
+  post-move readback, so `SeatErrorCm` still compares like with like — through a new
+  `const TOptional<FVector2D>& ContactHalfExtentCm` parameter. When set it replaces
+  `Extent.X/Y * (1 - Inset)` as the grid's XY span (clamped to the bounds, since a grid wider than
+  the box samples columns no underside model can answer) and leaves `TopZ`/`BottomZ`, the probe
+  span, the percentile solve and the embed untouched. The `bounds_plane` hardcode is not reopened.
+  **Response honesty:** `FGroundContactReport` gained `FootprintHalfExtentCm` +
+  `bFootprintFromContact`, written by the same code that chooses the span, and
+  `GroundRpcContactObject` now publishes `footprintHalfExtentCm {x,y}` and `footprintSource`
+  (`bounds` | `contact_radius`) on **every** contact block — so `ground_actors` and
+  `verify_grounding` name their box too, even though neither takes the parameter. `seat` echoes
+  `footprintSource` and `contactRadiusCm` at call level; the per-row half-extent is the truthful
+  one, because a mesh-local radius legitimately samples a different box per instance.
+  **Shape 1 over shape 2, for two stated reasons rather than by preference.** (a) It is the exact
+  quantity the ticket's 20-instance pilot validated (`r = contactR * meanXYscale`), so what ships is
+  the measured-correct formula rather than a re-derivation of it. (b) Shape 2's load-bearing half is
+  `contact` deriving the extent from the mesh's own lowest-slice vertices, and
+  **`dev/planting/p_meshprofile.py` does not exist in this tree** — there is no `dev/planting/` at
+  all, searched repo-wide — so its slice fraction would have been invented here, the LOD0 CPU-vertex
+  read could not be validated (no live editor this session, `EDITOR_NOT_RUNNING`), and it could not
+  be regression-tested against a fixture built from box primitives, whose lowest slice **is** their
+  silhouette. Shipping the untestable half of a shape is worse than shipping the smaller shape,
+  especially since `footprintSource` is published anyway, which is the reporting benefit shape 2 was
+  wanted for.
+  **`spatial.ground_actors` deliberately NOT given the parameter — the one part of the ask not met,
+  said plainly.** `contactRadius` is defined as mesh-local cm scaled by the seated thing's own mean
+  XY scale; an actor has neither one mesh nor one scale for that to mean the same quantity, because
+  `GetActorBounds` spans every component at every component scale. One name meaning mesh-local on
+  one verb and effectively world-cm on the other is worse across a verb PAIR documented as needing
+  identical footprints between seat and verify. Extending it would also have changed
+  `MeasureContact`'s signature at five call sites including `LevelAuditUtils.cpp`. `MeasureContact`
+  now passes an explicitly unset extent with the reason at the call site, and `ground_actors`
+  reports `footprintSource: "bounds"`, so its box is at least named.
+  **Regression test** `PinWright.spatial.ground_instances.ContactRadiusSamplesTheContactPatch`
+  (`Tests/Spatial/TestGroundPlacement.cpp`), red on its first assertion before the fix. Built from
+  engine primitives rather than content: cone instances flipped apex-down (narrow contact, full-disc
+  silhouette) over a wide floor, with a ledge spanning 0.40–2.00 of the mesh half-extent in X —
+  under the bounds grid's outer column (0.90), under the max-inset grid's (0.55), clear of the
+  contact grid's (0.20). Both instances are pre-seated to the verb's OWN definition of seated (mesh
+  bounds under the instance transform, lowest point one default embed below the floor), which makes
+  the expected lift exactly the ledge rise, independent of embed and mesh height. Three runs:
+  the bounds footprint proposes **+60 cm on an already-seated instance** while reporting
+  `coverage 1.00` / `pass true` / `undersideReliefCm 0`; `footprintInset: 0.45` **still** proposes
+  +60; `contactRadius` proposes 0. Also asserted: `footprintHalfExtentCm` in all three runs (0.90x,
+  0.55x, the contact radius), `footprintSource` both ways, the scale-2 instance at twice the
+  half-extent off the same stated number (the mesh-local claim, which a bounds ratio could not
+  make), and a far-from-ledge control that is a no-op under the bounds footprint — so the lift is
+  provably the grid reaching foreign ground and not a mis-seated fixture. `check_test_ids.py` clean
+  (4785 ids, no dot-prefix collision).
+  **Docs:** new `##` section in `Docs/wiki-src/spatial.ground-placement.md`, above the page's first
+  `###` (it has none), carrying the measured ratios, the `footprintInset`-cannot-reach proof, how to
+  read the number off a mesh, and why `ground_actors` has no equivalent. **NOT COMPILED and NOT
+  RUN** — the orchestrator builds and runs the suite after this hand-off, so every claim above is a
+  claim about the diff, not about a green run.
