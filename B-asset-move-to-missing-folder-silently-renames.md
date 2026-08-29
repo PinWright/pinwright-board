@@ -1,7 +1,7 @@
 ---
 id: B-asset-move-to-missing-folder-silently-renames
 title: "asset.move given a destination folder that does not exist renames the asset to the folder's last path segment instead of moving it, and reports success:true with the requested path echoed back — the handler documents folder destinations and implements none"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: bug
 tags: [asset, asset-move, asset-rename, destinationPath, docs-behaviour-mismatch, silent-wrong-data, echoed-not-measured, false-success, housekeeping]
@@ -186,3 +186,43 @@ no bump in either direction; High stands on impact alone.
   `/Game/VegetationTest` — recorded as an observation, not explained. Severity argued Critical vs
   High in the body; High chosen because the asset data is intact, a redirector is left at the old
   path per the verb's own contract, and the rename is reversible.
+- `#2-refuse-missing-folder-and-measure-the-destination` `IN-REVIEW` developer — `asset.move` now
+  decides how `destinationPath` is read before touching the engine, and reports the decision.
+  Three readings in `AssetManageHandler.cpp`: a slash-free bare name renames in place
+  (`nameOnly`, the pre-existing branch, unchanged); a path that `UEditorAssetLibrary::DoesDirectoryExist`
+  confirms is an existing content folder gets the source's leaf name appended (`folder` — the
+  behaviour `:532` documented and nothing implemented); anything else is a full object path
+  (`objectPath`) and is only allowed when its PARENT is an existing folder. When neither the path
+  nor its parent is a folder, the call is refused with the newly registered
+  `DESTINATION_FOLDER_NOT_FOUND` (`Handlers/ErrorCodes.h`), naming the missing folder, the name
+  the guess would have produced, and `asset.create_folder`; nothing is moved.
+  **Create-vs-refuse, argued:** auto-creating the folder does not resolve the ambiguity — it makes
+  both readings legal and still has to guess which one was meant — and adds a second silent write,
+  manufacturing a content folder tree from a typo. That is the same defect class one level up, so
+  refusal was chosen; `asset.create_folder` is one call. **Response is measured, not echoed:**
+  `assetPath` now comes from `MovedAsset->GetPathName()`, `requestedDestinationPath` /
+  `resolvedDestinationPath` / `destinationInterpretedAs` let the caller see which reading ran, and
+  the null-`LoadAsset` branch that used to skip verification in silence is now
+  `VERIFICATION_FAILED`. `existsOnDisk`/`pendingSave` from `AddAssetVerification` (which already
+  probes `AssetUtils::DoesPackageFileExistOnDisk`) are reported but deliberately not gated: the
+  engine's rename saves the destination package itself, yet a failed save there never marks the
+  rename failed, so a disk gate would misreport a real in-memory move.
+  **The ticket's "not attributed" half is now attributed, and the ticket's reading of it is wrong:**
+  the folder move *does* happen. `ObjectTools::RenameSingleObject` calls `CreatePackage` on the
+  destination unconditionally (`ObjectTools.cpp:4421`), the registry is told about the new folder
+  (`AssetRegistry.cpp:4483-4484`), and no code path substitutes the source package path. Nothing in
+  `EditorAssetSubsystem.cpp:1018-1056`, `EditorScriptingHelpers::IsAValidPathForCreateNewAsset`, or
+  `FAssetRenameManager` ever probes folder existence. What the reporter saw at `/Game/Landscape` was
+  a leftover row, not the asset: a same-named `UObjectRedirector` registered at the old path
+  (`ObjectTools.cpp:4606-4617`), an old package the deletion pass declined to remove
+  (`ObjectTools.cpp:2501-2541`), or an on-disk-only registry query missing the unsaved destination.
+  So the damage was confined to the name and the false report, as the severity argument assumed.
+  Regression test `Tests/Assets/TestAssetMoveDestinationFolder.cpp`, two tests, both red before the
+  fix: `PinWright.asset.move.MissingDestinationFolderIsRefused` (saved on-disk fixture, folder that
+  has never existed — asserts the refusal code, that the message names the folder, that nothing
+  landed at the requested destination, and that the source asset is still loadable at its original
+  path *under its original name*) and `PinWright.asset.move.ExistingFolderKeepsTheAssetName` (the
+  documented folder case, and the guard against the refusal being over-broad). Not compiled and not
+  run here — the wave owner builds and runs the suite. `asset.rename` shares the echoed-`assetPath`
+  shape and was deliberately left alone: its contract really is a rename, so it is a separate
+  ticket, not part of this fix.
