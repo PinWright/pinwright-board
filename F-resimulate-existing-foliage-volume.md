@@ -5,8 +5,8 @@ status: OPEN
 severity: Medium
 category: feature
 tags: [foliage, procedural-foliage, resimulate, clear, create_procedural, reflection, call_function, cdo-refusal, missing-verb, iteration-loop]
-encounters: 1
-lastSeen: 2026-08-29
+encounters: 2
+lastSeen: 2026-08-29T18:00:00+05:00
 ---
 
 # The hard part is done, and it only runs once, at birth
@@ -101,6 +101,59 @@ It also blocks the obvious workaround for the knobs ticket: a caller *can* `prop
 but nothing then re-runs the simulation to consume them, so the write is inert. The two tickets
 close each other's escape hatches; either one alone leaves the other's workaround broken.
 
+## The "inert write" boundary, measured: `Mesh` is the exception, and it is both a partial workaround and a trap
+
+§ *Why the missing loop matters more than it looks* says a `property.set` of `ProceduralScale` /
+`InitialSeedDensity` / `OverlapPriority` onto a generated `_FT_<n>` asset is inert until something
+re-runs the simulation. **That is correct for the three properties it names and false as a general
+rule**, and the exception is the one a species swap needs.
+
+Measured (`Docs/map/vegetation-style-split.md` § Findings 5, zone C/D re-speciation over
+`PW_VegetationTest`): changing `UFoliageType::Mesh` on an already-simulated type **re-points every
+already-spawned instance on the next frame**. No resimulate, no level reload; a component census
+afterwards reports the new mesh, at the instance transforms the old simulation produced.
+
+Mechanism, and it explains the boundary rather than merely recording it. The three simulation
+knobs are *inputs to a simulation that has already run*, so nothing consumes them again. `Mesh` is
+not a simulation input at all — it is a render-time indirection, and the engine pushes it eagerly
+on the property-change notification:
+
+- `UFoliageType::PostEditChangeProperty`
+  (`C:/UE_5.8/Engine/Source/Runtime/Foliage/Private/InstancedFoliage.cpp:1040` computes
+  `bSourceChanged`; `:1046-1050` iterates every loaded `AInstancedFoliageActor` and calls
+  `NotifyFoliageTypeChanged(this, bSourceChanged)` at `:1048`), paired with `PreEditChange` →
+  `NotifyFoliageTypeWillChange` at `:1060-1062`;
+- through `FFoliageInfo::NotifyFoliageTypeChanged` (`:2185-2188`) into
+  `FFoliageStaticMesh::NotifyFoliageTypeChanged` (`:1449`), which runs `CheckComponentClass`
+  (`:1452`), `UpdateComponentSettings` (`:1453`) and, when the source changed,
+  `Component->BuildTreeIfOutdated(true, false)` (`:1466`).
+
+So the re-point is **notification-driven**: it follows any write that dispatches
+`PostEditChangeProperty`, and a write that bypasses the notification would not get it — the same
+distinction that governs package dirtying elsewhere on this board.
+
+**Why it matters for this ticket, on both sides.**
+
+*Partial workaround.* A species change — the commonest reason to want the tuning loop this ticket
+asks for — is the one edit that does **not** need `foliage.resimulate`. It lands immediately and is
+observable immediately, which makes it a cheap way to preview a swap before paying for a
+re-simulate. It narrows this ticket's scope rather than closing it: distribution, density,
+clustering and age all still require the simulation to re-run, and those are what the knobs
+ticket is about.
+
+*Trap, and a sharper one than it looks.* Anyone reasoning "instances are frozen against the type
+asset until I re-simulate" is wrong, and one branch of the path above reaches
+`FFoliageStaticMesh::Reapply`: `CheckComponentClass` destroys and rebuilds the component when the
+new mesh implies a different component class, and calls `Reapply(InSettings)`
+(`InstancedFoliage.cpp:1571-1584`). **`Reapply` is the reconciler
+`B-foliage-remove-empties-ledger-not-component` (OPEN, Critical) identifies as the thing that
+converts that ticket's ledger/component divergence into real deletion** (`:1859-1867`). A mesh
+swap is therefore a *trigger* for that latent loss — conditional on the component class actually
+changing, which a plain mesh-for-mesh swap need not do, so this is a hazard to check for rather
+than a demonstrated one. Whoever implements `foliage.resimulate`'s `clearFirst` should read that
+ticket first regardless: it is already cited below as a warning about what a clear path must not
+do, and this is a second route into the same reconciler.
+
 ## Proposed verb shape
 
 **`foliage.resimulate`** — `{actorName, clearFirst?}` → `{resimulated, cleared, instancesBefore,
@@ -173,3 +226,27 @@ rather than once. Medium stands unmodified.
   invoking on the CDO, which `ObjectCallFunctionHandler.cpp:107-110` refuses outright, and
   `Runtime/Foliage/Public/ProceduralFoliageComponent.h` declares no `UFUNCTION` for it to reach on a
   live object instead. `python.execute` remains, which is what holds this at Medium.
+- `#2-mesh-writes-are-not-inert` `OPEN` reporter — Encounter from the zone C/D re-speciation
+  (`Docs/map/vegetation-style-split.md` § Findings 5), which bounds one claim in `#1`'s body.
+  Measured: changing `UFoliageType::Mesh` on an already-simulated type re-points every
+  already-spawned instance on the next frame — no resimulate, no reload, and a component census
+  reports the new mesh at the old simulation's transforms. So *"nothing then re-runs the simulation
+  to consume them, so the write is inert"* is right for the three properties it names
+  (`ProceduralScale` / `InitialSeedDensity` / `OverlapPriority`, all simulation inputs consumed
+  once) and wrong as a general rule about `_FT_<n>` writes. Mechanism read at HEAD:
+  `UFoliageType::PostEditChangeProperty` (`InstancedFoliage.cpp:1040`, `:1046-1050`) notifies every
+  loaded `AInstancedFoliageActor` at `:1048`, reaching `FFoliageInfo::NotifyFoliageTypeChanged`
+  (`:2185-2188`) and `FFoliageStaticMesh::NotifyFoliageTypeChanged` (`:1449`) →
+  `CheckComponentClass` (`:1452`), `UpdateComponentSettings` (`:1453`),
+  `BuildTreeIfOutdated` (`:1466`); `PreEditChange` → `NotifyFoliageTypeWillChange` at `:1060-1062`.
+  The re-point is notification-driven, so it follows any write that dispatches
+  `PostEditChangeProperty` and not one that bypasses it. **Effect on scope: narrows, does not
+  close.** A species swap is the one tuning edit that does not need `foliage.resimulate`, which
+  makes it a cheap preview; distribution, density, clustering and age still need the simulation to
+  re-run, so severity stays **Medium** and the verb is still wanted. **New hazard recorded, marked
+  conditional:** `CheckComponentClass` reaches `FFoliageStaticMesh::Reapply` at
+  `InstancedFoliage.cpp:1571-1584` when the new mesh implies a different component class — and
+  `Reapply` is the reconciler `B-foliage-remove-empties-ledger-not-component` (Critical) names at
+  `:1859-1867` as what turns its ledger/component divergence into deletion. A mesh swap is a
+  second route into that reconciler; a plain mesh-for-mesh swap need not change the component
+  class, so this is flagged to check rather than demonstrated. `encounters` 1 → 2.
