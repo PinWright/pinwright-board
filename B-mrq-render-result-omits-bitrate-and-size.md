@@ -1,7 +1,7 @@
 ---
 id: B-mrq-render-result-omits-bitrate-and-size
 title: "`mrq.run_jobs` resolves to `{\"success\":true}` and publishes nothing about the file it produced — a 1080p60 cinematic encoded at 1.16 Mbps passes every reported check (resolution, frame count, duration, container) and ships visibly banded"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: bug
 tags: [mrq, run_jobs, create_job, movie-pipeline, mp4, encoder, bitrate, crf, rate-control, silent-wrong-output, no-readback, response-honesty, deliverable, cinematic, verification-gap, measured-vs-requested]
@@ -223,3 +223,36 @@ strictly can downgrade to Medium knowing exactly which argument they are rejecti
   overclaim about per-job exit status), which is cross-linked. Third instance this session of the same
   shape after `B-ground-probe-hits-hull-not-render` and
   `B-niagara-validate-green-while-component-inactive`.
+- `#2-ask-1-artifact-report` `IN-REVIEW` developer — ask 1 implemented; ask 2 (pre-flight disclosure at
+  `mrq.create_job`, the `:87-92` silent preset-drop, the opt-in `minBitsPerPixel` param) deliberately
+  NOT touched and still owed. Every claim in the ticket's source review was re-verified against the
+  tree and holds: `mrq.run_jobs`' terminal result really was one `success` bool, `create_job` echoes
+  `presetPath` on the unloadable-preset path, and the plugin sets no encoder defaults. New
+  `Handlers/MRQ/MRQArtifactReport.{h,cpp}` (no MovieRenderPipeline includes, so it builds and is
+  tested with the engine plugin disabled) stats every file the pipeline reported writing and publishes
+  `outputFiles[]` (`path`, `renderPass`, `exists`, `fileSizeBytes`), `outputFileCount`,
+  `measuredFileCount`, `totalFileSizeBytes`, `frameCount`, `frameRate`, `durationSeconds`,
+  `resolution`, `overallBitrateBps`, `bitsPerPixel`, `encoderRequested` and `warnings`;
+  `MRQHandler.cpp` binds `UMoviePipelinePIEExecutor::OnIndividualJobWorkFinished` to collect one entry
+  per job into a new `jobs` array on the terminal result. **Measured vs requested, settled against the
+  source:** size and bitrate are read off disk and named plainly; the encoder read-back is named
+  `encoderRequested` and never `encoder`, because `MoviePipelineMP4Encoder.cpp`'s Quality branch sets
+  only an encode QP and never `AVEncCommonMeanBitRate`/`MaxBitRate` — the requested settings place no
+  lower bound on what is achieved. **The file IS on disk at readback time**, which the ticket left
+  open: `FMoviePipelineOutputData` is filled by `UMoviePipeline::ProcessOutstandingFutures` on the
+  Finalize→Export transition under the engine's own comment "the futures won't be available until
+  actually written to disk", and the PIE executor broadcasts a tick later — a reported path that is
+  nevertheless absent gets `exists:false` and NO `fileSizeBytes`. Nothing unmeasurable is zeroed:
+  missing duration omits `overallBitrateBps` with a warning, missing files omit their size, an
+  empty output list says so, and a non-PIE `executorClass` omits `jobs` entirely in favour of
+  `artifactWarning` rather than returning an empty array that would read as "wrote nothing". The
+  0.04 bits/pixel floor and a `Quality`/`ConstantQP` rate-control warning are both emitted.
+  Regression test `Tests/Media/TestMRQArtifactReport.cpp`, four cases under `PinWright.mrq.run_jobs.*`
+  (`ArtifactSizeAndBitrateAreMeasured`, `ArtifactUnmeasurableIsOmittedNotZeroed`,
+  `ArtifactPlausibilityFloorIsPerPixel`, `EncoderReadbackReportsShippedDefault`) against real files
+  written to `Intermediate/` and against the engine's own `UMoviePipelineMP4EncoderOutput` CDO — which
+  is what pins the shipped `Quality`/CRF-20 default rather than a value the test supplied. **Stated
+  limitation:** a real MRQ render needs PIE, a saved map and minutes of wall time, so the terminal
+  result assembly in `MRQHandler.cpp` is NOT driven end-to-end by the suite; the report builder that
+  produces every new field is. `Docs/wiki-src/mrq.md` documents the result shape. Not compiled and not
+  run — the wave owner builds.
