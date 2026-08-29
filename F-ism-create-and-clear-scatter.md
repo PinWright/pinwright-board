@@ -4,9 +4,9 @@ title: "Three typed verbs read, write and ground the instances of an ISM/HISM sc
 status: OPEN
 severity: Medium
 category: feature
-tags: [actor, spatial, ism, hism, instanced-static-mesh, scatter, missing-verb, create, clear, add-instance, remove-instance, lifecycle-gap, vegetation]
-encounters: 1
-lastSeen: 2026-08-29
+tags: [actor, spatial, ism, hism, instanced-static-mesh, scatter, missing-verb, create, clear, add-instance, remove-instance, lifecycle-gap, data-loss, atomicity, python-execute, premise-corrected, vegetation]
+encounters: 2
+lastSeen: 2026-08-29T18:20:00+05:00
 ---
 
 # The scatter lifecycle ships its middle and neither end
@@ -182,3 +182,87 @@ plugin routes callers toward. Medium stands unmodified.
   (`InstancedStaticMeshComponent.h:271`, `:275`, `:417`, `:421`, `:431`) on the live component and is
   not blocked by the CDO refusal at `ObjectCallFunctionHandler.cpp:107-110`, which is what holds this
   at Medium rather than High.
+- `#2-hand-rolled-clear-then-refill-destroyed-50-instances` `OPEN` reporter — Second encounter,
+  `encounters` 1 -> 2, and the first with a **data-loss** outcome. Re-speciating zone F of
+  `PW_VegetationTest` (`Docs/map/vegetation-zone-f.md` § Re-speciation, Findings 1): a hand-rolled
+  clear-then-refill helper **destroyed `HISM_ZF_Oak`'s 50 instances**. `clear_instances()` ran, then
+  the refill raised `TypeError` and never wrote. Recovery was possible only because
+  `dev/polish/p_zf_rework.py`'s `thin()` is a pure function of position and `dev/polish/out/zonef.json`
+  still held the 183 pre-thin transforms; the replay reproduced n=50 with X/Y bounds identical to a
+  census taken minutes earlier. **A caller without a replayable pure function loses them outright.**
+
+  TWO PREMISES FROM THE FIELD REPORT DID NOT SURVIVE RE-DERIVATION, and both corrections matter to a
+  fixer. (a) It was reported as *"`should_return_indices` is required POSITIONALLY"*. It is not
+  positional — it is **required**. `PyGenUtil::ParseMethodParameters` tries the keyword dict for
+  every parameter before any positional fallback (`PyGenUtil.cpp:1094-1097`, tuple fallback
+  `:1112-1115`, and `:1104` errors when one argument arrives both ways), so a keyword call is legal
+  for every param. What a `CPP_Default_<Param>` metadata entry controls is required-vs-optional, not
+  keyword-vs-positional: `:999` builds that key, `:1007` stores it as `ParamDefaultValue`, and `:1117`
+  admits the argument only if it was parsed **or** a default exists — otherwise `:1123` raises
+  `"%s() required argument '%s' (pos %d) not found"`. `UInstancedStaticMeshComponent::AddInstances`
+  (`C:/UE_5.8/.../Components/InstancedStaticMeshComponent.h:275`) declares
+  `bShouldReturnIndices` with no C++ default while `bWorldSpace` and `bUpdateNavigation` have one, so
+  UHT emits no `CPP_Default_bShouldReturnIndices` and that one argument is mandatory. (b) It was
+  assumed PinWright taught the broken call. **It does not.** The shipped page passes the argument:
+  `Saved/PinWright/wiki/level-building.instancing-and-scatter.md:20-21` (source
+  `Plugins/PinWright/Docs/wiki-src/level-building.instancing-and-scatter.md:18-19`) reads
+  `comp.add_instances(instance_transforms=transforms, should_return_indices=False, world_space=False,
+  update_navigation=False)` — correct on UE 5.8. So this is **not** a wiki defect and is deliberately
+  not filed as one; the page's only soft spot is `:25`, which frames the raise as a free retry
+  (*"if the keyword form raises, use `add_instance(t, False)` per transform"*) without saying the
+  retry can arrive after a destructive step.
+
+  WHY IT LANDS ON THIS TICKET. The destructive sequence exists only because there is no typed
+  clear/refill: the caller had to author `clear` and `add` as two statements inside one
+  `python.execute` function, where a raise between them is unrecoverable. This ticket's own
+  `## Proposed verb shape` already fixes it by construction — `actor.add_instances` routing through
+  `AddInstances(..., bShouldReturnIndices=true, ...)` puts the argument C++-side where it cannot be
+  omitted, and a server-side `remove_instances {all:true}` makes clear-then-refill one round trip
+  with one owner of the failure. The evidence also sharpens the ticket's own third fixer point: it
+  already reasons that the no-`FScopedTransaction` decision transfers to add but **not** to clear
+  because *"nothing the response can echo reconstructs a discarded scatter cheaply"*. This is that
+  case, observed — a discarded scatter recovered only by luck.
+
+  THE DOCUMENTED WORKAROUND IS SAFE ON THIS AXIS, CHECKED RATHER THAN ASSUMED. `object.call_function`
+  resolves defaults through the *same* `CPP_Default_<ParamName>` probe
+  (`Handlers/Reflection/ObjectCallFunctionHandler.cpp:240-247`), so `bShouldReturnIndices` is
+  required there too — but it refuses with `MISSING_PARAM` **before touching the object** (`:245-247`
+  breaks the loop, `DestroyAll()` at `:260`, error at `:261-262`), and clear and add are two separate
+  RPCs, so a failure leaves the caller still holding the transforms. **The destroy-then-fail hazard
+  is specific to the `python.execute` route** — which the transcription ceiling forces at this scale:
+  `Docs/map/vegetation-polish.md` § 5.7 records 5888 instances placed through `python.execute`
+  precisely because there is no server-side handoff between `spatial.scatter_layout` and the instance
+  writers. So the workaround `#1` relies on is safe per call and unusable per scatter, and the two
+  facts are the same fact.
+
+  CONTRAST WORTH KEEPING: PinWright's own ISM writer already has the atomicity the hand-rolled route
+  cannot have. `actor.set_instance_transforms` refuses whole rather than in part on an `expectedCount`
+  mismatch — `InstancedMeshHandler.cpp:377-390`, message *"NOTHING WAS WRITTEN. Instance indices are
+  positional, so a component whose count changed has renumbered them"* — and again on a stale index
+  (`:424-431`, *"refused whole rather than applied in part"*). That guard describes exactly the state
+  a half-completed clear-then-refill leaves behind, on the one verb that already exists to be safe
+  from it.
+
+  SEVERITY UNCHANGED AT **Medium**, and the reasons the data loss does not move it are stated so a
+  reviewer can disagree deliberately. Critical is *"a write that corrupts or loses asset data"*, and
+  **no PinWright verb performed a write here**: the destroying call was the caller's
+  `clear_instances()` inside `python.execute`, and the failing call was an engine binding raising
+  correctly on a required argument. Rating a *missing-verb* ticket Critical for what a caller's
+  hand-rolled substitute did would rate the absence of a verb by the worst thing anyone builds in its
+  place, and every missing-verb ticket on this board would inherit that. What the encounter does
+  change is the strength of `#1`'s Medium argument rather than the band: `#1` held Medium partly
+  because *"`ClearInstances` in particular is a single no-argument call"*, which is true and beside
+  the point — the gap is not that clear is hard, it is that clear and refill are not one operation
+  and the plugin offers neither end. Reach declined again in both directions on `#1`'s reasoning,
+  unchanged; and `encounters` is a same-severity work-ordering tiebreak, never a severity input.
+
+  ON THE SESSION'S RECURRING CLASS, because this is its **complement and not a member**. The class
+  stated on `B-foliage-paint-does-no-ground-projection` § *Same shape as* is *the call succeeds,
+  every number it reports is correct, and the output is wrong because the deciding number was never
+  reported.* This is the mirror: the call **fails, loudly and correctly**, and the output is still
+  wrong because the failure arrived after the destructive step. Same session, same workflow, opposite
+  failure geometry — and the same remedy, which is to put the pair behind one verb that can be
+  atomic. The class member from this pass is
+  `B-component-mesh-swap-silently-unseats-instances` (OPEN, Medium), which is the cost of the
+  re-point callers reach for *instead of* clear-and-refill; the two are the two exits from the same
+  missing capability and should be read together.
