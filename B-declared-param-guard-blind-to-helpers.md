@@ -440,3 +440,59 @@ the flat `niagara.*` target descriptor (`emitterName`, `scriptType`, `nodeId`, `
   for that one test; the three relayed are its alphabetical tail. Anyone sizing this ticket from the
   brief rather than the log will under-scope it by an order of magnitude.
   NOT COMPILED and NOT RUN by this agent — the orchestrator owns the build and the suite.
+- `#4-last-twelve-pairs-and-the-thirteen-key-follow-up` `IN-REVIEW` fixer — Closed the twelve pairs
+  `#3` left, and recorded the follow-up that decision implies.
+  **Two more read sites moved, no baseline entry taken for either.**
+  `niagara.add_renderer:index` — `#3` moved the flat `index` read from `ParseTargetSpec` into
+  `ParseRendererPayload`, which `add_renderer` also calls; it appends via
+  `UNiagaraEmitter::AddRenderer` and never reads `Target.Index` (`ApplyRendererMutation` uses it only
+  on the `RemoveRenderer` / `MoveRenderer` arms). The read and the two ordinal required-param checks
+  now live in a new `NiagaraEdit::ParseRendererOrdinalPayload`, called ONLY by
+  `niagara.remove_renderer` / `niagara.move_renderer`. It wraps `ParseRendererPayload` and reads
+  `index` after it, so a flat `index` still wins over a nested `target.index` exactly as before, and
+  `TestNiagaraEditHandler.cpp:420,463,508` (all three pass flat `index`) are unaffected.
+  `game_framework.configure_spawn_system:path` — `FCommonParams::Extract`
+  (`Systems/GameFrameworkHandler.cpp`) read `path` for all eight of its callers, while its only
+  consumer is `CreateGameFrameworkBlueprint(P.Path, ...)` inside `GF_CREATE_CLASS_HANDLER` — the one
+  family that declares `RPC_PARAM_OPT("path", ...)`. The seven `configure_*` / `set_respawn_rules`
+  verbs load an existing GameMode by `gameModeBlueprint` and never touch `FCommonParams::Path`, so
+  the read is dead for every one of them. Moved to `FCommonParams::ExtractSavePath`, called only from
+  the macro. That also retires the six sibling `game_framework.*:path` baseline entries, which were
+  deleted rather than left to rot as stale exemptions; `configure_spawn_system:path` was never
+  baselined at all, which is why it read as a regression while its six siblings did not.
+  **Six alias declarations, each on the slot it already feeds.** `name` on the REQUIRED
+  `parameterName` of `niagara.add_data_interface`, `niagara.remove_data_interface`,
+  `niagara.set_curve_keys`, `niagara.bind_curve_asset` (`ParseDataInterfacePayload` has always read
+  it as the fallback, and `ParameterName` is load-bearing in all four); `index` on the optional
+  `eventHandlerIndex` of `niagara.remove_event_handler` and on the optional `stageIndex` of
+  `niagara.remove_simulation_stage` (both bodies read `Payload.Index` on their index arm). All six
+  use `RPC_PARAM_REQ_ALIAS` / `RPC_PARAM_OPT_ALIAS`, so the alias inherits the slot's declared type
+  (`string` / `number`) and the new `Handlers/ParamTypeCheck.h` gate applies unchanged. Documented in
+  `Docs/wiki-src/niagara.md` under a new `##` section placed above the first `###`.
+  **Four baselined as flow-insensitivity artefacts, labelled with the sibling that owns each read**
+  — `niagara.add_event_handler:index` and `niagara.add_simulation_stage:index` (identity reads owned
+  by the matching `remove_*`; the add bodies append and read `atIndex` at most),
+  `niagara.remove_event_handler:source` (event-config read owned by `add_event_handler`, which
+  declares `source` and parses it into `FNiagaraEventScriptProperties::SourceEmitterID`), and
+  `niagara.remove_parameter:type`. **That last one is a reclassification and should be read as a
+  correction to the wave brief**, which listed it in the alias group: `type` is the CANONICAL
+  spelling in `ParseParameterPayload` (`parameterType` is its fallback, already baselined), and
+  `remove_parameter` never consumes it — both `ValidateParameterPayload` and `ApplyParameterMutation`
+  return on the `RemoveParameter` arm before touching `::Type`, and removal matches by name via
+  `FindParameterByName`. Declaring it would have manufactured a contract the verb does not honour.
+  Its owners are `niagara.set_parameter` / `niagara.add_parameter`, which declare `type` REQUIRED.
+  Guarding any of these four with an `if` would NOT clear them — the scan is flow-insensitive by
+  design, so only moving a read into a function the sibling alone calls removes a pair, which is what
+  the two moves above did and what these four would each need.
+  **NAMED FOLLOW-UP, the reason this entry exists as much as the twelve pairs.** `ParseTargetSpec`'s
+  other THIRTEEN flat keys are the IDENTICAL defect to the `scope` and `index` of `#3` and differ
+  only in being *recorded* — roughly 294 baseline entries — rather than fixed:
+  `targetKind`, `emitter`, `emitterName`, `scriptUsage`, `scriptType`, `nodeId`, `node`, `pin`,
+  `pinName`, `entryId`, `moduleId`, `rendererIndex`, `toIndex`. Each needs the same key-by-key
+  triage the two decided keys got: some are dead like `scope` (no consumer reachable from any verb
+  that routes through the parser), some are load-bearing for exactly one caller family like `index`
+  (delete them and live verbs break), and the split between the two is not predictable from the key
+  name. A blanket "declare the flat form on all 27 verbs" is the wrong shape and must not be
+  attempted: it would manufacture a contract most of those verbs do not honour, which is the failure
+  mode the baseline comment already warns about. Do them in caller-family slices, as `#3` did.
+  NOT COMPILED and NOT RUN by this agent — the orchestrator owns the build and the suite.
