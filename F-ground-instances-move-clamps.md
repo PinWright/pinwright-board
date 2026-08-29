@@ -174,6 +174,20 @@ prevents it. (1) is the one this ticket is named for.
 - **`B-foliage-mutators-no-transaction`** (OPEN) — no editor transaction on the foliage mutators.
   Cited above as what makes the receipt load-bearing rather than convenient; not re-filed here.
 
+## Same shape as
+
+`B-foliage-paint-does-no-ground-projection` § *Same shape as* carries the enumeration and it is not
+restated here. This ticket sits beside that class rather than inside it: the response is not wrong
+and no reported number is misleading — the deciding number is computed, is correct, and is simply
+not on the object a successful apply returns. The nearest board sibling in *that* precise shape is
+`E-ground-provenance-unreachable-at-summary-detail`, which is the same `detail`-gated-row problem on
+a different field, and the two should be read together by anyone touching the row/echo split.
+
+Its true partner on this board is `B-ground-instances-rotated-aabb-underside-plane`, filed from the
+same pass: that ticket is why the solve was wrong, this one is why nothing stopped the wrong solve
+from being written. A board that fixes only the first still has no rail for the next wrong solve, and
+a board that fixes only this one still needs a dry run to choose the bound.
+
 ## Severity
 
 **Medium**, on the rubric's soft-blocker band: *"doable, but only via a documented workaround, a
