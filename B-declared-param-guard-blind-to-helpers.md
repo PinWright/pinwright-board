@@ -399,3 +399,44 @@ the flat `niagara.*` target descriptor (`emitterName`, `scriptType`, `nodeId`, `
   REMOVE candidates, so it can add a pair only where removal breaks a tie — zero such sites exist
   here. No baseline entry in this file was produced by the flaw. NOT COMPILED and NOT RUN by this
   agent — the orchestrator owns the build and the suite.
+- `#3-parsetargetspec-scope-and-index-decided` `IN-REVIEW` fixer — Took the first slice of the
+  `ParseTargetSpec` flat-target decision named in `#1`: two of its fifteen flat keys are now resolved
+  at the read site rather than by declaring them on ~27 verbs.
+  **`scope` — deleted.** `FNiagaraEditTargetSpec::Scope` has exactly one consumer,
+  `ResolveParameterStore` (`NiagaraEditTypes.cpp`), reached only by target kinds `parameterStore` and
+  `dataInterface`. Every verb that reaches it — `niagara.{set,add,remove}_parameter`,
+  `niagara.{add,remove}_data_interface`, `niagara.set_curve_keys`, `niagara.bind_curve_asset` —
+  builds its `FNiagaraEditTargetSpec` by hand (`ValidateParameterPayload`, and `Spec.Scope =
+  Payload.Scope` in `NiagaraAdvancedEditHandler.cpp:506,593` / `NiagaraCurveHandler.cpp:260,440`)
+  from the `scope` its OWN parser read; `ParseParameterPayload` and `ParseDataInterfacePayload` do
+  not call `ParseTargetSpec` at all. So the top-level fallback fed nobody while handing every module
+  / pin / renderer / property verb a `scope` key its `RPC_PARAMS` refuses. The nested
+  `target.scope` read is kept — it is the documented and only reachable form.
+  **`index` — moved, not deleted.** `niagara.remove_renderer` and `niagara.move_renderer` declare
+  `index` REQUIRED and the flat read in `ParseTargetSpec` was its only feed (`rendererIndex`, the
+  other flat spelling, is itself undeclared), so deleting it would have broken two live verbs and
+  three passing tests (`TestNiagaraEditHandler.cpp:420,463,508`). It now lives in
+  `ParseRendererPayload`, the one caller family whose kind is addressed by ordinal. Nested
+  `target.index` stays in `ParseTargetSpec`, so `niagara.set_property` with
+  `target: {kind: "renderer", index: N}` is unaffected.
+  **Effect on the guard: 31 of the 43 pairs the suite reported for
+  `HandlersOnlyReadDeclaredParams` are resolved** — 17 `:scope` and 14 `:index` — with NO baseline
+  entry added and none needed (neither key was ever baselined). The `niagara.*` bullet in the
+  baseline comment was corrected to drop both keys and record why they must not come back.
+  **What is left of the 43, and it is not this decision:** `niagara.add_renderer:index`,
+  `niagara.add_event_handler:index`, `niagara.add_simulation_stage:index` and
+  `niagara.remove_event_handler:source` are flow-insensitivity artefacts of the same class as the
+  four `behavior_tree.attach_*` entries — the shared parser reads the key unconditionally and only
+  the sibling operation uses it. `niagara.{add,remove}_data_interface:name`,
+  `niagara.bind_curve_asset:name`, `niagara.set_curve_keys:name` (fallback spelling of
+  `parameterName` in `ParseDataInterfacePayload`), `niagara.remove_parameter:type` (fallback for
+  `parameterType`), `niagara.remove_event_handler:index` and `niagara.remove_simulation_stage:index`
+  (fallbacks for `eventHandlerIndex` / `stageIndex`) are real alternate spellings and want alias
+  declarations plus wiki lines. `game_framework.configure_spawn_system:path` is a different
+  namespace and helper (`FCommonParams::Extract`).
+  **Correction to the wave brief, worth recording:** the failure was relayed as three pairs
+  (`set_stack_enabled:scope`, `set_static_switch:index`, `set_static_switch:scope`). The suite log
+  (`Saved/Logs/PDS.log`, run of 2026-08-29 19:09, 4781 tests / 5 failed) carries **43** error lines
+  for that one test; the three relayed are its alphabetical tail. Anyone sizing this ticket from the
+  brief rather than the log will under-scope it by an order of magnitude.
+  NOT COMPILED and NOT RUN by this agent — the orchestrator owns the build and the suite.
