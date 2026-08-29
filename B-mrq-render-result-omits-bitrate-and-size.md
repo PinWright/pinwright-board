@@ -256,3 +256,55 @@ strictly can downgrade to Medium knowing exactly which argument they are rejecti
   result assembly in `MRQHandler.cpp` is NOT driven end-to-end by the suite; the report builder that
   produces every new field is. `Docs/wiki-src/mrq.md` documents the result shape. Not compiled and not
   run — the wave owner builds.
+- `#3-ask-2-preflight-and-preset-refusal` `IN-REVIEW` developer — ask 2 landed except the opt-in
+  floor param, which is argued out of scope below. Status stays `IN-REVIEW`; a tester still owns both
+  asks. **The silent preset-drop is fixed by REFUSING, not by a flag.** `MRQHandler.cpp` now resolves
+  `presetPath` BEFORE `AllocateNewJob`, so an unloadable preset leaves the queue byte-identical and
+  answers `MRQ_PRESET_NOT_LOADABLE` (registered in `Handlers/ErrorCodes.h`; the call site keeps a raw
+  literal because that file is non-adopting and one `ErrorCodes::` reference would turn its other
+  seven hand-spelled codes into hard failures). Chosen over `presetApplied: false` and over a warning
+  for three checkable reasons: (1) the same handler already hard-errors `CLASS_NOT_FOUND` for an
+  unloadable `executorClass` at `run_jobs`, so a warning here was internally inconsistent; (2) an
+  unconfigured job is a supported state only when the caller asked for it by omitting `presetPath` —
+  `Docs/rpc-design.md` §1, "an unresolvable target is an error, and the empty result is reserved for a
+  question that was actually asked"; (3) the cost is one-directional — refusing costs a corrected path
+  at queue time, proceeding costs minutes of render plus a deliverable that leaves the tool, and the
+  misconfigured job would have sat in the editor-global queue as a trap for anyone's later
+  `run_jobs`. **`presetApplied` was deliberately NOT added**: `UMoviePipelineExecutorJob` creates its
+  `Configuration` as a default subobject (`MoviePipelineQueue.h:372`), so `GetConfiguration() != null`
+  measures nothing and the boolean could only have restated the request. The pre-flight block is the
+  honest replacement — it publishes the preset's own settings, so it cannot claim a preset took effect
+  that did not. **Pre-flight disclosure** is `PinWrightMRQ::BuildPreflightReport` added beside the
+  existing artifact report in `Handlers/MRQ/MRQArtifactReport.{h,cpp}` (same file, same no-
+  MovieRenderPipeline-includes invariant), reusing `ReadRequestedEncoderSettings` and
+  `RateControlIsUnboundedBelow` rather than growing a second copy; extraction is
+  `ReadPreflightContext` in `MRQHandler.cpp`, read off the job's RESOLVED config after
+  `SetConfiguration` copied the preset in. `create_job` now carries `preflight` — `resolution`,
+  `outputDirectory` and `fileNameFormat` (published UNRESOLVED, because MRQ expands `{project_dir}` /
+  `{sequence_name}` / `{frame_number}` at render time from state that does not exist at queue time, and
+  a resolved-looking filename would be a claim about a file nothing has computed), `frameRateOverride`
+  only when the config overrides the sequence rate, `outputs[]` (class path of every ENABLED file
+  writer; empty means this job writes nothing) and `encoderRequested` — plus a top-level `warnings`
+  emitted only when non-empty. Two warnings fire: a config with no enabled output setting will write
+  no files while `run_jobs` still reports `success:true`, and a `Quality`/`ConstantQP` rate control is
+  named as unbounded below before the minutes are spent. **`minBitsPerPixel` judged OUT of scope, and
+  the reason is the ticket's own thesis:** rewriting a caller's resolved config to `VariableBitRate` at
+  a bitrate PinWright derived from a floor would make the plugin the party applying settings nobody
+  asked for — this defect inverted — and disclosure plus the warning already gives a caller what they
+  need to change one property on the preset asset. **Tests, behavioural, at the dispatcher.**
+  `Tests/Media/TestMRQHandlers.cpp` gains `PinWright.mrq.create_job.UnloadablePresetIsNotReportedAsApplied`
+  (the regression: fails against the old handler four independent ways — it answered success, set no
+  error code, echoed the preset it could not load, and left a job in the shared queue) and
+  `...PreflightDisclosesTheResolvedConfig`, which plants 1234x567 and stamped path formats on an
+  in-memory preset so a block publishing constants or the engine CDO fails on the VALUES, not on their
+  presence. `Tests/Media/TestMRQArtifactReport.cpp` gains
+  `PinWright.mrq.create_job.PreflightWarnsUnboundedRateControl`, scoring the rate-control warning in
+  BOTH directions — the engine's own `UMoviePipelineMP4EncoderOutput` CDO must warn, a
+  `VariableBitRate` read-back must not — so a builder that warned unconditionally fails one half. Both
+  handler tests restore the editor-global queue length even on their failing paths. **Stated
+  limitations:** no MRQ render is driven (still PIE + minutes), so this exercises the job-configuration
+  surface only; the in-memory-preset fixture emits `PINWRIGHT_ASSERTIONS_SKIPPED` rather than a red if a
+  host cannot resolve it; and `Docs/error-code-catalog.md` was deliberately NOT hand-patched — it is a
+  dated generated snapshot that instructs re-running its own scan. `Docs/wiki-src/mrq.md` documents the
+  pre-flight shape, the refusal and the out-of-scope call. Not compiled and not run — a full automation
+  suite was live against the compiled DLL for the whole of this work.
