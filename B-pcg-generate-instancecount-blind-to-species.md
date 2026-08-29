@@ -1,7 +1,7 @@
 ---
 id: B-pcg-generate-instancecount-blind-to-species
 title: "pcg.generate's instanceCount cannot see a species change — four materially different graph edits returned byte-identical 26664 because a weighted mesh selector partitions a fixed point set, while the wiki tells callers instanceCount is the number to judge a generation by and the response names no mesh anywhere"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: bug
 tags: [pcg, generate, readback, silent-wrong-verification, mesh-selector, weighted, instance-count, deciding-number-unreported, vegetation, wiki-overclaim]
@@ -212,3 +212,46 @@ the most common kind of PCG edit there is. High stands unmodified.
   both directions (every PCG session hits this verb but PCG is not an every-session namespace, and
   an up-bump lands on Critical; not an edge path either, since `UPCGMeshSelectorWeighted` is the
   shipped default selector and this fires on every mesh-entry edit).
+- `#2-instancesbymesh-rows-attribute-the-total` `IN-REVIEW` developer — CONFIRMED what the count
+  measured before touching anything: `FGenerationReadback::InstanceCount` is the SUM of
+  `ISMC->GetInstanceCount()` over every `UPCGManagedISMComponent` the component manages (plus the
+  local components of a partitioned original on 5.7+), so it is neither one component's nor one
+  species' number — it is arithmetically correct and species-blind, exactly as the report says. The
+  identity was discarded one line early: the loop held the `UInstancedStaticMeshComponent*` and
+  never called `GetStaticMesh()`. SHAPE CHOSEN: per-species breakdown, not a refusal to report the
+  total — the total still answers "did this do work", which is the question
+  `B-pcg-generated-graph-output-empty-after-generate` added it for, and withdrawing it would
+  re-break that. Emitted as ROWS rather than the ticket's proposed `{path: count}` map, matching the
+  census envelope the rest of the surface uses (`system.inspect.list_actor_*`): `instancesByMesh`
+  = `[{mesh, instanceCount}]` sorted instances-desc then path-asc, `distinctMeshCount` = the full
+  untruncated species total, `instancesByMeshTruncated` = bool. Rows sum to `instanceCount` — that
+  invariant is the point, and it is what the regression test asserts. CAP/SPILL DECIDED:
+  `MaxInstancesByMeshRows = 32`, bounded by distinct meshes rather than instances, largest rows
+  survive, no spill row (the remainder is derivable as `instanceCount - sum(rows)`), and a
+  `warnings[]` entry states plainly that a truncated list no longer sums. NULL MESH DECIDED: an
+  explicit `(no static mesh)` row — a key that cannot collide with an object path, since every
+  path starts with `/` — plus a `warnings[]` entry, so the finding is visible and the sum
+  invariant survives. CODE: `Handlers/PCG/PCGGenerateReadback.h` (new `InstancesByMesh` map on
+  `FGenerationReadback`, accumulated inside the existing `ForEachManagedResource` loop with
+  `FindOrAdd` so several components sharing one mesh add rather than overwrite; new
+  `BuildInstancesByMeshRows`; emission inside the existing `bResourceCountsAvailable` block, so the
+  breakdown obeys the same availability flag as the total), and the handler's registered
+  description in `PCGGenerateHandler.cpp`. No new error codes, so nothing to register in
+  `Handlers/ErrorCodes.h`. DOC OVER-CLAIM CORRECTED at both sites the report named:
+  `Docs/wiki-src/pcg.md` §Running-a-graph (was "judge it by `instanceCount`") and the
+  `### pcg.generate` bullet (was "**`instanceCount` is the number to judge a generation by**") now
+  say what the C++ always said — `instanceCount` answers *whether*, `instancesByMesh` answers
+  *what* — with the weighted-selector mechanism and the `instancedComponentCount`-is-not-a-substitute
+  point stated inline. TESTS (`Tests/PCG/TestPCGGenerateHandler.cpp`):
+  `pcg.generate.AttributesInstancesByMesh` is the behavioural regression — one `UPCGComponent`
+  managing two ISM components carrying `/Engine/BasicShapes/Cube` (11 instances) and
+  `.../Sphere` (4), counts read back off the components themselves rather than restated from the
+  fixture constants, asserting one row per species, each row carrying that mesh's own count, and
+  the rows summing to `instanceCount`; it fails pre-fix because `instancesByMesh` does not exist.
+  `pcg.generate.InstancesByMeshNullKeyAndCap` covers the two decided policies synthetically.
+  NOT COMPILED and NOT RUN — the wave owner builds and runs the suite. RELATION TO
+  `B-pcg-spawner-mixed-mesh-heights-silently-misscaled`: same loop, DIFFERENT root — that one needs
+  mesh BOUNDS (`GetStaticMesh()->GetBounds()`) and a tallest:shortest ratio, this one needed mesh
+  IDENTITY. This fix does not fix it; it only makes its `python.execute` fallback cheaper, exactly
+  as that ticket's own "composes with" note predicted. Its preferred home (an author-time check
+  over `MeshEntries`, which can see entries that drew zero points) is untouched here.
