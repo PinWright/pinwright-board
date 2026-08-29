@@ -5,6 +5,8 @@ status: OPEN
 severity: Medium
 category: bug
 tags: [wiki, wiki-src, docs, level-building, instancing-and-scatter, hism, ism, python-execute, root-component, transform, world-origin, silent-wrong-output, shipped-artefact]
+encounters: 2
+lastSeen: 2026-08-29T18:00:00+05:00
 ---
 
 # A documented write recipe that silently relocates everything it builds
@@ -140,6 +142,64 @@ Not prescribed here, because the replacement was not tested. What was determined
   read-back at `:43` — counts instances and cannot see where they are. `a.get_actor_location()`
   after the swap is one line and is the assertion that fails.
 
+## The open question, answered on one side: candidate (b) works, and the page's read-back cannot see registration
+
+§ *What the page should say instead* left two candidates untested and named the undetermined
+question: *"whether an unregistered `new_object`'d component becomes a real level component purely
+by being pointed at from `RootComponent`"*. A later session (`Docs/map/vegetation-polish.md`
+§ 5.4, look-dev polish over `PW_VegetationTest`, 2026-08-29) built 12 instance-level HISM layers
+and measured three things that move it.
+
+**Candidate (b) works, 12/12.** `call("actor.add_component", {actorName, componentType:
+"HierarchicalInstancedStaticMeshComponent", meshPath})` succeeded on every one of twelve rootless
+bare-`AActor` holders and produced a component that draws. Source confirms why it is the safe
+route and not merely the working one: `Handlers/Actor/ComponentHandler.cpp:87-88` constructs it,
+`:96-97` runs `AddInstanceComponent` + `OnComponentCreated`, `:157` calls `RegisterComponent()`
+from C++ — and `:100-102` attaches to the root **only if the actor already has one**, so the verb
+never writes `RootComponent` and is structurally incapable of the displacement this ticket is
+about. `meshPath` also reaches a HISM despite its parameter description at `:47` saying it is
+"only used when componentType is StaticMeshComponent": the assignment at `:113-119` casts to
+`UStaticMeshComponent`, and HISM derives from ISM derives from that. The description is narrower
+than the behaviour, which is worth a line on the same fix.
+
+**The two obvious Python alternatives are closed, and one of them for a newly-cited reason.**
+`AActor.add_instance_component` and `AActor.add_component_by_class` are both `AttributeError` from
+bundled UE 5.8 Python. The page already records the `AddComponentByClass` half (`ScriptNoExport`);
+the other half is `AActor::AddInstanceComponent`
+(`C:/UE_5.8/Engine/Source/Runtime/Engine/Classes/GameFramework/Actor.h:4348`), a plain
+`ENGINE_API void` carrying **no `UFUNCTION`** at all. So after `unreal.new_object` there is no
+reflected call that puts the component anywhere — which is exactly the corner the recipe's
+`set_editor_property('root_component', comp)` line was invented to escape.
+
+**The read-back the page would reach for cannot answer the open question.** A component created by
+`unreal.new_object(..., outer=actor)` and never registered is nevertheless enumerated by the
+actor's component list. That is by construction, not by accident:
+`UActorComponent::PostInitProperties`
+(`C:/UE_5.8/Engine/Source/Runtime/Engine/Private/Components/ActorComponent.cpp:581`) calls
+`OwnerPrivate->AddOwnedComponent(this)` at `:599` for any component whose `CreationMethod` is not
+`Instance` — the default for a bare `NewObject` — and `AActor::AddOwnedComponent`
+(`Runtime/Engine/Private/Actor.cpp:3792`) inserts into `OwnedComponents` at `:3802`. The only
+reflected enumerator, `K2_GetComponentsByClass` (`Actor.h:3806-3807`, Python
+`get_components_by_class`), reads that set. **`OwnedComponents` membership is established at
+construction; registration is a separate, later, unreflected step.** So the enumeration answers
+*"does this actor own this object"* and is read as *"is this component in the level"*, and
+`is_registered()` — the call that would tell them apart — is the one this page already documents
+as unreachable from Python. Any re-derivation of the recipe therefore has to read a registration
+signal from C++ or from an observable render effect; it cannot be settled from the Python side at
+all. That is a constraint on the fix, not a new defect.
+
+What this does **not** settle: whether pointing `RootComponent` at an unregistered component
+registers it. The measurement above is of the state *before* any root assignment, and the polish
+run took candidate (b) rather than repairing candidate (a). The question stays open; what changed
+is that the cheapest way to answer it has been ruled out.
+
+**Flagged for the re-derivation, source-only and NOT measured here:** a Python-built component is
+in `OwnedComponents` (above) but nothing puts it in `AActor::InstanceComponents`, which is what
+`actor.add_component` gets from `ComponentHandler.cpp:96`. Whether such a component survives a
+save and reload on its own — as opposed to surviving only because `RootComponent` happens to hold
+a serialized reference to it — was not tested and should be, since the replacement recipe's
+persistence depends on it.
+
 ## Same shape as
 
 `B-foliage-paint-does-no-ground-projection` carries the fullest statement of the class: *the call
@@ -181,3 +241,36 @@ severity rationale: impact=one band below High, argued rather than asserted — 
 
 ## History
 - `#1-root-swap-orphans-the-placement` `OPEN` reporter — Symptom measured live on a real layer: following the wiki's HISM recipe, instances authored relative to the actor's spawn point built roughly 17 km away at the world origin, and `spatial.ground_instances` (`Handlers/Spatial/GroundPlacementHandler.cpp:1235`) then seated 41 of them there and reported `placed: 41` (`:1555`) — a correct number confirming a wrong result. Page citations re-derived, not inherited: `Docs/wiki-src/level-building.instancing-and-scatter.md:16` is `a.set_editor_property('root_component', comp)          # without this the component is not the root`, and `:43` doubles down in prose ("The recipe above needs neither: `set_editor_property('root_component', comp)` on a spawned actor is what puts the component in the level"). Both ship: `Saved/PinWright/wiki/level-building.instancing-and-scatter.md:18` and `:45`, the generated file differing only by a two-line banner; `wiki-src` is the source, so the fix goes there. MECHANISM (source-read, engine): it is not a reset — `AActor` has no transform of its own, `GetActorLocation()` is `TemplateGetActorLocation(RootComponent)` (`Runtime/Engine/Classes/GameFramework/Actor.h:2501-2505`), so replacing the root replaces the placement. The spawn location was stored on the component the recipe discards: `spawn_actor_from_class` (`Editor/UnrealEd/Private/Subsystems/EditorActorSubsystem.cpp:521-537`) reaches `TryPlacingActorFromObject` (`:140`) and thus `UActorFactoryEmptyActor::SpawnActor` (`Editor/UnrealEd/Private/Factories/ActorFactory.cpp:1311-1330`), which creates a `DefaultSceneRoot` (`:1318`), calls `RootComponent->SetWorldTransform(InTransform)` (`:1321`), then `SetRootComponent` (`:1323`), `AddInstanceComponent` (`:1324`) and `RegisterComponent()` (`:1326`). The recipe's `comp` is an unattached `new_object`'d HISM at identity, so after the swap the actor reads (0,0,0) and `add_instances(..., world_space=False, ...)` (page `:18-19`) writes every instance relative to it. Second, smaller defect in the same line: `RootComponent` carries `BlueprintGetter=K2_GetRootComponent` and no setter (`Actor.h:1022-1024`), so the reflection write bypasses `AActor::SetRootComponent` (`Runtime/Engine/Private/Actor.cpp:5367-5391`) and with it `Modify()` (`:5374`, no undo record) and `NotifyIsRootComponentChanged` on both components (`:5382`, `:5387`); the old root stays registered and in `InstanceComponents`. HALF OF THIS IS ALREADY OWNED AND FIXED, and is deliberately NOT re-filed: the `register_component()` / `is_registered()` `AttributeError` belongs to `B-python-execute-private-scope-leaks-sys-modules` (IN-REVIEW, Medium) item (c), whose `#1` records the doc paragraph as added — verified present, it is the paragraph at `:43`. That is also the sharpest thing here and is stated plainly in the body: the paragraph carrying that landed fix is the same paragraph that endorses the broken line, so a reader who trusts its correct first half inherits its wrong second half. REPLACEMENT NOT PRESCRIBED, deliberately: re-applying the transform after the swap is sufficient for the placement (there is a root by then, so `set_actor_location` succeeds) but not for the undo record, the notifications, the orphaned still-registered `DefaultSceneRoot`, or the page's untested assertion that pointing `RootComponent` at an unregistered component is what "puts it in the level" — that last was not determined in this pass. Framed as: the recipe must be re-derived and re-tested on 5.8, testing (a) attach-to-the-existing-DefaultSceneRoot and (b) `call("actor.add_component")`, which the same paragraph already names. Also asked for: replace the `get_instance_count()` read-back, which cannot see where instances are, with `a.get_actor_location()`, which is the one line that fails. Dedup: grepped the board for `root_component`, `SetRootComponent`, `instancing-and-scatter`, `HISM`, `HierarchicalInstancedStaticMesh` and every `*wiki*` filename. `root_component` matches only `B-effect-geometry-fixture-not-at-claimed-column` (a fixture's own coordinates, unrelated). `instancing-and-scatter` matches only `F-scatter-layout-verb` (DONE — same page, the scatter-doctrine section at `:74-79`, doctrine-without-implementation rather than a wrong recipe) and `B-python-execute-private-scope-leaks-sys-modules`. The ~20-strong wiki family is entirely `E-` and entirely about verbs that do less than the page claims; nothing on the board covers a wiki recipe that produces wrong output. `F-ism-per-instance-transforms` (IN-REVIEW, High) is the capability this recipe substitutes for and is the right place to re-point it if that verb lands first.
+- `#2-candidate-b-works-and-ownedcomponents-is-not-registration` `OPEN` reporter — Encounter from
+  a later session (`Docs/map/vegetation-polish.md` § 5.4, look-dev polish over
+  `PW_VegetationTest`), which built 12 instance-level HISM layers and moved `#1`'s named open
+  question on one side. **Candidate (b) verified working 12/12**: `actor.add_component
+  {componentType:"HierarchicalInstancedStaticMeshComponent", meshPath}` on rootless bare-`AActor`
+  holders, and source says why it is the safe route rather than merely a working one —
+  `ComponentHandler.cpp:87-88` constructs, `:96-97` `AddInstanceComponent` + `OnComponentCreated`,
+  `:157` `RegisterComponent()` from C++, and `:100-102` attaches to a root only when one already
+  exists, so the verb never writes `RootComponent` and cannot reproduce this ticket's
+  displacement. Incidental doc/behaviour mismatch found on the same verb: `meshPath`'s description
+  at `:47` claims StaticMeshComponent-only while the assignment at `:113-119` casts to
+  `UStaticMeshComponent` and therefore reaches ISM/HISM. **Both Python alternatives confirmed
+  closed**, one with a citation this ticket did not have: `AActor::AddInstanceComponent`
+  (`Actor.h:4348`) is a plain `ENGINE_API void` with no `UFUNCTION`, alongside the already-recorded
+  `ScriptNoExport` on `AddComponentByClass`. **The load-bearing new fact is negative**: a
+  `unreal.new_object(..., outer=actor)` component that was never registered is still enumerated by
+  `get_components_by_class`, because `UActorComponent::PostInitProperties`
+  (`ActorComponent.cpp:581`) calls `AddOwnedComponent` at `:599` for any non-`Instance`
+  `CreationMethod` and `AActor::AddOwnedComponent` (`Actor.cpp:3792`) inserts at `:3802`, while the
+  only reflected enumerator `K2_GetComponentsByClass` (`Actor.h:3806-3807`) reads that same set.
+  `OwnedComponents` membership is a construction-time fact and registration is a separate
+  unreflected step, so the enumeration answers "does this actor own this object" and reads as "is
+  this component in the level" — the same shape as this ticket's `placed: 41`. Consequence for the
+  fix, recorded as a constraint rather than a new defect: `#1`'s open question cannot be settled
+  from Python at all, because `is_registered()` is unreachable there; it needs a C++ signal or an
+  observable render effect. Explicitly NOT settled: whether pointing `RootComponent` at an
+  unregistered component registers it — the polish run took candidate (b) instead of repairing
+  (a), so the measurement is of the pre-assignment state only. One item flagged **source-only and
+  untested** for whoever re-derives the recipe: a Python-built component reaches `OwnedComponents`
+  but nothing puts it in `AActor::InstanceComponents` (which `ComponentHandler.cpp:96` supplies),
+  so its survival across save/reload independent of the `RootComponent` reference is unverified.
+  Status left `OPEN` — nothing here fixes the shipped page; severity left **Medium**, since the
+  new evidence narrows the remedy rather than widening the impact. `encounters` absent → 2.
