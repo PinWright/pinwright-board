@@ -4,9 +4,9 @@ title: "Editing a ULandscapeGrassType's GrassVarieties and saving reaches the re
 status: IN-REVIEW
 severity: High
 category: bug
-tags: [landscape, grass, vegetation, grass-type, silent-noop, derived-state, consumer-refresh, flush, misleading-success, material-consumers-precedent]
-encounters: 1
-lastSeen: 2026-08-29T00:00:00+05:00
+tags: [landscape, grass, vegetation, grass-type, silent-noop, derived-state, consumer-refresh, flush, misleading-success, material-consumers-precedent, flush-grass-maps, destructive-workaround, session-state, acceptance-test-gap]
+encounters: 2
+lastSeen: 2026-08-29T20:30:00+03:00
 ---
 
 # The edit lands on the asset and never lands on the screen
@@ -103,8 +103,15 @@ Whichever lands, the response must name what was refreshed. The precedent's
 `AddKnownUnrefreshedConsumers` (`MaterialLandscapeConsumers.h:326-337`) exists precisely so a
 coverage number is not read as broader than it is.
 
-**Workaround:** after any grass-type edit, `system.console_command {command: "grass.FlushCache"}`.
-Measured effective: 0.4439 -> 0.4287.
+**Workaround:** after any grass-type edit, `system.console_command {command: "grass.Enable 0"}` then
+`{command: "grass.Enable 1"}` — measured effective, rebuilds in ~45 s with the edited settings live.
+
+> **DO NOT use `grass.FlushCache` as the workaround.** It was the original recommendation on this
+> line and it is destructive in the editor: measured 922,280 -> 56,080 grass instances with no
+> recovery short of an editor restart. The prose above and the `0.4439 -> 0.4287` measurement in the
+> table are the original filing and are left as they were; the recommendation is corrected here and
+> the evidence is in `#3`, which also flags a line in the IN-REVIEW implementation that copies the
+> same destructive argument.
 
 ## Same shape as
 
@@ -154,3 +161,64 @@ derived render state is stale.
   `PinWright::MaterialConsumers::ApplyMasterMaterialEdit` (`MaterialLandscapeConsumers.h:316-322`,
   rule stated at `:311-315`), called at `MaterialAuthoringHandler.cpp:3519` and `:3628`.
 - `#2-grass-flush-on-reflected-edits` `IN-REVIEW` developer — "Root cause found and it is an engine behaviour change, not just a missing call: UE 5.3's `ULandscapeGrassType::PostEditChangeProperty` flushed the consumers (`Proxy->FlushGrassComponents()`), and from UE 5.4 that body only calls `InvalidateGrassTypeSummary()` + recomputes `StateHash`, neither of which invalidates `ALandscapeProxy::FoliageCache.CachedGrassComps` — a cache keyed on the grass type POINTER and the variety COUNT and on nothing inside an `FGrassVariety`. Added `Handlers/Environment/GrassTypeConsumers.h` (`PinWright::GrassConsumers`) as the grass twin of `MaterialLandscapeConsumers.h`: `RefreshGrassConsumers` finds every editor-world landscape holding cached grass keyed on the type (or whose components declare it), calls `ALandscapeProxy::FlushGrassComponents(nullptr, bFlushGrassMaps=true)` — the C++ entry point `grass.FlushCache` itself calls, LANDSCAPE_API on 5.3-5.8 — then `ULandscapeSubsystem::RegenerateGrass(false, true)`, and MEASURES the result into an `FConsumerRefreshReport` by snapshotting the keyed cache entries and their HISM pointers before and after. `ApplyGrassTypeEdit` is the named pairing beside `ApplyMasterMaterialEdit`. Wired it at the seam where the edit actually happens: `NotifyReflectedPropertyChanged` in `UtilityPropertyHandler.cpp`, beside the existing `PushRenderStateForComponentTarget`, so `property.set`, `property.reset` and every `container.array.*`/`container.map.*` write to a `ULandscapeGrassType` flushes; `property.set` also publishes the measured `consumerRefresh` block (gated so no other target class pays anything but a failed Cast). `landscape.create_grass_type` deliberately NOT wired — a just-created asset no material references has no consumers — and the header says so. Added the typed verb `landscape.flush_grass` (new file `Handlers/Environment/LandscapeGrassFlushHandler.cpp`, so the two agents in `LandscapeHandler.cpp` were not touched) for edits made outside the plugin. MEASUREMENT HONESTY: the regression tests measure the per-proxy grass CACHE, not luminance — `PinWright.property.set.GrassTypeEditFlushesGrassCache` and `PinWright.landscape.flush_grass.StaleGrassCacheIsInvalidated` build a 1x1 landscape, seed one `FoliageCache.CachedGrassComps` entry keyed on a sandbox grass type, and assert it is gone afterwards plus that `consumerRefresh` reports measured/consumersFound>=1/consumersRefreshed>=1 and NAMES the landscape in `refreshed[]`. Pre-fix the entry survives and no block is emitted. Nothing here proves a pixel moved: a headless host cannot bake grass maps and place a camera, so the 0.4444/0.4287 luminance claim is NOT re-verified by this change and still wants a live-editor pass. On the two non-existent flush paths: grepped the whole plugin tree, `Docs/`, `Saved/PinWright/wiki/` and `asset-dumps/` — `grass.FlushCacheAll` and `unreal.Landscape.flush_grass_components` appear NOWHERE except this ticket, so there was no wrong text in this tree to correct; instead `Docs/wiki-src/landscape.md` now states outright that neither exists and why (not a UFUNCTION / not a registered command), and documents `landscape.flush_grass` plus the `grass.FlushCache` console fallback. One bullet added to `Docs/rpc-design.md` §5b recording the third occurrence and the engine-version trap. Not compiled or run — orchestrator builds. Known nit: the `landscape` namespace page was already ~23.9 KB (over the ~20 KB soft guideline) before this change and is now ~25.5 KB."
+- `#3-flushcache-is-destructive-and-the-fix-copied-it` `IN-REVIEW` reporter — **Second encounter, and it
+  reports a hazard in this ticket's own recommended workaround and in one line of `#2`'s
+  implementation. Status deliberately NOT changed: I was not asked to verify the fix and am not acting
+  as tester. This is evidence for whoever does.**
+  **Measured, live editor, `/Game/Maps/PW_VegetationTest` (host `EAContentExamples58`, UE 5.8), method
+  in `Docs/map/vegetation-performance.md` § *Measurement hazards* item 7:**
+  `system.console_command {command: "grass.FlushCache"}` took the level from **922,280 grass instances
+  to 56,080** and **the grass did not come back** — not through camera moves, not through
+  `set_grass_enabled` false/true, not after four minutes idle. **Only an editor restart recovered it.**
+  On a project whose editor is shared by five agents, "restart to recover" is not a workaround; it
+  destroys every other agent's unsaved work.
+  **The destructive ingredient is the second argument, and the engine names it.**
+  `ALandscapeProxy::FlushGrassComponents(const TSet<ULandscapeComponent*>* OnlyForComponents = nullptr,
+  bool bFlushGrassMaps = true)` — `C:/UE_5.8/Engine/Source/Runtime/Landscape/Classes/LandscapeProxy.h:1165`,
+  doc comment `:1161-1163`: *"bFlushGrassMaps will delete the grass data / density maps on the components
+  as well, **but only in editor mode**, and only if the grass maps are renderable (i.e. they can be
+  regenerated)."* The two console commands differ in exactly that argument:
+  `grass.FlushCache` -> `FlushGrass` -> `Landscape->FlushGrassComponents();` (defaulted **true**),
+  `C:/UE_5.8/Engine/Source/Runtime/Landscape/Private/LandscapeGrass.cpp:3441-3447`, registered `:3474-3479`;
+  `grass.FlushCachePIE` -> `FlushGrassComponents(nullptr, false)`, `:3449-3455`, registered `:3481-3486`.
+  Despite its name, **the PIE variant is the non-map-deleting one**, and the editor-only clause in the
+  doc comment is why the destructive path is reachable only where we hit it.
+  **The engine's own regeneration entry point passes `false`, and that is the deciding citation.**
+  `ULandscapeSubsystem::RemoveGrassInstances` (`Private/LandscapeSubsystem.cpp:602-611`) ends at `:609`
+  with `Proxy->FlushGrassComponents(ComponentsToRemoveGrassInstances, /*bFlushGrassMaps = */false);` —
+  argument name spelled out in a comment — and `ULandscapeSubsystem::RegenerateGrass(bInFlushGrass,
+  bInForceSync, ...)` (`:613`, declared `Public/LandscapeSubsystem.h:120`) reaches it at `:624-627` when
+  `bInFlushGrass` is true, then runs `UpdateGrass` at `:629+`. So `RegenerateGrass(true, true)` — the
+  exact call this ticket's own **Fix #1** asked for — flushes instances and **never deletes a grass
+  map**. It is the safe shape and it was already written down here.
+  **What `#2` implemented instead, flagged for the tester rather than judged.** `#2` states it calls
+  `ALandscapeProxy::FlushGrassComponents(nullptr, bFlushGrassMaps=true)` — describing it as *"the C++
+  entry point `grass.FlushCache` itself calls"*, which is exactly right and is the problem — followed by
+  `RegenerateGrass(false, true)`, i.e. `bInFlushGrass=false`, so nothing after the deletion re-drives a
+  map rebuild. That is the destructive combination, wired onto `NotifyReflectedPropertyChanged` (so every
+  `property.set` / `property.reset` / `container.*` write to a `ULandscapeGrassType`) and exposed as the
+  new typed verb `landscape.flush_grass`. **The acceptance tests `#2` added cannot detect it**, and `#2`
+  says so in its own words — they assert the `FoliageCache.CachedGrassComps` entry is *gone* and that
+  `consumerRefresh` reports what it refreshed, and it notes *"Nothing here proves a pixel moved"*. A
+  cache-entry-disappeared assertion passes identically whether the grass rebuilds in 45 seconds or never
+  returns until restart. **Suggested before verification, not applied here** (I have not touched plugin
+  source): pass `bFlushGrassMaps=false`, or drop the direct `FlushGrassComponents` call and use
+  `RegenerateGrass(/*bInFlushGrass=*/true, /*bInForceSync=*/true)` which does it correctly on its own;
+  and add a live-editor acceptance step that the grass instance count **returns**, not merely that the
+  cache key vanished. The `landscape.flush_grass` verb should also state in its summary which of the two
+  behaviours it has.
+  **The safe console route, with its mechanism**, replacing the workaround line in the body:
+  `grass.Enable 0` then `grass.Enable 1` — measured to drop and rebuild the grass components in ~45 s
+  with the edited settings live, no restart. `GGrassEnable` is declared at `LandscapeGrass.cpp:144-148`
+  and gates `ALandscapeProxy::ShouldGenerateGrass()` at `:1292`; nothing on that path deletes a grass
+  map, which is why it is recoverable and `FlushCache` is not. Also confirmed against the engine and
+  recorded so nobody re-derives it: **no `BuildGrassMaps` console command exists** and `ALandscapeProxy`
+  reflects only `get_grass_enabled` / `set_grass_enabled` to Python, so there is no reflected rebuild
+  trigger either. **Body edit made and declared:** the `**Workaround:**` line now recommends
+  `grass.Enable 0/1` and carries a warning block; the original prose and the `0.4439 -> 0.4287`
+  measurement are left untouched beside it. **Severity left at High, not raised.** Critical is declined
+  on the rubric as written — nothing crashes and no asset data is corrupted or lost; the grass maps are
+  derived render state and a restart restores everything. Recorded against that: if `#2` ships as
+  described, the destruction moves from a console string a caller opts into onto **every reflected
+  property write to a grass type**, which is the point at which a re-rating should be revisited.
+  `encounters` 1 -> 2.
