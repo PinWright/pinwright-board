@@ -12,7 +12,7 @@ lastSeen: 2026-08-29T18:00:00+05:00
 # The verification half of read-modify-write is aliased to the thing it is meant to verify
 
 `safe-mutation-save.md:24` prescribes *"Verify read-after-write with the same read surface used in
-step 1"*, and `:25` names `python.execute` as the writer of last resort. Follow both — capture the
+step 1"*, and `:22` names `python.execute` as the writer of last resort. Follow both — capture the
 value, write, compare — and from bundled Python the comparison cannot fail, because the "before"
 handle is a window onto the object's live memory rather than a copy of what was there.
 
@@ -79,7 +79,7 @@ rather than the container needs `.copy()` on each element too.
 ## Why this is a PinWright ticket and not an engine complaint
 
 Nothing above is a PinWright defect and none of it can be fixed in PinWright's code. What PinWright
-owns is that it ships `python.execute` as a documented writer (`safe-mutation-save.md:25`), ships a
+owns is that it ships `python.execute` as a documented writer (`safe-mutation-save.md:22`), ships a
 verification doctrine that says to read back through the same surface (`:24`), and ships a `python`
 namespace page (`Docs/wiki-src/python.md`) that already carries exactly this kind of
 engine-behaviour warning — § *Marking packages dirty from Python* (`python.md:13`), § *Calls that
@@ -171,7 +171,7 @@ mechanism is near-universal; the reach of the failure is not. Medium stands.
   with `EPyConversionMethod::Copy` at `:1232`, so it is a real snapshot — with the caveat that
   iterating the original still yields element wrappers referencing it, so elements need their own
   `.copy()`. SCOPE: nothing here is fixable in PinWright code; what PinWright owns is that
-  `safe-mutation-save.md:24` prescribes read-back verification, `:25` names `python.execute` as a
+  `safe-mutation-save.md:24` prescribes read-back verification, `:22` names `python.execute` as a
   writer, and `Docs/wiki-src/python.md` already carries this exact class of engine warning
   (`:13` dirtying, `:60` crashes, `:83` freezes) without this one. Precedents for filing an
   engine-Python behaviour on this board: `E-python-cannot-mark-package-dirty` (DONE, Medium) and
