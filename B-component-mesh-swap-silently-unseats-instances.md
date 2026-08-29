@@ -67,12 +67,6 @@ origin than the mesh it replaced, the geometry floated:
 Every number the RPC reported was true. `applied: ["StaticMesh"]` was true. The read-back at
 `:141-148` was true. The cluster tree really was rebuilt. 31 instances were in the air.
 
-**Same recurring class as the rest of that session**, whose fullest statement is on
-`B-foliage-paint-does-no-ground-projection`: *the call succeeds, every number it reports is correct,
-and the output is wrong because the deciding number was never reported.* Here the deciding number is
-the pivot-to-bottom delta between the outgoing and the incoming mesh. The sibling encounter from the
-same session is `F-ism-create-and-clear-scatter` `#2`.
-
 ## The deciding number is already a first-class readback. Nothing subtracts it.
 
 This is not a missing measurement. `static_mesh.describe`
@@ -104,6 +98,33 @@ it (`:33-38`) states the design rule this ticket is asking to apply once more:
 A mesh swap on a populated ISM/HISM is the same situation with the roles reversed: the plugin knows
 a consequence the caller does not, and today the first time the caller hears about it is when they
 look at a picture.
+
+## Same shape as
+
+`B-foliage-paint-does-no-ground-projection` § *Same shape as*: *the call succeeds, every number it
+reports is correct, and the output is wrong because the deciding number was never reported.*
+
+**The variant here is that the write path names the deciding quantity out loud and then spends it
+internally.** In every sibling below, the unreported number is one nobody computed. In this one
+`ComponentAssetPropertyWrite.cpp:150-151` states *"a mesh swap changes every instance's bounds"* and
+`:161` acts on that statement — the plugin both knows the bounds moved and does work because of it,
+and still emits nothing. The deciding number is the pivot-to-bottom delta between the outgoing and
+the incoming mesh.
+
+Nearest siblings, all this session, all different mechanisms:
+
+- `F-ism-create-and-clear-scatter` `#2` (OPEN, Medium) — the same session's other encounter of the
+  class on the same scatter workflow, and the counterpart hazard: that one is the cost of
+  clear-and-refill, this one is the cost of the re-point that avoids it.
+- `B-wiki-hism-recipe-resets-actor-transform` (OPEN, Medium) — deciding number is the actor's
+  location, with a green `placed: 41` from an unrelated verb confirming the damage.
+- `B-pcg-spawner-mixed-mesh-heights-silently-misscaled` (OPEN, Medium) — deciding number is the
+  height ratio between meshes sharing one scale range. Closest in subject: both are "two meshes were
+  treated as interchangeable and the geometry moved".
+- `B-ground-probe-hits-hull-not-render` (DONE, High) — its § *Why a warning and not just
+  documentation: the numbers looked right* is the argument for why a `warnings[]` entry is the fix
+  here too. An 83 cm float on instances whose transforms are all exactly as authored is an in-family
+  number, and in-family numbers cannot be caught by reading numbers.
 
 ## Fix
 
