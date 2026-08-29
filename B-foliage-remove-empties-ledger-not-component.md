@@ -1,7 +1,7 @@
 ---
 id: B-foliage-remove-empties-ledger-not-component
 title: "`foliage.remove` empties FFoliageInfo::Instances and never touches the HISM, so instances keep rendering while the verb reports an exact count — and `foliage.get_instances` reads the same emptied array, so the mutator and its verification verb agree with each other and both are wrong"
-status: OPEN
+status: IN-REVIEW
 severity: Critical
 category: bug
 tags: [foliage, remove, get_instances, silent-false-success, ledger-vs-component, hism, data-loss, readback-blind-spot, behavioural-test-passes-on-defect]
@@ -292,3 +292,39 @@ dormant, Critical still holds on the undo path but the window is longer.
   response** (`:694` against the registered param list at `:592-596`), filed separately as
   `E-foliage-remove-mode-is-output-only` because it is naming friction on a verb whose real
   defect is this one. `encounters` 1 → 2.
+- `#3-removeinstances-and-differential-readback` `IN-REVIEW` developer — Every claim re-verified at
+  HEAD before editing; the stale line numbers still landed exactly (`Info.Instances.Empty()` at
+  `FoliageHandler.cpp:675`/`:683`, `RemoveInstances` only at `:481`/`:498`, `GetInstanceCount()`
+  absent from the file). **Fix.** Both branches now go through one helper,
+  `RemoveAllFoliageInstances(FFoliageInfo&)`, which builds `[0..N-1]` and calls
+  `FFoliageInfo::RemoveInstances(All, RebuildFoliageTree=true)`; `IFA->Modify()` moved before the
+  write in both. **One correction to the ticket's two-line-swap fix, verified in source:**
+  `RemoveInstancesImpl` opens with `check(IsInitialized())` (`InstancedFoliage.cpp:2431`) — the
+  proposed unconditional swap crashes on an info holding instances with no implementation, which is
+  a state the engine names and repairs at `AInstancedFoliageActor::PostLoad:4588`. The helper guards
+  on `IsInitialized()` and falls back to `Instances.Empty()` there, which is the *complete* removal
+  in that case because nothing is drawn. Also note `RemoveInstancesImpl`'s `Num() <= 0` early return
+  precedes the check, so the zero case was never at risk. **Readback.** `foliage.get_instances` now
+  emits `renderedInstanceCount` (summed `Info.Implementation->GetInstanceCount()` over the same
+  scope, orphaned infos included) and `ledgerMatchesRendered`
+  (`renderedInstanceCount == count + orphanedInstanceCount`). `Implementation->GetInstanceCount()`
+  rather than the ticket's `GetComponent()->GetInstanceCount()`: `GetComponent()`
+  (`InstancedFoliage.cpp:2039`) returns null for every non-static-mesh impl, which would report
+  "draws nothing" for actor foliage. The two cannot legitimately diverge — `CheckValid:2200` states
+  the equality — so the verb reports the verdict rather than picking a side. **Today's compromised
+  tests.** `TestFoliagePlacementBehaviour.cpp`: added `GatherRenderedInstances` (reads
+  `Info->GetComponent()->GetInstanceCount()`) and `RequireInstanceCount`, which pins record AND
+  rendered to the same number; all 9 count assertions across the 7 tests re-pointed through it, so
+  each now fails on this defect class. `GatherInstances` kept for transforms only (the component
+  cannot answer an `FFoliageInstance`) with its "what the level actually holds" comment corrected,
+  and counterfactual (b) extended with the (b') this ticket names. New regression
+  `PinWright.foliage.remove.RemovalReachesTheRenderedInstances` drives add → read → remove → read
+  and asserts `GatherRenderedInstances == 0` off the component; it fails before the fix (reads 3).
+  `TestEnvironmentHandlers.cpp` needed **no change**: its three teardowns are already scoped by
+  `foliageTypePath` (no `removeAll:true` remains anywhere under `Tests/`), and the handler fix is
+  what makes them reach the component — they were leaking into the shared host map only because
+  `remove` was half-done. **Residual, for whoever closes `B-tests-wipe-host-map-foliage`:** host
+  maps run against the broken build may still carry component instances under an emptied record;
+  `ledgerMatchesRendered:false` from `foliage.get_instances` is now the way to see it. Wiki overlay
+  `Docs/wiki-src/foliage.md` updated for both verbs. Not compiled or run — build and suite are the
+  wave owner's.
