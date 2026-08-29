@@ -269,6 +269,156 @@ change, silently fails to complete while presenting as 0-failures; the only tell
 marker x reach=any run combining enough groups, i.e. the normal case for a change touching more
 than one area -> High
 
+## The GC-elimination hypothesis is refuted — two independent lines of evidence
+
+The standing explanation ("PDS sets `gc.GarbageEliminationEnabled=False`, which masks this whole
+bug class") does not survive either an engine-semantics reading or PDS's own crash archive.
+
+### 1. The `MarkAsGarbage` teardown idiom cannot plant a stale `UObject*` in GC-visible storage — under EITHER setting
+
+UE 5.8 reachability handles every GC-visible reference to a garbage-marked object. The two
+settings differ only in which of two SAFE outcomes you get:
+
+- **Killable (reflected) references** — UPROPERTY / `TObjectPtr` / `AddReferencedObject`, reached
+  through `ProcessReferenceDirectly` and `HandleBatchedReference(FResolvedMutableReference)`
+  (`GarbageCollection.cpp:3055-3097`). With elimination **on**, the reference is `KillReference`d
+  — set to null — and does **not** mark the object reachable. With it **off**, `MayKill` (`:2997`)
+  returns `EKillable::No`, the reference marks the object reachable, and the object **survives**.
+  Nulled or alive; never dangling.
+- **Immutable references** — `Class`, `Outer` and `ExternalPackage`, emitted via
+  `HandleImmutableReference` (`FastReferenceCollector.h:1018-1023`), which passes
+  `bAllowReferenceElimination=false` (`:799-802`). These are never killed and **always** mark the
+  referent reachable, *including when it is garbage*.
+
+The second bullet directly kills the ticket's "strongest structural candidate". A
+`UPackage->MarkAsGarbage()` whose child object survives is kept alive **by that child's own Outer
+reference**. A surviving `UBlueprintGeneratedClass` can never end up "with its class's package
+purged" — that state is structurally unreachable. `DiscardFixtureBlueprint` cannot produce it.
+
+That candidate is also already guarded in source, independently.
+`Tests\Actor\TestSpawnMaterialSurvivesConstructionScript.cpp:238-241` declares
+`ON_SCOPE_EXIT { DiscardFixtureBlueprint(BPPath); }` **before** `FScopedEditorWorldActorGuard
+WorldGuard`, with the comment "Declaration order matters: ON_SCOPE_EXIT runs LAST, the world
+guard's destructor FIRST, so the spawned instance is destroyed before its Blueprint class is
+discarded." The live instance is gone before the mark.
+
+Raw (non-reflected) C++ pointers are invisible to GC under both settings, so elimination changes
+nothing about them — and a dangling raw pointer faults at its *use* site, not inside
+`DrainValidatedFull`. The original note's "the object is torn down regardless of remaining raw
+references" conflates the two: elimination governs *reflected* references only, and it makes them
+safe by nulling them.
+
+### 2. No GC-walk fault has ever been recorded on this host
+
+`X:\src\unreal\unreal-fpv-new\Saved\Crashes\` holds **71 non-ensure crash reports** spanning
+June–August 2026. **Zero** mention `DrainValidated`, `CollectReferencesForGC`, `TReferenceBatcher`
+or `FastReferenceCollector`. `gc.GarbageEliminationEnabled=False` is not what has been protecting
+PDS from this fault; no such fault has ever occurred here to be protected from.
+
+## batch4 and batch5 are not evidence of a crash
+
+History `#2` rests on "batch4/5/6 show one identical full-suite filter stopping at 4009, 2225 and
+4576 — the crash is nondeterministic". batch4 and batch5 do not support that reading.
+
+Both logs end on a **complete, newline-terminated line**. Neither contains
+`EXCEPTION_ACCESS_VIOLATION`, `Crash in runnable thread`, `RequestExitWithStatus` or any `Fatal`.
+Both end on the **same two-line sequence** — `LogUObjectGlobals: Force Deleting 1 Package(s)`
+followed by a `LogDatasmithContent` deprecation warning — i.e. both were inside
+`ObjectTools::ForceDeleteObjects` when writing stopped (batch4 on
+`/Game/PinWrightTests/PA_BarePhys_...`, a PhysicsAsset, during
+`PinWright.skeleton.create_physics_asset.FromBareSkeleton`; batch5 on
+`/Game/GeneratedMeshes/PW_AssetCreate_...`, a StaticMesh, during
+`PinWright.Geometry.AssetCreate.ReferencedForeignSourceAssetRebuildsInPlaceWithOverwrite`).
+
+And **neither produced a crash report**. The newest non-ensure report in `Saved\Crashes\` predates
+both runs (2026-08-27 20:39, an unrelated `TArray` aliasing assert). The three reports that DO
+fall inside the batch4/batch5 windows are all `IsEnsure=true` and non-fatal by construction:
+`RegisterMorphTarget: Jaw_Open has empty data` (`SkeletalMesh.cpp:4855`, reached from
+`MorphTargetHandler.cpp:154`) and two `_test.no_response_guard` dispatcher ensures
+(`RpcDispatcher.cpp:245`).
+
+So batch4/5 are terminations with **no crash artifact of any kind** — the
+`B-suite-log-completeness-unverifiable` class, not this ticket's fault. Three stopping points for
+one filter remains a fact; attributing two of them to a GC access violation is not supported by
+the logs, and that attribution is load-bearing for the "nondeterministic host" conclusion.
+
+## Teardown audit: what was inventoried, and what is exposed
+
+**Inventory.** 75 real `MarkAsGarbage()` call sites across 27 files (81 raw `MarkAsGarbage`
+matches, six of which are prose in comments). 32 sites in `Tests\` across 11 files; 43 in
+handler/runtime code across 16 files. 13 sites mark a `UPackage`.
+
+18 of the 32 test-side sites are the "mark, then force a collect" helpers this ticket names:
+`TestSCSAddComponentMaterialStrict.cpp:77,80,97,102`, `TestSCSDuplicateComponentHandler.cpp:51,54,73,78`,
+`TestSCSGetLocalChildParentLink.cpp:53,59`, `TestSCSSetSplinePoints.cpp:55,61`,
+`TestSpawnMaterialSurvivesConstructionScript.cpp:163,165`, `TestAssetSearchNativeSubclassLive.cpp:125,131`,
+`TestBlueprintListExcludesInMemoryInstances.cpp:100,103`. The other 14 mark without a forced
+collect and let the next GC take the object — the safe form.
+
+**Exposed sites: zero, by the criterion in question.** In all seven helpers
+`CollectGarbage(GARBAGE_COLLECTION_KEEPFLAGS)` is the **last statement**; no pointer is read after
+it and every marked object is a function-local that dies with the frame. All seven call
+`RemoveFromRoot()` before `MarkAsGarbage()`, which additionally avoids the engine's `Fatal` for a
+root-set object marked garbage (`GarbageCollection.cpp:4412`). Confirming the ticket's own note:
+no plugin-owned `FGCObject`, no `AddReferencedObjects` override and no
+`Collector.AddReferencedObject` exists anywhere in `Plugins\PinWright\Source`.
+
+**The one behavioural difference elimination does introduce is not a crash.** With it on, a
+UPROPERTY on a *surviving* object that points at a marked-garbage object is nulled;
+`UBlueprintGeneratedClass::ClassGeneratedBy` is the plausible instance in these fixtures. Editor
+code that assumes it non-null would null-deref **at that use** — a different fault, on the game
+thread, with a stack that names the referencing object. Not `DrainValidatedFull`.
+
+## Real defects the audit did surface (none explains the GC signature)
+
+1. **11 test files spawn into the live editor world via `SpawnActorInActiveWorld` and never use
+   `FScopedEditorWorldActorGuard`**: `Tests\Environment\TestEnvironmentDirtyFlags.cpp`,
+   `Tests\Sequencer\TestSequencerAddActorBinding.cpp`, `...CameraRigBinding.cpp`,
+   `...ControlRigTrack.cpp`, `...FbxRoundtrip.cpp`, `...RemoveActorsNameLabel.cpp`,
+   `...SectionRangeUnits.cpp`, `Tests\World\TestActorDuplicateComponentHandler.cpp`,
+   `Tests\World\TestActorDuplicateMeshIntegrity.cpp`, `Tests\World\TestCreateProceduralTerrainLabel.cpp`,
+   `Tests\World\TestGetComponentsLargePayload.cpp`. The guard's destructor
+   (`Tests\TestWorldUtils.h:78-125`) documents its deselect as mandatory and names the fatal it
+   prevents ("Element type ID '0' has not been registered!"), and restores the persistent level's
+   dirty flag. A bare `Actor->Destroy()` in an `ON_SCOPE_EXIT` does neither. Correction to the
+   earlier note: `TestActorDuplicateMeshIntegrity.cpp` is **not** the only unguarded actor-group
+   case — `TestActorDuplicateComponentHandler.cpp` is a second one in the same group.
+2. **Five Niagara test files root a `UNiagaraSystem` fixture with no matching `RemoveFromRoot`**:
+   `TestNiagaraResetModuleInput.cpp:202`, `TestNiagaraMoveModule.cpp:122`,
+   `TestNiagaraGetModuleInputs.cpp:54`, `TestNIRGraphLinkCoverage.cpp:62`,
+   `TestNIRGraphDataflow.cpp:98`. Sibling files pair the same `AddToRoot` with an
+   `FAuthorableSystemRoots` guard. Same shape in `Tests\Assets\AnimAuthoringTestFixtures.h:42,80`.
+   Root-set growth is monotonic for the process, so it only shows in long combined runs. Small in
+   absolute terms (a handful of objects per run), so it is hygiene, not the fault.
+3. **`ObjectTools::ForceDeleteObjects` is the highest-value follow-up.** It runs 535 / 331 / 599
+   times in batch4 / batch5 / batch6 and is exactly where both PDS truncations stopped. The plugin
+   already documents it as the hazard (`Tests\TestAssetTeardown.h:32`,
+   `Tests\World\TestLevelHandlers.cpp:321`) and already ships the safe replacement idiom — clear
+   `RF_Public|RF_Standalone`, set `RF_Transient`, `Rename` into the transient package, then collect
+   — in `PwTestAssetTeardown::DiscardCreatedAssetByObjectPath` and `DiscardProbeMapPackage`.
+   Migrating the remaining `CleanupTestAsset` / `DeleteAsset` callers onto it targets the API the
+   evidence actually implicates, unlike the `MarkAsGarbage` idiom.
+
+## No code was changed, and why
+
+The premise for the fix — an unsafe teardown that PDS's config merely hides — does not hold, so
+there is nothing to make unconditionally safe under this ticket. The three defects above are real
+but separate, and an 11-file teardown refactor could not be compiled or run in this checkout (a
+parallel wave was mid-edit), so landing it would be an unverified change of exactly the size the
+project rules forbid. Status stays `OPEN`.
+
+**No regression test was added, deliberately.** Reproducing this needs a real GC fault, which has
+never occurred on this host; and a test asserting "`MarkAsGarbage` + `CollectGarbage` leaves no
+dangling GC-visible reference" would only re-assert engine behaviour already guaranteed by
+`HandleImmutableReference` / `KillReference`. What could not be tested: nothing was compiled or
+executed — every claim above is from engine source at `C:\UE_5.8\Engine\Source`, plugin source,
+archived logs under `Saved\PinWright\test-runs\`, and `Saved\Crashes\`.
+
+**Severity note (not applied):** the fault is now unobserved on PDS across the entire crash
+archive, and the two PDS data points cited for it are unattributable. That argues for a re-score,
+left to re-triage rather than changed here.
+
+
 ## History
 - `#1-initial-repro` `OPEN` verifier — 2026-08-28, UE 5.8, PinWright rebuilt at `b79ba53e`. Found
   while running the scoped suite to verify the `548bf740..HEAD` fix batch. Three runs as recorded
@@ -291,3 +441,4 @@ than one area -> High
   well as `blueprint` (2335-194-44=2097), runs A/B/C were on EAContentExamples58 not PDS, and PDS
   sets `gc.GarbageEliminationEnabled=False` which masks this whole bug class."
 - `#3-truncated-run-observed-on-pds` `OPEN` reporter — "A full-suite PDS run on 2026-08-28 stopped at 4312 of 4625 tests with 0 failures, 0 crash markers and NO `TestExit: Automation Test Queue Empty` line — a truncated run that reads as green on a Result={Fail} count alone. Contradicts the same-day bisection note that PDS always drains: PDS can truncate too, just far later in the queue than the EAContentExamples58 runs. An immediate re-run of the identical filter drained fully (4625 performed, TestExit present), so it is nondeterministic here as well. Practical consequence: the `N tests performed` + TestExit pair is the only sound drain check; grepping for the literal 'Automation Test Queue Empty' also matches the -TestExit command-line echo and yields a false positive."
+- `#4-gc-elimination-hypothesis-refuted` `OPEN` developer — "Audited the teardown idiom and REFUTED the gc.GarbageEliminationEnabled=False explanation on two independent grounds. Engine semantics: reflected references to a garbage-marked object are either KillReference'd to null (elimination on, GarbageCollection.cpp:3055-3097) or keep the object alive (off, MayKill :2997), and Class/Outer/ExternalPackage go through HandleImmutableReference with bAllowReferenceElimination=false (FastReferenceCollector.h:1018-1023, :799-802) so they are never killed and always mark the referent reachable - so a package marked garbage whose child survives is kept alive by that child's own Outer, and the 'class's package purged' candidate is structurally impossible; that test also already destroys the spawned instance first (TestSpawnMaterialSurvivesConstructionScript.cpp:238-241). Empirics: Saved/Crashes holds 71 non-ensure reports from June-August 2026 and ZERO mention DrainValidated / CollectReferencesForGC / TReferenceBatcher / FastReferenceCollector, so the fault has never occurred on PDS at all. Also corrected History #2: batch4 and batch5 carry no crash marker, no Fatal and NO crash report (the only reports in their windows are IsEnsure=true), and both end on a complete line inside ObjectTools::ForceDeleteObjects - they are the truncated-log class, not GC crashes, so two of the three 'nondeterministic' data points are unattributable. Audit numbers: 75 MarkAsGarbage() call sites in 27 files (32 in Tests/, 13 marking a UPackage); 18 test sites sit in the seven mark-then-collect helpers; EXPOSED SITES = 0 - CollectGarbage is the last statement in every helper, every marked object is a function-local, all seven RemoveFromRoot() first, and the plugin owns no FGCObject or AddReferencedObjects. Separate real defects found: 11 test files spawn into the live editor world without FScopedEditorWorldActorGuard (including a second actor-group file, TestActorDuplicateComponentHandler.cpp, which the earlier note missed); five Niagara test files plus AnimAuthoringTestFixtures.h AddToRoot fixtures with no RemoveFromRoot; and ForceDeleteObjects (535/331/599 calls per full run) is where both PDS truncations stopped, with a safe replacement idiom already shipping in PwTestAssetTeardown::DiscardCreatedAssetByObjectPath. NO CODE CHANGED - the premise for a fix does not hold and nothing could be compiled or run during the parallel wave; status stays OPEN."
