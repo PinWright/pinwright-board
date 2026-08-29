@@ -56,7 +56,7 @@ is to delete and rebuild, stated by the MGIR emitter itself:
 TEXT("with material.graph.remove_node + add_expression + connect_nodes. If it is a ")
 TEXT("parameter expression, material.authoring.set_*_parameter_value edits it in place."),
 ```
-`Plugins/PinWright/Source/PinWright/Private/…/MGIR/MGIRExpressionEmitter.cpp:184-185`
+`Plugins/PinWright/Source/PinWright/Private/MGIR/MGIRExpressionEmitter.cpp:184-185`
 
 The asymmetry is the point: once an expression *is* a parameter it can be edited in place; getting it
 to be one means removing and re-adding it, and re-wiring whatever it fed. For the common intent —
@@ -145,7 +145,7 @@ content, which is exactly where a project borrows materials from. Low stands unm
   `connect_nodes` into a main input via the `'Main'` sentinel (`:1698`, `:1703`, `:1727`; sibling
   `MaterialGraphHandler.cpp:134`, `:480`) express exactly the asked-for Multiply+VectorParameter
   insertion in three calls. WHAT SURVIVES, three things: (a) no promote-to-parameter verb exists,
-  and the plugin's own MGIR emitter text (`MGIRExpressionEmitter.cpp:184-185`) documents the
+  and the plugin's own MGIR emitter text (`Private/MGIR/MGIRExpressionEmitter.cpp:184-185`) documents the
   workaround as remove-then-re-add — so a parameter can be edited in place once it exists but
   becoming one costs a subgraph rebuild; (b) `parameters: []` names no next step, the mirror of
   `E-get-material-info-no-param-defaults` (IN-REVIEW, Low), which asks the same array to say more
