@@ -375,3 +375,27 @@ the flat `niagara.*` target descriptor (`emitterName`, `scriptType`, `nodeId`, `
   it will surface as a new failure and a pair that another agent fixes will surface as a stale-entry
   warning. Both are the ratchet working. NOT COMPILED and NOT RUN by this agent — the orchestrator
   owns the build and the suite.
+- `#2-static-file-locality-never-fired` `IN-REVIEW` fixer — The shipped hop had the file-locality
+  rule written but dead. `FHelperIndex::AddFile` tested the definition's line prefix with
+  `FRegexPattern(TEXT("\bstatic\b"))` — a SINGLE backslash, which C++ folds to the backspace escape,
+  so the pattern is `<BS>static<BS>` and never matches any source text. `Helper.bFileLocal` therefore
+  collapsed to `bAnonymous` alone and every `static` definition stayed a cross-file resolution
+  candidate. That is exactly the false-attribution class the rule exists to block, and it is why
+  `ScannerSeesEveryCoveredReadShape`'s negative "a static definition in another file is not a
+  candidate" failed in the suite run. Fixed to `TEXT("\bstatic\b")`; the test's other assertions,
+  the vacuity guard, and the anonymous-namespace path are untouched.
+  **BASELINE IMPACT: none — 434 helper-hop entries and 8 in-body entries stand unchanged.** Measured
+  offline over the non-test Source tree (1,004 files): 742 indexed helper definitions, of which 77
+  are `static` outside an anonymous namespace and so newly file-local. Resolution was recomputed
+  before/after for every `(caller file, name, qualifier)` triple naming one of those 76 names. All
+  77 are defined in `.cpp` files (none in a header, so no include-visible `static` helper is lost),
+  and every real call site sits in the defining file, where `SameFile` already won — so not one
+  resolution moves. The single triple that differs is `SequenceHandler.cpp:2368`, which is the
+  DEFINITION of an unrelated `static FGuid ResolveBindingGuid(UMovieScene*, const FString&, const
+  FString&)` at namespace scope, inside no handler body and no indexed helper body; `CollectCalls`
+  never runs over it. Its two real call sites (`SequenceKeyframeHelpers::ResolveBindingGuid`, lines
+  2506 and 2790) resolve to nothing both before and after, because the qualifier does not scope-match
+  `PinWrightControlRigSequencer`. Direction check: marking more definitions file-local can only
+  REMOVE candidates, so it can add a pair only where removal breaks a tie — zero such sites exist
+  here. No baseline entry in this file was produced by the flaw. NOT COMPILED and NOT RUN by this
+  agent — the orchestrator owns the build and the suite.
