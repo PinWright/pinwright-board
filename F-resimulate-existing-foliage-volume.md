@@ -119,8 +119,9 @@ not a simulation input at all — it is a render-time indirection, and the engin
 on the property-change notification:
 
 - `UFoliageType::PostEditChangeProperty`
-  (`C:/UE_5.8/Engine/Source/Runtime/Foliage/Private/InstancedFoliage.cpp:1040` computes
-  `bSourceChanged`; `:1046-1050` iterates every loaded `AInstancedFoliageActor` and calls
+  (`C:/UE_5.8/Engine/Source/Runtime/Foliage/Private/InstancedFoliage.cpp:1035` computes
+  `bSourceChanged`; the gate `IsFoliageReallocationRequiredForPropertyChange` at `:1042` guards a
+  loop over every loaded `AInstancedFoliageActor` (`:1044`) calling
   `NotifyFoliageTypeChanged(this, bSourceChanged)` at `:1048`), paired with `PreEditChange` →
   `NotifyFoliageTypeWillChange` at `:1060-1062`;
 - through `FFoliageInfo::NotifyFoliageTypeChanged` (`:2185-2188`) into
@@ -234,8 +235,9 @@ rather than once. Medium stands unmodified.
   to consume them, so the write is inert"* is right for the three properties it names
   (`ProceduralScale` / `InitialSeedDensity` / `OverlapPriority`, all simulation inputs consumed
   once) and wrong as a general rule about `_FT_<n>` writes. Mechanism read at HEAD:
-  `UFoliageType::PostEditChangeProperty` (`InstancedFoliage.cpp:1040`, `:1046-1050`) notifies every
-  loaded `AInstancedFoliageActor` at `:1048`, reaching `FFoliageInfo::NotifyFoliageTypeChanged`
+  `UFoliageType::PostEditChangeProperty` (`bSourceChanged` at `InstancedFoliage.cpp:1035`, gate at
+  `:1042`, loop at `:1044`) notifies every loaded `AInstancedFoliageActor` at `:1048`, reaching
+  `FFoliageInfo::NotifyFoliageTypeChanged`
   (`:2185-2188`) and `FFoliageStaticMesh::NotifyFoliageTypeChanged` (`:1449`) →
   `CheckComponentClass` (`:1452`), `UpdateComponentSettings` (`:1453`),
   `BuildTreeIfOutdated` (`:1466`); `PreEditChange` → `NotifyFoliageTypeWillChange` at `:1060-1062`.
