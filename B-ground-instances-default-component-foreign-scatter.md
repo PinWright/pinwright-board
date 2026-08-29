@@ -1,7 +1,7 @@
 ---
 id: B-ground-instances-default-component-foreign-scatter
 title: "`spatial.ground_instances` with `component` omitted seats whichever component on the actor carries the most instances — on the level's singleton `AInstancedFoliageActor` that is every caller's foliage, and it relocated 2,048 instances of other agents' authored content across three incidents in one session"
-status: OPEN
+status: IN-REVIEW
 severity: Critical
 category: bug
 tags: [spatial, ground_instances, ism, hism, foliage, shared-state, concurrency, multi-agent, silent-mutation, undo, data-loss, default-scope, component-identity]
@@ -313,3 +313,55 @@ affected shape *is* the documented default and the only one the foliage verbs ca
   rewrite, and replaying them then succeeds while corrupting the newer data. Rated **Critical** on the
   data-loss band; the counter-argument (a solo caller would have had a working receipt) is recorded
   and rejected, because cross-caller reach is the defect itself rather than an aggravating accident.
+- `#2-refuse-the-omitted-component-at-the-shared-picker` `IN-REVIEW` developer — Fixed once at the
+  shared resolution site `InstancedMeshUtils::ResolveInstancedComponent`, which all three verbs
+  (`actor.get_instances`, `actor.set_instance_transforms`, `spatial.ground_instances`) route
+  through: largest-wins is **gone**, and an omitted `component` on an actor carrying more than one
+  instanced component is now refused with the newly registered
+  `AMBIGUOUS_INSTANCED_COMPONENT`, naming every candidate **with its instance count**. A
+  one-component actor keeps the convenience (ask b.1). The refusal is the scoping surface the
+  ticket says does not exist: it is the only place that publishes what the actor carries, so the
+  caller who had no legal value for `component` gets one from the error. **Rejected alternatives:**
+  refusing on `AInstancedFoliageActor` specifically — under-covers (a BP or PCG holder with several
+  scatters is equally multi-tenant in a multi-agent session) and over-covers in the wrong dimension
+  (a one-component IFA would be refused with no substitute verb, since `foliage.*` cannot seat
+  instances), while dragging a Foliage type into a header shared by the Actor and Spatial handlers
+  for a check the component count already makes; an opt-in flag re-enabling largest-wins for
+  multi-component actors — it would be pasted into exactly the calls that caused the incidents, and
+  buys nothing over copying the name the refusal already prints; keeping the seat and adding a
+  warning field — the incidents show the damage precedes the reading of the response. **Ask b.2
+  shipped:** `expectedCount` added to `spatial.ground_instances`, refusing `MATCH_COUNT_MISMATCH`
+  before the first move with the identity attached — the twin of `ground_actors`' `expectedMatches`
+  and of `set_instance_transforms`' existing `expectedCount`, and the only guard covering what b.1
+  cannot see (a one-component actor, and a component name reassigned to a different scatter, which
+  still resolves cleanly because the match is on `GetName()` alone). **Ask b.3 shipped:**
+  `WriteComponentIdentity` now runs immediately after resolution rather than after the seat loop,
+  so the identity is a pre-flight reading that the refusals above can attach — the values are
+  identical either way (seating changes transforms, not counts), so this is a code-ordering and
+  intent fix, not a wire change. **Correction to the ticket, recorded honestly:** `apply:false`
+  *would* have disclosed the component — it runs the same resolution and the same
+  `WriteComponentIdentity`, and reports `component` / `instanceCount` / per-instance
+  `proposedDeltaZCm` having written nothing. What it did not do is disclose it *by default*:
+  `apply` defaults to `true`, so a caller who never opted into a dry run learned the component name
+  in the same response that reported the move. Worse, the disclosure was unverifiable — with
+  `foliage.add_instances` publishing no component name, a caller had nothing to compare it against.
+  So the ticket's "no working disclosure" conclusion stands while its stated mechanism does not; the
+  `apply` parameter text now says so instead of claiming the flag is the scope guard. **Ask (a) NOT
+  done** — `foliage.add_instances` returning the component name and index range is in
+  `FoliageHandler.cpp`, outside this ticket's file set and being edited concurrently; it remains the
+  missing half that makes scoping *convenient*, but the refusal above now makes it *possible*
+  without it. `GroundPlacement::FindInstancedHolder` is unchanged: its largest-wins is refusal-only,
+  which the ticket itself argues is safe. **Regression test:**
+  `PinWright.spatial.ground_instances.OmittedComponentRefusedOnAMultiComponentActor` in
+  `Tests/Spatial/TestGroundPlacement.cpp`, with a new `GroundTestAddScatterComponent` fixture — a
+  holder whose FOREIGN component is the bigger one (5 instances to the caller's 3) and sits over the
+  same floor, so the verb genuinely could have seated it. Asserts the refusal and its code for all
+  three verbs, that the message names both components, that the named-component path still works
+  and moves only its own three, that `expectedCount` refuses, and — the assertion the test exists
+  for — that every foreign instance is exactly where it was, re-read from the engine after each
+  call. It fails before this change on multiple assertions, because largest-wins seated all five.
+  Files: `Handlers/Actor/InstancedMeshUtils.h`, `Handlers/Actor/InstancedMeshHandler.cpp`,
+  `Handlers/Spatial/GroundPlacementHandler.cpp`, `Handlers/ErrorCodes.h`,
+  `Tests/Spatial/TestGroundPlacement.cpp`. **Not compiled and not run** — the wave owner builds and
+  runs the suite. `Docs/error-code-catalog.md` is a generated inventory and was deliberately not
+  regenerated mid-wave; it will need a sweep for the new code.
