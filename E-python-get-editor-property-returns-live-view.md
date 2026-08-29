@@ -4,9 +4,9 @@ title: "get_editor_property hands back a live reference into the object's own me
 status: OPEN
 severity: Medium
 category: ergonomic
-tags: [python, python-execute, wiki, wiki-src, docs, get_editor_property, reflection, read-modify-verify, silent-wrong-verification, snapshot, containers]
-encounters: 1
-lastSeen: 2026-08-29T18:00:00+05:00
+tags: [python, python-execute, wiki, wiki-src, docs, get_editor_property, reflection, read-modify-verify, silent-wrong-verification, snapshot, containers, elements, silent-write-loss, landscape-grass]
+encounters: 2
+lastSeen: 2026-08-29T20:20:00+03:00
 ---
 
 # The verification half of read-modify-write is aliased to the thing it is meant to verify
@@ -186,3 +186,60 @@ mechanism is near-universal; the reach of the failure is not. Medium stands.
   returns a false field and the measured writes were all correct. Reach modifier declined in the
   direction that would raise it, with the argument stated: the mechanism is near-universal, but the
   failure only bites the before/after comparison pattern, not a plain read-write-reread.
+- `#2-elements-are-copies-the-opposite-polarity` `OPEN` reporter — **Second encounter, from a
+  performance-profiling pass on `/Game/Maps/PW_VegetationTest` (`Docs/map/vegetation-performance.md`
+  § *Two Python write traps*), and it corrects a load-bearing line in `#1`.** The container is a
+  reference; **its elements are not**, and the two failures point in opposite directions.
+  **Measured:** editing `ULandscapeGrassType::GrassVarieties` (a `TArray<FGrassVariety>`) with
+  `for v in gt.get_editor_property('grass_varieties'): v.set_editor_property(...)` reports success on
+  every call, `save_asset` returns `True`, the `.uasset` mtime moves — and the stored value is
+  unchanged. Writing elements back by index and re-assigning the whole array with
+  `set_editor_property('grass_varieties', arr)` works. **Mechanism, re-derived against UE 5.8
+  PythonScriptPlugin source:** `FPyWrapperArray::GetItem` (`PyWrapperArray.cpp:409-432`) calls
+  `PyConversion::PythonizeProperty(...)` at **`:426` with three arguments**, silently taking the
+  header defaults declared at **`PyConversion.h:226`** — `EPyConversionMethod::Copy` and
+  `OwnerPyObj = nullptr`. That single omitted argument is the whole defect, and it is the exact
+  argument `PyUtil.cpp:906` (this ticket's `#1` line) passes explicitly one level up. All three
+  element surfaces funnel through it: `sq_item` (`PyWrapperArray.cpp:1490` -> `:990-993`),
+  `mp_subscript` (`:1499` -> `:1123`), and the iterator, whose hot line `:96` is a bare
+  `FPyWrapperArray::GetItem(InSelf->IterInstance, InSelf->IterIndex++)` — so `for v in arr` **is**
+  `GetItem`. For a `FStructProperty` inner it routes `PyConversion.cpp:1243-1247` -> `:692-701` ->
+  `:1163-1167` into `FPyWrapperStructFactory::CreateInstance` (`PyWrapperTypeRegistry.cpp:525-537`,
+  `:536` forcing a fresh wrapper for Copy/Steal) and lands in the **Copy** branch of
+  `FPyWrapperStruct::Init` (`PyWrapperStruct.cpp:144-151`: `AllocateStruct` + `InitializeStruct` +
+  `CopyScriptStruct`), not the Reference branch at `:153-157`. `v.set_editor_property(...)` then writes
+  correctly into that private duplicate (`PyWrapperStruct.cpp:1131` -> `:443-460`, `:459` ->
+  `PyGenUtil.cpp:1465` -> `PyUtil.cpp:958`), returns `None`, and the duplicate is freed when the loop
+  rebinds `v`. Because `OwnerPyObj` was null the owner context built at `PyConversion.cpp:1086` is
+  empty, so `FPyWrapperOwnerContext::BuildChangeNotify` (`PyWrapperOwnerContext.cpp:55-115`) discards
+  the notify at `:109-113` — **no `PreEditChange`, no `PostEditChangeProperty`, no `MarkPackageDirty`
+  on the owning asset**, which is why nothing anywhere complains. The whole-array re-assign works
+  because it goes through `FPyWrapperObject`'s setter where the owner *is* a `UObject`, so
+  `BuildChangeNotify` reaches `PyWrapperOwnerContext.cpp:93` and the copy is written back by
+  `CopyScriptStruct` at `PyConversion.cpp:929`. Same defaulted 3-arg form at `PyWrapperArray.cpp:746`
+  (`Pop`), `:823` (`Sort`), `PyWrapperSet.cpp:127`/`:561`, and `PyWrapperMap.cpp:228`/`:235`/`:256`/
+  `:276`/`:848`/`:939`/`:1016`. **Correction to `#1`, and it is the important part of this entry:**
+  `#1`'s Fix says to *"`.copy()` each element if you keep elements rather than the container"*, and its
+  Mechanism says sets, maps and structs *"read the same way"*. That is right for the top-level
+  `get_editor_property` read and **wrong one level in** — elements are already detached copies, so
+  `.copy()` on one is a no-op, and the belief it encodes (that iterating yields live references) is
+  precisely what makes the doomed `for v in arr: v.set(...)` pattern look sound. The doc section this
+  ticket asks for must state **both** halves in one place — the container aliases, its elements do not —
+  because a caller who learns only the `#1` half will get this half wrong in the opposite direction, and
+  a caller who learns only this half will write a before/after log that cannot fail. **Three premises in
+  the incoming report did not survive and are recorded so they do not recur:** (i) *"`PerPlatformInt.default`
+  is read-only from Python"* is **false** — `FPerPlatformInt::Default` (`PerPlatformProperties.h:187-188`)
+  and `FPerPlatformFloat::Default` (`:233-234`) are both `UPROPERTY(BlueprintReadOnly, EditAnywhere)`, and
+  the Python path gates on `PropertyAccessUtil::EditorReadOnlyFlags` (`PyUtil.cpp:927`), not
+  `CPF_BlueprintReadOnly`, so `.default` is settable and rebuilding the struct is not the only route;
+  (ii) the reported snippet carried an **independent** type error — `FGrassVariety::GrassDensity` is
+  `FPerPlatformFloat` (`LandscapeGrassType.h:44-45`), so `unreal.PerPlatformInt(300)` fails the
+  `IsChildOf` gate at `PyConversion.cpp:921` and raises `TypeError` even against a correctly-referenced
+  element (`unreal.PerPlatformFloat(300.0)` is the correct form); (iii) no UPROPERTY specifier blocks
+  anything here — `ULandscapeGrassType::GrassVarieties` is `EditAnywhere`
+  (`LandscapeGrassType.h:175-176`). Also worth writing down beside `CLAUDE.md`'s save rule: **the moved
+  `.uasset` mtime is not evidence** — `save_asset` rewrote the package whether or not the property
+  changed. Severity left at **Medium** and not raised: this half is a silent *write* loss rather than a
+  wrong verification, which is a stronger impact, but it remains unfixable in PinWright code and the
+  ask is still one doc section — and the workaround (index-assign, then re-assign the array) is one
+  extra statement. Raising it would sort a doc edit above shipped-code defects. `encounters` 1 -> 2.
