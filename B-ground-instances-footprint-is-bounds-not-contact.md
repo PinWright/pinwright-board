@@ -5,8 +5,8 @@ status: IN-REVIEW
 severity: High
 category: bug
 tags: [spatial, ground_instances, ism, hism, instanced-static-mesh, scatter, vegetation, trees, bounds, aabb, footprint, contact-patch, underside, bounds-plane, silent-wrong-data, false-pass, placement, level-building, no-workaround]
-encounters: 2
-lastSeen: 2026-08-29T20:50:00+03:00
+encounters: 3
+lastSeen: 2026-08-29T22:10:00+03:00
 ---
 
 # The footprint is the silhouette, and for a tree the silhouette is the canopy
@@ -394,3 +394,77 @@ right band without it.
   read the number off a mesh, and why `ground_actors` has no equivalent. **NOT COMPILED and NOT
   RUN** — the orchestrator builds and runs the suite after this hand-off, so every claim above is a
   claim about the diff, not about a green run.
+- `#4-contact-model-shipped-offline-and-shape-2-sharpened` `IN-REVIEW` reporter — **Additional
+  evidence, no status change, no existing prose edited.** A follow-on pass on the same level
+  (`/Game/Maps/PW_VegetationTest`, editor build **10:44**, host-project commit `962275fa`) built the
+  contact model this ticket's **ask shape 2** describes, ran it over every non-tree prop class, and
+  measured it. It works, and the way it works corrects the shape-2 wording in a way that matters to
+  whoever implements it. Scripts: `X:/src/unreal/EAContentExamples58/dev/rockdiag/` (`r_probe2.py`
+  builds the model, `r_analyze.py` solves, `r_compare.py` is the before/after harness); write-up
+  `Docs/map/tree-seating-on-slopes.md` § *Underside-heightfield seat*.
+  **Result, offline, written with `actor.set_instance_transforms`** — re-run from the receipts
+  while filing, not quoted from the report: 1299 instances matched before and after; whole-object
+  float **254 (19.6%) -> 0 (0.0%)**; 352 instances moved, dz p50 **-5.03**, p90 -15.87, deepest sink
+  -32.95, **shallowest move -0.52 (i.e. zero lifts)**; 0 regressions. Per class, floating before ->
+  after: `SM_Rock` 108 (23.2%) -> 0, `SM_Rock1` 54 (19.0%) -> 0, `SM_Rock2` 45 (16.8%) -> 0,
+  `S_Forest_Rock_Shelf...Var1` 43 (18.1%) -> 0, `SM_Driftwood` 3 (11.1%) -> 0, `SM_MT_Boul_B` 1 -> 0,
+  `SM_MT_Boul_A` 0 -> 0. Vision-verified at three poses (1280x720, fov 25, `ev100 -0.5`, grass
+  settled by two consecutive frames agreeing): before, each rock stands clear of the grass canopy on
+  a hard silhouette line with a dark void under its lower edge and lit grass visible **through** the
+  gap; after, the grass grows up over the same edges and the silhouette line is gone.
+  **The sharpening, and it is the load-bearing part.** Shape 2 says `contact` "derives the XY
+  half-extent from the mesh's own lowest-slice vertices". **A lowest-slice or all-vertex underside is
+  not sufficient, measured.** The model that reached 0.0% keeps only vertices whose **world-space
+  normal faces down** — `n . Z < -0.15`, computed per instance after rotating both vertices and
+  normals into the instance basis — then buckets those into a KxK world-XY grid and keeps the lowest
+  point per cell. Without the normal filter a rounded rock's **flanks** enter its own contact model
+  and **64-78% of cells read as daylight** when they are simply the side of the rock. And it has to
+  be per instance, not per mesh: these props carry pitch and roll to +/-40 deg, so "downward" is a
+  property of the instance. **The open-bottom case needs a stated fallback:**
+  `S_Forest_Rock_Shelf...Var1` has **8 downward-facing vertices out of 843** (it is open-bottomed,
+  matching `Docs/map/vegetation-zone-f.md`'s upward-probe finding), so it falls through to the lower
+  envelope — which for a thin open slab is its rim, the silhouette daylight is judged against
+  anyway. A fixed slice fraction would have silently produced a garbage footprint for that mesh.
+  Embed in the shipped model is **absolute** and derived from the instance's own underside footprint
+  radius, `clamp(0.04*r, 2, 10)` cm, never from bounds height — the same rule as the trunk fix.
+  **Correction to this ticket's own § *Measured: the field consequence*.** The three non-tree rows
+  in its second table — rock shelves 224/238 (**94%**), driftwood 22/27 (**81%**), `SM_Rock` 355/466
+  (**76%**) — are **pivot-ring artefacts and should not be quoted.** The ring probes a circle of
+  radius `contactR * scale` about the pivot and computes the object bottom from the mesh's
+  **unrotated** z-min, so for a 5.5 m slab it samples ground 2.4-5 m to either side, and for a rock
+  tumbled +/-40 deg it compares against a bottom the instance does not have. Measured against the
+  real underside those same instances were **18.1% / 11.1% / 23.2%**. The **tree** rows in that
+  section are unaffected and remain correct: for a trunk the pivot ring at `contactR = 100` uu *is*
+  the contact footprint, which is this ticket's whole point. Nothing else in the body changes — the
+  47-81x bounds/contact ratios, the dry-run tables and the 20-tree pilot are all trunk measurements.
+  **On `#3`'s stated reason for choosing shape 1.** That entry declined shape 2 partly because
+  "`dev/planting/p_meshprofile.py` does not exist in this tree, searched repo-wide". It does exist,
+  at `X:/src/unreal/EAContentExamples58/dev/planting/p_meshprofile.py` — but `dev/` is **untracked**
+  in the host project and absent from the plugin repo entirely, so a repo-wide search from a plugin
+  checkout cannot find it. Not a fault in that decision (shipping the untestable half of a shape
+  would still have been wrong), and `contactRadius` remains the right first landing — but the
+  reference implementation is now real, runnable and measured, so shape 2 is no longer a
+  re-derivation risk when someone takes it. `dev/rockdiag/` is in the same untracked state.
+  **Recorded so it is not re-derived: bounded tilt was built and rejected.**
+  `dev/rockdiag/r_analyze.py:solve_conform` implements a three-variable supporting-plane solve over
+  the same cells, in two versions. *Maximise dz subject to every cell <= -embed* is the wrong
+  objective — it requires the whole underside below ground and sank rocks by a metre; an overhang
+  above ground is not a defect. *Pin contact at -embed, minimise the range of the tilted clearance
+  field* is the right objective but lifts anything already bedded deeper than `embed`, which is the
+  exact regression an earlier pass had to revert 38 instances for; clamped never-to-lift it collapses
+  onto the Z-only model (median void 55.9 -> 43.8 cm on the shelves, 35.0 -> 29.5 on `SM_Rock`) in
+  exchange for rotating 143 and 141 authored instances. Not shipped.
+  **A census that stops at ISM/HISM is not a census.** The pass that produced the "before" figures
+  walked only `InstancedStaticMeshComponent`, so the level's **56 hand-placed rock ACTORS**
+  (`ZF_Rock_*`, `ZFH_Rock_*`, `ZFW_Stone_*`, `ZF_BoulA/B_*`, `ZF_Shelf_*`, `ZF_Log_*`, `ZFW_Log_*`)
+  had never been measured at all. Measured now: all 56 seated, min clearance -8.5 to -226 cm.
+  Nothing to fix, but it is the `spatial.ground_actors` half of the same question, and that verb's
+  footprint comes from `GetActorBounds` (`GroundPlacementUtils.cpp:1195`) — the reason `#3` gives for
+  not extending `contactRadius` to it.
+  **Cross-link, no second file touched.** The same model answers
+  `B-ground-instances-rotated-aabb-underside-plane`'s "Stronger and separable" option, and corrects
+  its wording the same way: "the lowest transformed vertex of the mesh's lowest LOD" is still a
+  single number and therefore still a plane. What was measured to work is a per-cell field of
+  **downward-facing** points. That ticket carries its own note of this; the two remain split for the
+  reasons both already state. `encounters` 2 -> 3, `lastSeen` refreshed; status left `IN-REVIEW`
+  because `#3`'s `contactRadius` fix is untouched by any of the above and nothing here challenges it.
