@@ -4,7 +4,9 @@ title: "texture.describe / texture.json omits LODBias, VirtualTextureStreaming, 
 status: IN-REVIEW
 severity: Medium
 category: ergonomic
-tags: [texture, describe, dump-parity, lod-bias, wrap, addressing, readback, get_texture_info, virtual-texture, configure_virtual_texture, virtualTextureStreaming, filter, set_texture_filter]
+tags: [texture, describe, dump-parity, lod-bias, wrap, addressing, readback, get_texture_info, virtual-texture, configure_virtual_texture, virtualTextureStreaming, filter, set_texture_filter, compression-no-alpha, opacity-mask]
+encounters: 2
+lastSeen: 2026-08-29T00:00:00+05:00
 ---
 
 # `texture.describe` (and the `texture.json` dump sidecar it mirrors) omits LODBias and wrap/addressing
@@ -157,3 +159,52 @@ message; or `asset.dump` + read `properties.json` (`LODBias` / `AddressX` /
   sets LODBias=2 / AddressX=TA_Clamp / AddressY=TA_Mirror / VirtualTextureStreaming=true /
   Filter=TF_Nearest, calls the exported production `BuildTextureJson`, and asserts each of
   the five JSON fields is present with the matching value — it fails if the fix is reverted.
+- `#6-additional-compressionnoalpha` `IN-REVIEW` reporter — **A FIFTH field of the
+  same shape, and one `#5-fix` does not cover: `CompressionNoAlpha`.** Verified
+  against the shipped handler at HEAD in this checkout, not against this ticket:
+  `texture.describe` (`TextureHandler.cpp:2814`) returns
+  `TextureDumpBuilder::BuildTextureJson` unchanged, and that builder's complete
+  emitted key set (`TextureDumpBuilder.cpp:215-250`) is `kind` `:216`,
+  `textureClass` `:217`, `size{x,y,z}` `:220-222`, `arraySize` `:224`,
+  `pixelFormat` (`:226` → `AddPixelFormatField` `:39-45`), `compressionSettings`
+  `:228`, `lodGroup` `:229`, `lodBias` `:230`, `srgb` `:231`, `mipGenSettings`
+  `:232`, `neverStream` `:233`, `virtualTextureStreaming` `:234`, `filter` `:235`,
+  `addressX` `:239`, `addressY` `:240`, and `source{x,y,slices,format}` `:242-250`.
+  So `#5-fix` did land — `lodBias`, `virtualTextureStreaming`, `filter`,
+  `addressX`, `addressY` are all present, and a tester verifying this ticket
+  should find them. `CompressionNoAlpha` is not among them, and the identifier
+  appears **nowhere in the plugin source at all** (grep across
+  `Plugins/PinWright/Source/`: zero hits, in any handler, builder, test or doc).
+  It is a real `UTexture` UPROPERTY — engine
+  `Runtime/Engine/Classes/Engine/Texture.h:1201` (`uint8 CompressionNoAlpha : 1`,
+  constructor default `false` at `:1188`) — so this is the same schema-completeness
+  gap in the same shared builder, one field further along.
+  **Measured consequence, which is worse than the four already listed because it
+  is not merely unreadable but actively invisible.** A content texture in this
+  project carries `CompressionNoAlpha = true`. That discards the alpha channel at
+  compression time, so every sample of that texture's alpha returns 1. A masked
+  material driving OpacityMask from it therefore has an opacity mask that is 1
+  everywhere: the cutout never cuts, and the meshes render as solid quads. Nothing
+  in any readback says why. `compressionSettings` reports `TC_Default` — correct,
+  and unrelated to the flag. `srgb`, `mipGenSettings`, `filter`, `source.format`
+  are all unremarkable. Two textures that differ only in this flag return
+  **identical** `texture.describe` output apart from `pixelFormat`.
+  **Stated honestly: `pixelFormat` is a partial, ambiguous proxy, not a readback.**
+  A `TC_Default` texture with the flag set compiles to `PF_DXT1` where it would
+  otherwise be `PF_DXT5`, so a caller who knows the DXT1/DXT5 mapping can *suspect*
+  it. But `PF_DXT1` is equally what a source image with no alpha channel produces,
+  and the two cases need opposite fixes (clear the flag vs. re-author the source
+  with alpha). An ambiguous inference across a compression-format table is not the
+  canonical readback this ticket is about, and it is not something a caller
+  debugging "why is my cutout solid" will reach for.
+  **Not filed, deliberately:** the content defect itself (the mis-flagged texture,
+  the solid quads) is a game-level bug and out of board scope per the README —
+  only the missing readback is an MCP tool issue and only that is claimed here.
+  Fix: add `compressionNoAlpha` (`SetBoolField` from `Texture->CompressionNoAlpha != 0`)
+  to `BuildTextureJson` next to `compressionSettings` at `:228`, and extend
+  `TestTextureDescribeSamplingFields.cpp` with a sixth assertion. Sibling
+  write-verb note: unlike the four fields in `#1`-`#3`, this one has no setter
+  either — `texture.set_compression_settings` (`TextureHandler.cpp:1127-1155`)
+  writes `CompressionSettings` and never touches `CompressionNoAlpha` — so there
+  is currently no way to read it, and no way to write it. That write gap is a
+  separate ask and is not claimed by this ticket.
