@@ -5,8 +5,8 @@ status: OPEN
 severity: Medium
 category: bug
 tags: [spatial, raycast_screen, raycast, trace, collision, foliage, hism, instance-index, incomplete-fix, sibling-verb-drift, diagnostics, vegetation]
-encounters: 1
-lastSeen: 2026-08-29T18:00:00+05:00
+encounters: 2
+lastSeen: 2026-08-29T18:20:00+05:00
 ---
 
 # One of the two trace verbs was taught about collisionless meshes
@@ -181,3 +181,29 @@ the rubric's down-bump is refused on principle here. Medium stands unmodified.
   ticket's wrong answer became a heightmap and propagated. Reach declined both ways, and the
   down-bump refused on principle: this verb's low call count is a consequence of the defect, so
   counting it would be measuring the defect rather than the reach.
+- `#2-second-pass-did-not-attempt-the-verb` `OPEN` reporter — Second independent encounter on the
+  same map, `encounters` 1 -> 2. The zone F re-speciation pass over `PW_VegetationTest`
+  (`Docs/map/vegetation-zone-f.md` § Re-speciation, Findings 2) met the identical question — *which
+  species is the dark mass in this frame* — and **did not call `spatial.raycast_screen` at all**. It
+  went straight to a bespoke `python.execute` script, `dev/zonef2/f_whatis.py`, which projects every
+  ISM/HISM instance into the camera frustum analytically. The species defect still took four
+  captures to pin down. STATED PLAINLY SO NOBODY OVER-READS IT: this encounter adds **no new
+  call-level measurement**, so it does not close `#1`'s recorded honest gap about whether
+  `traceComplex` was set on the original 86 m pick. What it is evidence for is `#1`'s severity
+  reasoning, which predicted exactly this: the reach down-bump was refused there on the ground that
+  *"this verb's low call count is a consequence of the defect"*, and here is an independent pass, on
+  the same content, choosing to write a projector rather than call the verb. A verb avoided on sight
+  by the second team to need it is not a rare edge path. Also confirms the ticket's SECOND HALF
+  independently — the pass needed a **named instance** out of 5888 in one holder, which is the
+  question `component: "HISM_ZF_Oak"` cannot answer, and it is why `SpatialTraceUtils.cpp:435` /
+  `:480` are the load-bearing citations for a fixer rather than the diagnostic fields. Severity
+  unchanged at Medium: the workaround in the body (feed the echoed `ray.origin`/`ray.direction` at
+  `RaycastScreenHandler.cpp:273-275` to the already-fixed `spatial.raycast`) is untouched by this
+  encounter, and `encounters` is a same-severity work-ordering tiebreak, never a severity input.
+  THE DISTINCT RESIDUE FROM THIS PASS WAS NOT FILED HERE: the ask that came out of it is an
+  enumerating manifest on `render.capture_open_level` — a different verb, the opposite question
+  (*what is in this frame* rather than *what is under this pixel*), and an analytic projection with
+  no trace at all, which matters because a trace cannot see the collisionless vegetation both
+  encounters were found on. Filed separately as `F-capture-drawn-primitive-manifest` (OPEN, Medium)
+  with the dedup argued in its body; neither ticket closes the other, and they share
+  `SpatialTraceUtils.cpp:435` / `:480`, so a fixer should take them together.
