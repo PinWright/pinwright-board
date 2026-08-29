@@ -187,7 +187,8 @@ derived render state is stale.
   `ULandscapeSubsystem::RemoveGrassInstances` (`Private/LandscapeSubsystem.cpp:602-611`) ends at `:609`
   with `Proxy->FlushGrassComponents(ComponentsToRemoveGrassInstances, /*bFlushGrassMaps = */false);` —
   argument name spelled out in a comment — and `ULandscapeSubsystem::RegenerateGrass(bInFlushGrass,
-  bInForceSync, ...)` (`:613`, declared `Public/LandscapeSubsystem.h:120`) reaches it at `:624-627` when
+  bInForceSync, ...)` (declared `Public/LandscapeSubsystem.h:120`, implemented
+  `Private/LandscapeSubsystem.cpp:613`) reaches it at `LandscapeSubsystem.cpp:624-627` when
   `bInFlushGrass` is true, then runs `UpdateGrass` at `:629+`. So `RegenerateGrass(true, true)` — the
   exact call this ticket's own **Fix #1** asked for — flushes instances and **never deletes a grass
   map**. It is the safe shape and it was already written down here.
