@@ -5,8 +5,8 @@ status: OPEN
 severity: High
 category: bug
 tags: [actor, spatial, ism, hism, instanced-static-mesh, per-instance, undo, movedInstances, previousTransform, silent-wrong-write, silent-noop, transaction, contract]
-encounters: 1
-lastSeen: 2026-08-29
+encounters: 2
+lastSeen: 2026-08-29T00:00:00+05:00
 ---
 
 # The ISM undo record has no invariants, and the reason it exists is arithmetically wrong
@@ -307,5 +307,87 @@ the cheapest this change will ever be.
     self-describing enough to replay without the response it arrived in — and it is never a substitute
     for a transaction that a dedup-per-object buffer makes affordable.
 
+## Encounter 2 — a sixth gap: the record has no size bound, and a seventh: it says nothing about what it pointed at
+
+Two properties absent from the five gaps above and from the proposed `undo` envelope. Both were
+found the same way — the record was reached for as an undo and could not do the job.
+
+### 6. `movedInstances[]` is uncapped and ungated, so a normal-sized seat spills the response
+
+Measured three ways. A **208-instance seat at `detail: "summary"` returned 52,638 characters, all
+of it receipt.** A seat of roughly **40 instances** is where the response first blows the budget.
+And a 512-instance seat — the `limit` default (`GroundRpcDefaultLimit = 512`,
+`Handlers/Spatial/GroundPlacementHandler.cpp:59`) — emits 512 rows of
+`{index, previousTransform:{location, rotation, scale}}`.
+
+Confirmed in source:
+
+- Rows are collected **unconditionally, before any `detail` gate** — `:1478-1485`, ahead of the
+  `bWantRow` test at `:1487`.
+- Writer at `:1579-1582`, guarded only by `MovedRows.Num() > 0`.
+- **No cap.** The sibling `Rows` array is bounded at `:1492-1496` by
+  `GroundRpcMaxDetailRows = 256` (`:64`). `MovedRows` has no equivalent check anywhere in the
+  handler.
+
+The 52,638 / 208 figure gives ~253 characters per row, so ~40 rows is ~10,100 characters — which
+reproduces the observed 40-instance threshold against the 10,000-character budget the cap comment at
+`:61-63` is written against. Worth one line of caution rather than a conclusion: if
+`E-spill-threshold-measured-post-wrap`'s ~2.35x post-wrap amplification applied in full on this path
+the trip point would be nearer 17 rows, so the observed 40 suggests it does not — that ticket's
+measurement and this one disagree about this path and one of them is measuring something else.
+
+**Do not ask for it to be gated on `detail`.** That is a verified fix and undoing it would restore
+the failure it was built to prevent. The design is deliberate and traceable:
+
+> The undo log, written before results[] and deliberately NOT governed by `detail`: it is the receipt
+> for a mutation, and gating recovery information on a diagnostic level is what made the actor-side
+> incident unrecoverable. — `GroundPlacementHandler.cpp:1576-1578`
+
+restated on the wire at `:1246-1248` and `:1327-1328`, and originating in
+`B-ground-actors-prefix-captures-foreign-actors` `#3-scope-guard-and-undo-record`, closed `DONE` and
+independently verified at its `#4`.
+
+The askable versions, none of which weakens the receipt:
+
+1. **Cap it honestly** — bound `MovedRows` and emit `movedInstancesTruncated` / `movedInstancesDropped`
+   matching the `resultsTruncated` / `resultsDropped` pair at `:1589-1590`. This trades a guaranteed
+   spill for an announced partial receipt, which is worse than the current behaviour for recovery and
+   better for usability; it should not be chosen without deciding which of those matters more.
+2. **Emit the receipt to a sidecar path** and return the path — full fidelity, no spill, and it makes
+   the receipt outlive the response, which the self-describing-envelope proposal above wants anyway.
+   This is the option that serves both this gap and the existing five.
+3. **Accept the spill and document it** — say in the `detail` param text that a large seat returns a
+   large response by design, so a caller sizes their batch with `limit` rather than with `detail`.
+
+Note that this ticket previously contained no occurrence of `spill` or `oversize`, and mentions
+`detail` only in the unrelated phrase "details panel" (`:171`) — size is genuinely absent from the
+five-gap audit rather than covered under another name.
+
+### 7. A row records an index and nothing about what that index pointed at
+
+The rows are index-keyed, and index identity is not stable across a **third party's** rewrite of the
+same component. Two incidents this session, from
+`B-ground-instances-default-component-foreign-scatter`: 512 foreign instances moved on a component the
+owner then rewrote 1534 -> 170, and 1,536 foreign instances moved on components the owner then
+re-scattered 1122 -> 128. In both cases the receipt was well-formed, in the right space, and would
+have been replayed through the right verb — onto different instances than it recorded. **It does not
+fail loudly in that case; it succeeds and corrupts.**
+
+This is adjacent to gap 1 rather than a duplicate of it. Gap 1 says a row does not say *what space*
+it is in. This says a row does not say *what it was pointing at*: no component identity stamp, no
+instance-count stamp, no generation or hash.
+
+One narrowing correction, because it changes the size of the ask: the *envelope* is not
+identity-free. `InstancedMeshUtils::WriteComponentIdentity` (called at
+`GroundPlacementHandler.cpp:1551`, defined `Handlers/Actor/InstancedMeshUtils.h:199-214`) emits
+`actor`, `actorPath`, `component`, `componentClass` and `instanceCount` at the top level of the
+response. A caller who kept the **whole response** can therefore detect a count change. What defeats
+even that is a same-count rewrite, and what defeats it always is lifting `movedInstances[]` out of
+its response — pasting it into a script, storing it, handing it to another agent — which is exactly
+what "self-describing" is supposed to make safe. Folding `component` + `instanceCount` into the
+proposed `undo` envelope closes this at no extra measurement cost, since both values are already
+computed at `:1551`.
+
 ## History
 - `#1-contract-audit` `OPEN` reporter — All five reported gaps verified in current source; all five hold. Gap 2 is broader than reported (`GroundRpcAddAxisEcho` serves all three ground verbs, none echoes a space). Gap 4's inconsistency is `set_instance_transforms` vs. the whole ground family — both `movedActors` and `movedInstances` are omitted when empty. Gap 5 is understated: the dispatcher's `UNKNOWN_PARAMS` gate is top-level only, so a misspelled `instances[]` row key degrades to exactly this silent no-op. Gap 1 confirmed dangerous and partially mitigated — the destructive replay emits its own correct world-space record, so the scatter is recoverable by a caller who kept it. The actor siblings do NOT share the trap: no `space` exists on the actor path, and a pasted `movedActors[]` row hits `UNKNOWN_PARAMS` on `path`/`previousTransform` because `path` is not an actorName alias. Decisive finding: `FTransaction::SaveObject` (`Editor/UnrealEd/Private/EditorTransaction.cpp`) creates an `FObjectRecord` only when the object has none, so one `FScopedTransaction` around a whole batch costs ONE snapshot (~1.3 MB on 10k instances), not O(written x total) — the recorded rationale for declining a transaction is arithmetically wrong, `PostEditUndo` on both ISM and HISM already performs the same refresh `FinishInstanceWrites` does, and `editor.undo` exists. Recommendation is to replace the design (add the transaction) and keep the record as a self-describing `undo` envelope, not to patch five holes.
+- `#2-size-and-index-identity` `OPEN` reporter — Two gaps appended, both found by reaching for the record as an undo. **Sixth: no size bound.** `movedInstances[]` is collected before any `detail` gate (`GroundPlacementHandler.cpp:1478-1485`, ahead of the `bWantRow` test at `:1487`), written at `:1579-1582`, and has **no cap** — unlike the sibling `Rows` array bounded at `:1492-1496` by `GroundRpcMaxDetailRows = 256` (`:64`). Measured: a 208-instance seat at `detail:"summary"` returned 52,638 characters, all receipt; the response first blows the budget at roughly 40 instances; a 512-instance seat (the `limit` default at `:59`) emits 512 rows. ~253 chars/row reproduces the 40-instance threshold against the 10,000-char budget the cap comment at `:61-63` reasons against — noted as a disagreement with `E-spill-threshold-measured-post-wrap`'s ~2.35x, which would put the trip point nearer 17 rows, rather than as a settled fit. **Explicitly NOT asking for `detail` gating** — that is the verified fix from `B-ground-actors-prefix-captures-foreign-actors` `#3` (DONE, re-verified at `#4`) and the handler comment recording it is still in source at `:1576-1578`, restated at `:1246-1248` and `:1327-1328`. Askable instead: an honest cap with `movedInstancesTruncated` matching `:1589-1590`, a sidecar path, or accept-and-document. **Seventh: rows carry no identity for what the index pointed at.** Two incidents this session (see `B-ground-instances-default-component-foreign-scatter`) had the owning agent rewrite the component — 1534 -> 170 and 1122 -> 128 — before the receipt was replayed, so a well-formed row in the right space would have written onto a different instance and reported success. Adjacent to gap 1, not a duplicate: gap 1 is about *what space*, this is about *what it pointed at*. Narrowing correction: the envelope is not identity-free — `WriteComponentIdentity` (`:1551`, `InstancedMeshUtils.h:199-214`) already emits `component` / `componentClass` / `instanceCount` at the top level, so folding those into the proposed `undo` envelope closes this at no extra cost; what defeats even the envelope is a same-count rewrite, or lifting `movedInstances[]` out of the response at all. `encounters` 1 -> 2. Status left `OPEN` — reporter, not fixer; no existing prose edited.
