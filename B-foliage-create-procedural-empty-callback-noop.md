@@ -5,8 +5,8 @@ status: IN-REVIEW
 severity: High
 category: bug
 tags: [foliage, create_procedural, silent-noop, success-no-effect, hardcoded-response, procedural-foliage, verify-after-mutate]
-encounters: 1
-lastSeen: 2026-07-02T16:46:30.5149507+03:00
+encounters: 2
+lastSeen: 2026-08-29T00:00:00+05:00
 ---
 
 # `foliage.create_procedural` never scatters any instances — the callback that would place them is a no-op
@@ -186,3 +186,46 @@ severity rationale: impact=silent false-success — the RPC's primary purpose (s
   positive because a headless world has no surface under the volume (0 is honest).
   Not asserting positive scatter keeps the test host-content-independent; the
   discriminating signal is that the real add path runs and reports truthfully.
+- `#3-zero-count-is-the-volume-not-the-world` `IN-REVIEW` tester — Additional
+  evidence from live measurement against a running editor (four
+  `foliage.create_procedural` calls). **`#2`'s fix is confirmed present at HEAD
+  and is NOT being challenged.** Re-derived this session: the reflection path
+  through `UProceduralFoliageEditorLibrary::ResimulateProceduralFoliageComponents`
+  is at `FoliageHandler.cpp:1542-1552`, `resimulated` is reported from the actual
+  run at `:1602`, and the `instances_spawned` delta is emitted at `:1603` — the
+  empty callback is gone, the hardcoded `true` is gone, and the response now
+  carries the count `#2` added. (Note for anyone re-reading citations: the
+  `:1176-1194` reference to this path in
+  `B-foliage-paint-does-no-ground-projection` `#1` has drifted; `:1542-1552` is
+  current.) What IS challenged is two of this ticket's own sentences, both
+  contradicted by measurement. **Body ¶1** says the handler creates *"an
+  `AProceduralFoliageVolume` actor sized to the requested bounds"* — it does not.
+  The spawned volume's bounds extent is `(0,0,0)`. The requested size is written
+  as an actor *scale* (`FoliageHandler.cpp:1499`, `SetActorScale3D(Size / 200.0f)`)
+  onto a brush that was never initialized by the raw `SpawnActor` at `:1489-1491`,
+  so there is no geometry for the scale to multiply: a `size {15750, 18900, 3500}`
+  request measured `extent:[0,0,0]` with actor scale `(78.75, 94.5, 17.5)` on
+  `actor.get_bounding_box` / `actor.describe`. **History `#2`**, justifying its
+  regression test, says *"the count is not asserted positive because a headless
+  world has no surface under the volume (0 is honest)"* — that explanation does
+  not survive contact with a populated world. Four calls on a level with terrain
+  directly under the volume also returned `instances_spawned: 0`. The zero is the
+  zero-extent volume, not the headless world: a simulation over a region of size
+  zero has nowhere to place anything, with or without ground. This is the second
+  time a missing-ground story has been offered for this verb's empty output and
+  the second time it has been wrong — `#1` of this same ticket already called the
+  attempt agent's "no ground under the volume" a red herring, and the same
+  reasoning now applies to the test rationale in `#2`. Consequence for whoever
+  verifies this ticket: `PinWright.foliage.create_procedural.ReportsInstancesSpawned`
+  will keep passing (it only asserts the fields exist) and a live call will keep
+  returning `0`, so the fix cannot be confirmed working end to end until the
+  volume has real bounds. Filed separately as
+  `B-spawned-volumes-have-no-brush-geometry` (OPEN, High) — the brush is never
+  initialized on this spawn path, the in-tree fix
+  (`VolumeHelpers::BuildBoxBrushGeometry`, `VolumeHandler.cpp:90`, from
+  `B-blocking-volume-no-brush-geometry` `#3`) is scoped to `VolumeHandler.cpp` and
+  this verb does not reach it. NOT DONE here: no fix attempted, no status change,
+  and it was **not** verified that a correctly built brush actually makes
+  `instances_spawned` go positive — only that the volume currently has no
+  geometry to place into, and that `#2`'s stated reason for the zero is not the
+  operative one.
