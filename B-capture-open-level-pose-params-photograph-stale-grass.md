@@ -5,8 +5,8 @@ status: IN-REVIEW
 severity: High
 category: bug
 tags: [render, capture_open_level, landscape, grass, foliage, vegetation, stale, silent-wrong-data, verification-evidence, pose, viewport-camera, set_camera]
-encounters: 1
-lastSeen: 2026-08-29T00:00:00+05:00
+encounters: 2
+lastSeen: 2026-08-29T20:50:00+03:00
 ---
 
 # The pose parameters move the camera; the grass stays where it was
@@ -194,3 +194,75 @@ Frequency makes it the *first* High to work, not a Critical.
   mechanism alone, and a top-down ortho puts the eye thousands of cm above terrain whose grass
   varieties cull at a default 10000 cm — the new `instances` / `cameraLocation` fields are what
   will separate 'never built for this eye' from 'built and culled' on the next measurement."
+
+- `#3-set-camera-route-is-stale-in-time-not-in-space` `IN-REVIEW` reporter — **Second encounter,
+  and it lands on this ticket's WORKAROUND rather than on its mechanism. Status deliberately
+  unchanged: I was not asked to verify `#2` and am not acting as tester.** Measured during a bulk
+  instance re-seat on `/Game/Maps/PW_VegetationTest` (host `EAContentExamples58`, UE 5.8; method in
+  `Docs/map/tree-seating-on-slopes.md` § *Captures*). **Scope statement first, because it changes
+  how this entry should be read: this checkout is at PinWright HEAD `0f4f9594`, and `#2`'s fix is
+  NOT in it** — `Handlers/Render/LandscapeGrassSettle.{h,cpp}` does not exist, `RegenerateGrass` has
+  zero occurrences in plugin code, and no `viewport.grass` block is emitted anywhere (verified by
+  `git ls-files` and grep over the whole plugin at that HEAD). Several hosts share this board, so
+  `#2` was presumably landed in a sibling clone. **Nothing below is a regression report against
+  `#2`; it is evidence measured on a build that does not have it.**
+  **The finding: `editor.set_camera` — the workaround this ticket publishes — is also stale, in
+  time rather than in space, and `warmup.settled` cannot see it.** The pose is left on the
+  persistent client and the world does tick, so `UpdateGrass` does get the new camera; it then
+  rebuilds at **one grass component per world tick**. `grass.MaxCreatePerFrame` defaults to `1`
+  (`C:/UE_5.8/Engine/Source/Runtime/Landscape/Private/LandscapeGrass.cpp:181-185`), and that is the
+  live throttle on the tick path: `ALandscapeProxy::UpdateGrass` (`:2848`) `continue`s out of its
+  innermost sub-section loop at `:3121-3124` once `InOutNumCompsCreated >= GrassMaxCreatePerFrame`
+  (counter incremented `:3140`), and `ULandscapeSubsystem::Tick` (`LandscapeSubsystem.cpp:686`)
+  zeroes the counter every tick and passes `bForceSync = false` (`:897-901`). Measured on this map:
+  **60-150 s to repopulate a large cull radius after the camera teleports.**
+  **What the capture reports during that window.** `warmup.settled: true, settleRounds: 1` on a
+  frame with no grass in it at all, and the same on a repeat 12 s later, still empty. That is not a
+  bug in the settle loop — it is the loop answering the question it was written to answer. The
+  criterion is frame **mean-luminance** stability between two consecutive redraws
+  (`PreviewViewportCaptureUtils.cpp:2158-2169`, tolerances `PreviewViewportCaptureUtils.h:310-311`),
+  and `PumpViewport` (`:106-124`) is `PumpMessages` + `Slate Tick` + `SceneViewport->Draw()` +
+  `FlushRenderingCommands()` with **no world tick anywhere** — so none of its rounds can advance the
+  subsystem the grass build rides on. Two consequences worth stating separately:
+  **(a) The field is a frame measurement being read as a scene-readiness signal**, exactly as its
+  own comment says it is (`:3066-3068`, *"a measurement rather than a promise"*). **(b) The signal
+  is inverted at the extreme**: an unbuilt frame is a *stable* frame, so it settles on the first
+  round after the three unconditional pre-pumps (`:2090-2093`) — `settleRounds: 1`, the most
+  confident-looking value the field can take, is what the emptiest scene produces, while a scene
+  that is actively building would report more rounds. And the obvious defence fails with it: a
+  repeat-until-stable check confirms the same frame, because the two shots agree *because* the build
+  has not progressed.
+  **Measured ladder at one pose** (recorded in `Docs/wiki-src/render.md:120` at `22461cdd`):
+  `meanLuminance` 0.305 with no grass, 0.278 after 45 s, 0.275 after 105 s, against 0.251 for the
+  fully built carpet the same pose had shown earlier. The cost to a before/after pair is that the
+  missing grass moves the frame **further than the edit under test does** — this pass's after-frames
+  carry visibly thinner grass than its before-frames, which is the async rebuild and not a change
+  anyone made.
+  **Documentation half already landed, in the plugin repo, not here:** `22461cdd`
+  ("Warn that warmup.settled does not wait for view-driven geometry") added
+  `Docs/wiki-src/render.md:120` and `:122` — docs only, +4 lines, no code. It **retires the
+  "`set_camera`, then one cheap RPC, then capture" recipe**, replacing it with: move the camera,
+  *wait*, then capture repeatedly at the fixed pose until two consecutive frames agree on
+  `imageStats.meanLuminance` **and** `sizeBytes`, and compare a pair only when both members are
+  built. `sizeBytes` is the more sensitive of the two, since a sparse carpet compresses well. This
+  ticket's **Workaround** line should be read together with that page: `editor.set_camera` plus the
+  same pose is necessary and is not sufficient.
+  **What this means for `#2`, offered for whoever tests it.** `#2`'s route should cover this and not
+  merely the pose half, because `ULandscapeSubsystem::RegenerateGrass`
+  (`LandscapeSubsystem.cpp:613`, forwarding to `UpdateGrass` at `:669`) with `bInForceSync = true`
+  makes `!bForceSync` false at `LandscapeGrass.cpp:3121` and **bypasses the per-frame cap entirely**
+  — the engine does this itself at `LandscapeGrass.cpp:1020`. But the throttle is the half a test can
+  accidentally not exercise: a fixture on a 1x1 landscape builds its grass in a handful of ticks
+  whether or not the fix is present. Suggested addition to `#2`'s live test, stated as a suggestion
+  and not a verdict: capture **immediately** after a camera move to a fresh, far pose with no wait
+  and no intervening RPC, and assert `viewport.grass.instances` is non-zero and `settled` true on
+  that **first** shot. Without that, the test cannot distinguish "force-synced" from "the throttle
+  never bit".
+  **No new ticket filed, deliberately.** The general form — `warmup.settled` names the frame while
+  callers read it as the scene — is already claimed by this ticket's own § *Why this is worse than a
+  missing feature* (*"Anything the engine builds around a camera rather than around the view matrix
+  ... has the same exposure on this path"*), and the measured readiness block a separate ticket would
+  ask for is exactly `#2`'s honesty half. Filing it again would fragment one fix across two tickets.
+  **No severity change proposed:** High already, same impact class (silent stale data on a normal
+  path, consumed as verification evidence), and a second observation is an `encounters` input, never
+  a severity input. `encounters` 1 -> 2.
