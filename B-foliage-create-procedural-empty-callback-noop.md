@@ -5,7 +5,7 @@ status: IN-REVIEW
 severity: High
 category: bug
 tags: [foliage, create_procedural, silent-noop, success-no-effect, hardcoded-response, procedural-foliage, verify-after-mutate]
-encounters: 2
+encounters: 3
 lastSeen: 2026-08-29T00:00:00+05:00
 ---
 
@@ -229,3 +229,46 @@ severity rationale: impact=silent false-success — the RPC's primary purpose (s
   `instances_spawned` go positive — only that the volume currently has no
   geometry to place into, and that `#2`'s stated reason for the zero is not the
   operative one.
+- `#4-positive-control-2121-instances-from-the-same-spawner` `IN-REVIEW` reporter
+  — Additional evidence, and it supplies the one thing `#3` recorded as NOT DONE:
+  the positive control. `foliage.create_procedural` returned `resimulated: true`
+  with `instances_spawned: 0`; the **same untouched spawner** then produced
+  **2,121 instances** through
+  `ProceduralFoliageEditorLibrary.resimulate_procedural_foliage_volumes` once the
+  volume actually had extent. Same assets, same spawner, no edit to either — so
+  the assets were fine and the simulation had simply had nothing to fill, which is
+  exactly what `#3` argued from source and four zero-count calls and could not
+  demonstrate positively. `#3`'s "it was **not** verified that a correctly built
+  brush actually makes `instances_spawned` go positive" is now verified: it does.
+  **`resimulated` re-derived at HEAD independently of `#3`, with the lines `#3`
+  did not cite: it is NOT a hardcoded literal.** `bool bResimulated = false;` at
+  `FoliageHandler.cpp:1524`, set `true` at `:1568` **only** inside
+  `if (UObject *CDO = LibClass->GetDefaultObject())` immediately after
+  `CDO->ProcessEvent(ResimFn, &Params)`, reported at `:1602`. Its own comment
+  (`:1561-1565`) states the semantics precisely — the reflected library function is
+  `void`, so the flag "reports only that the FoliageEdit reflection path was
+  reachable and DISPATCHED", goes false when FoliageEdit is not loaded or the
+  class/CDO cannot be resolved, and "does NOT indicate whether any foliage was
+  placed; that is `instances_spawned`'s job." **So this encounter does not show a
+  false `resimulated`, and it should not be read as one.** The
+  `resimulated:true` / `instances_spawned:0` pair was truthful on both fields:
+  dispatch did happen, and zero did land. What no field in the response carries is
+  the deciding fact — the volume's own bounds — which is `#3`'s point restated
+  with a working control behind it, and which is
+  `B-spawned-volumes-have-no-brush-geometry`'s subject: the zero-extent volume is
+  why the simulation had nothing to fill. **One caveat on the number itself, which
+  is why it is quoted as a qualitative result and not a measurement of the
+  requested region.** The route used to give the volume extent is
+  `volume.set_volume_extent`, and `B-set-volume-extent-ignores-existing-actor-scale`
+  (OPEN, High, filed this session) establishes that its brush branch does not
+  normalize the actor scale `foliage.create_procedural` leaves behind at
+  `FoliageHandler.cpp:1499` (`SetActorScale3D(Size / 200.0f)`), so a volume
+  repaired that way is `extent x scale` in every axis — measured at 80x/120x/30x
+  on one such volume. The volume that produced 2,121 instances was therefore very
+  likely far larger than intended, and **2,121 is not a count for the region that
+  was asked for**. What it does establish, and all this entry claims, is that the
+  simulation runs, the reflected add path places instances, and the count is a
+  real delta — the assets were never the problem. NOT DONE: no fix attempted, no
+  status change, no source modified; the scatter's extent was not re-measured
+  against the requested bounds, and no run was made against a volume with a
+  verified correct extent and unit scale.
