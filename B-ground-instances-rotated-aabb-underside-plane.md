@@ -5,8 +5,8 @@ status: OPEN
 severity: Medium
 category: bug
 tags: [spatial, ground_instances, ism, hism, instanced-static-mesh, scatter, vegetation, rocks, debris, bounds, aabb, rotation-inflated, underside, bounds-plane, seat-percentile, readback, zero-is-absence, placement, level-building]
-encounters: 1
-lastSeen: 2026-08-29T20:50:00+03:00
+encounters: 2
+lastSeen: 2026-08-29T22:15:00+03:00
 ---
 
 # The box bottom is not the mesh bottom, and it drops further the more the instance is tumbled
@@ -271,3 +271,53 @@ band without the bump.
   already accepted. Scope correction to `B-ground-instances-footprint-is-bounds-not-contact` recorded
   on both tickets: its "good model for four of these six meshes" holds in XY and fails in Z, and this
   ticket is exactly those four classes.
+- `#2-the-stronger-option-was-built-and-a-lowest-vertex-is-not-enough` `OPEN` reporter — **Second
+  encounter, same level, follow-on pass; no status change and no existing prose edited.** A pass on
+  `/Game/Maps/PW_VegetationTest` (editor build **10:44**, host-project commit `962275fa`, scripts
+  `X:/src/unreal/EAContentExamples58/dev/rockdiag/`, write-up
+  `Docs/map/tree-seating-on-slopes.md` § *Underside-heightfield seat*) computed a real world-space
+  underside offline for all four classes this ticket owns, seated against it with
+  `actor.set_instance_transforms`, and measured before and after under that one metric.
+  **This ticket's diagnosis is confirmed, and the mechanism it names corrupts the obvious external
+  check too.** Under the real underside, whole-object float across 1299 instances was
+  **254 (19.6%) -> 0 (0.0%)**; 352 moved, dz p50 -5.03, deepest -32.95, **shallowest -0.52, i.e. not
+  one lift**, 0 regressions. Per class before -> after: `SM_Rock` 108 (23.2%) -> 0, `SM_Rock1` 54
+  (19.0%) -> 0, `SM_Rock2` 45 (16.8%) -> 0, `S_Forest_Rock_Shelf...Var1` 43 (18.1%) -> 0,
+  `SM_Driftwood` 3 (11.1%) -> 0, `SM_MT_Boul_A/B` 1 (6.3%) -> 0. The interesting part for this
+  ticket is the *other* set of numbers: an earlier pass reported these same classes at 55.2% / 94.0%
+  / 81.3% floating using a hand-rolled pivot-ring check, and **that check is wrong for exactly the
+  reason this ticket names** — it computes the object bottom from the mesh's *unrotated* z-min. So
+  the rotation-inflated box does not only break the verb's solve; it also breaks the first thing a
+  caller writes to check the verb, and the two are wrong in **opposite** directions (the ring
+  over-reports float, an all-vertex heightfield under-reports it). That is a second, independent cost
+  of the quantity this ticket asks to have published.
+  **Correction to § *Ask*, third paragraph.** "Make the plane ... the lowest transformed **vertex**
+  of the mesh's lowest LOD, computed once per (mesh, rotation) and cached" is the right instinct and
+  two details short. (a) A single lowest vertex is still one number, therefore still a plane, and
+  therefore still at the wrong height for a knobbly or open-bottomed mesh — `SM_Driftwood` reads a
+  211 cm void at p50 while lying correctly on 3 m of relief. (b) More importantly, the vertex set has
+  to be filtered to **downward-facing** geometry, in **world** space, **per instance**: keep only
+  vertices whose transformed normal satisfies `n . Z < -0.15`. Without that filter a rounded rock's
+  flanks enter its own underside and **64-78% of cells read as daylight** when they are simply the
+  side of the rock. Per instance and not per mesh because these props carry pitch and roll to
+  +/-40 deg, which is this ticket's own premise. An open-bottomed mesh needs a stated fallback:
+  `S_Forest_Rock_Shelf...Var1` has 8 downward-facing vertices out of 843 and falls through to the
+  lower envelope, which for a thin open slab is its rim. The `(mesh, rotation)` cache key stays
+  valid; the filter is what changes.
+  **None of this changes the ask this ticket is filed for**, and that is worth saying plainly: the
+  cheap disclosure — a per-instance `undersideZCm` / `groundZCm` in the `contact` object, or the
+  single-number `boundsRotationInflationCm` — is unaffected and remains the right first landing. The
+  model above is the "stronger and separable" option, it is now a runnable reference
+  (`dev/rockdiag/r_probe2.py` builds it, `r_compare.py` is its before/after harness), and it is
+  measured rather than proposed — but it is a much larger change and a fixer should still be able to
+  close this ticket without it.
+  **Two adjacent results recorded on the sibling ticket rather than duplicated here**, on
+  `B-ground-instances-footprint-is-bounds-not-contact` `#4`: the shape-2 footprint sharpening (same
+  normal filter, from the same model), and a bounded-tilt solve that was built over the same cells
+  and **rejected** — the correct-objective version lifts anything already bedded deeper than the
+  embed, and clamped never-to-lift it collapses onto the Z-only model in exchange for rotating 284
+  authored instances. That second result is the one `F-ground-instances-align-to-surface` will want;
+  it is left on the footprint ticket so one fact has one authority. The never-lift property here came
+  from clamping `dz` at 0 in the offline solve, which is the same guarantee
+  `F-ground-instances-move-clamps` asks the verb to offer. `encounters` 1 -> 2, `lastSeen`
+  refreshed.
