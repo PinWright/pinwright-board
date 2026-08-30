@@ -57,7 +57,7 @@ not anticipate: a write whose echo is bigger than most reads.
 The helpers the DONE ticket named still exist, and the write path already has a wrapper sitting one
 screen above the site that needs it:
 
-- `IsKnownOversizedProperty(const FProperty*)` — `Utils/PropertyExport.cpp:1234-1271`
+- `IsKnownOversizedProperty(const FProperty*)` — `Utils/PropertyExport.cpp:1234-1273`
 - `BuildOmissionPlaceholder(FProperty*, const void*, const FOmissionReason&)` —
   `Utils/PropertyExport.cpp:1275`
 - `ExportPropertyToJsonValueWithOversizedOmission(void*, FProperty*, bool)` —
@@ -70,9 +70,14 @@ for the wrapper — the same opt-in default (`false`) the DONE ticket chose, for
 
 **A cite correction the fixer needs.** The DONE ticket places these helpers at
 `PropertyUtils.cpp:1812-1884`. At this checkout's HEAD they live in `Utils/PropertyExport.cpp`
-(declared in `PropertyExport.h:62`, `:67`); `PropertyUtils.cpp` no longer holds them. Callers are
+(declared in `PropertyExport.h:62`, `:67`); `PropertyUtils.cpp` no longer holds them — that whole
+file was split into `PropertyExport` / `PropertyImport` / `PropertyInspection` / `PropertyDiff`, so
+**every** `PropertyUtils.cpp` line cite on the board is an unresolvable path rather than a stale
+line number. Concretely: `IsKnownOversizedProperty` is `PropertyExport.cpp:1234-1273` and
+`BuildOmissionPlaceholder` is `:1275-1306`. Callers are
 `UtilityPropertyHandler.cpp:1007-1010`, `PinWright_SCSHandlers.cpp:264-267`, and
-`PropertyExport.cpp:554`, `:588-592`, `:1419`, `:1466-1469`.
+`PropertyExport.cpp:554`, `:588-592`, `:1419`, `:1466-1469`. All re-verified at plugin HEAD
+`ef8a1f1b`; the sibling ticket `F-rpc-property-omit-oversized-opt-in` carries the same repoint.
 
 ## Adding the entry: the existing three, and why a fourth row is not the whole answer
 
