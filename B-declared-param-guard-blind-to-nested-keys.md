@@ -416,3 +416,74 @@ an unqualified success (predicted from source, not observed), and whether
   time with the doc in the same commit, it touches ~9 files across five namespaces, and this agent
   could not compile or run anything to verify it. NOT COMPILED and NOT RUN — the orchestrator owns
   the build and the suite.
+- `#3-runtime-nested-gate-landed-two-adopters` `OPEN` developer — **Option C's mechanism landed, two
+  of five confirmed verbs adopt, the ticket stays OPEN.** The runtime half is no longer missing: a
+  nested key IS validated at dispatch now, but only where its parameter declares a schema.
+  **DESIGN CALL, stated plainly because it departs from the Fix section: option C needed a REAL
+  DECLARED NESTED SCHEMA before it could need a gate, and it did not need the `RejectUnknownKeys`
+  promotion.** The dispatcher only ever sees `FParamSpec`; the nested schema lived in the
+  parameter's DESCRIPTION, which is prose. Parsing prose is the right source for a TEST that can
+  afford to under-match (`#2`'s `PromisedNestedKeys` does exactly that) and the wrong source for a
+  REFUSAL — every description in the registry was written with no gate reading it, so a
+  prose-driven gate refuses real callers wherever the prose is loose. So the schema became a
+  declaration: **`FParamSpec::NestedKeys`** (`Handlers/ParamSpec.h`), declared with
+  `RPC_PARAM_OPT_NESTED(Name, Type, Desc, TEXT("k1"), TEXT("k2"), ...)`, read by a **fourth pass in
+  `FRpcDispatcher::ValidateHandlerParams`** built on `Handlers/NestedParamKeyCheck.h` — a sibling of
+  the `ParamTypeCheck.h` pass that landed the day before, sharing its refusal shape (one refusal
+  collecting every fault), its per-WIRE-NAME resolution (so an alias reaches the same schema and the
+  message names the spelling the caller used) and its ordering discipline. It runs FOURTH: a key
+  list is not an answer about a value whose shape is already wrong. New code
+  `UNKNOWN_NESTED_PARAMS`, registered in `Handlers/ErrorCodes.h` (dispatcher-only emitter, like
+  `PARAM_TYPE_MISMATCH`; `Dispatch/` is outside both the registry test's and the error-code
+  catalog's `Handlers/`-rooted scan). One level only, object and array-of-objects, and
+  case-INSENSITIVE on purpose — `FJsonObject` hashes keys with `FCrc::Strihash_DEPRECATED`, so
+  `TryGetObjectField("scalar")` really does find a `"Scalar"`, and a case-sensitive allow-list would
+  be the gate promising a refusal the reader contradicts (so the ticket's `Scalar` typo example is
+  NOT a defect; `vectors` / `static_switch` are).
+  **THE DEFAULT IS UNCHANGED BEHAVIOUR.** An empty `NestedKeys` means UNDECLARED, not empty-set:
+  nothing about that parameter is refused, so the other ~315 object/array parameters are
+  bit-for-bit as before. **Adopters: 2 of 317** — `render.capture_annotated:grid` →
+  `{spacing, extent}` (instance #3; the allow-list is exactly what the body reads AND exactly what
+  the description promised, so no documented capability is withdrawn) and
+  `material.authoring.create_material_instance:parameters` →
+  `{scalar, vector, texture, staticSwitch}` (instance #2; the four buckets are a closed set, the
+  caller-chosen parameter names one level below are deliberately unchecked). Both descriptions were
+  updated in the same commit, as the ticket requires, along with `docs/wiki-src/render.md`,
+  `docs/wiki-src/material.authoring.md` and a new `docs/rpc-design.md` §3 bullet carrying the three
+  adoption rules. `set_material_instance_parameters` deliberately does NOT adopt and is asserted not
+  to: its four maps are keyed by caller-chosen names all the way down, which is the same fact that
+  made its `ParamName` entries metavariables.
+  **REGRESSION TEST, both directions, `Tests/Infra/TestNestedParamKeyGate.cpp` (6 tests,
+  `PinWright.infra.dispatcher.NestedParamKeyGate.*`), routed through `FRpcDispatcher::ProcessRequest`
+  because `InvokeHandler` reaches neither call site of the gate.** A `_test.nested_param_gate`
+  fixture carries an adopted object slot, an adopted array slot, an adopted slot behind an alias and
+  an UNADOPTED slot: `RefusesUndeclaredNestedKey` (names `grid.between`, `states[1].animation`,
+  `keep_out.radius`, and asserts the message lists `Valid keys: [spacing, extent]`),
+  `LeavesUndeclaredSlotsUnchecked` (an absurd payload in the unadopted slot, and a depth-TWO key
+  under an adopted one, both accepted with the body running), `AcceptsDeclaredNestedKeys` (including
+  the case-differing spelling), `EarlierPassesWinOverNestedFaults`, `AdoptedVerbsRefuseAndSiblingsDoNot`
+  (the two REAL material verbs — one refused before its body runs, one untouched), and
+  `AdoptionSetIsRatcheted`, which enumerates every `(method, param)` that adopts so a blanket sweep
+  across the remaining ~315 cannot land silently and carries a vacuity guard on the walk. So a fix
+  that refuses everything and a fix that refuses nothing both fail. `check_test_ids.py`: CLEAN, 4812
+  ids, no dot-prefix collision. `TestDeclaredParamCoverage.cpp`'s KNOWN LIMITS was corrected — it
+  claimed nothing validates a nested key at runtime, which is now true only of the non-adopters.
+  **WHAT REMAINS, and why this is still OPEN.** (1) **Three of the five confirmed verbs are
+  untouched.** `animation.create_state_machine:states[]` was deliberately skipped: its allow-list
+  would be `{name, isEntry}`, so adopting means WITHDRAWING the `animation` / `isExit` the
+  description promises, and with parallel agents in this checkout the honest fix may instead be to
+  IMPLEMENT `states[].animation` — that is a product decision, not a gate decision, and refusing a
+  documented key ahead of it would be the wrong order. `blueprint.add_function` /
+  `networking.create_rpc_function` (`inputs[]` string elements `continue`d) and
+  `eqs.set_test_filter` (`filter.min`/`max` inert off the match branch) are **not unknown-KEY
+  faults at all** — one is an array ELEMENT TYPE fault and the other is branch semantics, so
+  `NestedKeys` cannot see either and neither should be forced through it. (2) The three
+  `RejectUnknownKeys` copies (`ImageOps.cpp:807`, `PwMusicScore.cpp:738`, `PwSynthRecipe.cpp:786`)
+  were NOT deduped. That was step 1 of the Fix, and it is now optional rather than blocking: those
+  three do deep, per-node, path-reporting validation of whole recursive schemas, which is a
+  different job from a one-level dispatcher gate, and folding them into it would either weaken them
+  or bloat it. Recommend re-scoping that step to "leave them; they are the deep-schema tool" unless
+  a measurement says otherwise. (3) Option **B'** now has a machine-readable right-hand side and
+  could be re-pointed from descriptions to `NestedKeys` for the adopters — not attempted.
+  **NOT COMPILED and NOT RUN** — the orchestrator owns the build and the suite. Plugin source left
+  dirty and uncommitted by instruction; only this board file is committed.
