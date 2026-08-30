@@ -30,7 +30,7 @@ hits a wall at cell population: there is no documented way to learn that a
 float cell wants `{min,max}` while an object cell wants
 `{value,comparison}`. The only way to discover the contract is to read
 the handler C++
-(`Source/EditorAutomationRpcGateway/Private/Handlers/Chooser/ChooserAuthoringHandler.cpp`,
+(`Source/PinWrightChooser/Private/Handlers/Chooser/ChooserAuthoringHandler.cpp`,
 `SetFloatCell` / bool / `SetObjectCell` / enum branches).
 
 This is **distinct** from
@@ -115,3 +115,4 @@ known), not a tool bug, and is separate from the judge-filed
   vanish if the H3 section is reverted. Files: `Docs/wiki-src/chooser.md`,
   `Source/.../Handlers/Chooser/ChooserAuthoringHandler.cpp`,
   `Source/.../Tests/Infra/TestWikiHandler.cpp`.
+- `#3-repoint-citations-after-module-rename` `DONE` reporter — Citation maintenance only; **no claim in this ticket changes and the status is untouched**. The plugin module directory was renamed `Source/EditorAutomationRpcGateway/` → `Source/PinWright/` (plugin commit `8962f163`), and `Source/EditorAutomationRpcGatewayTests/` was folded into `Source/PinWright/Private/Tests/`, so every citation under the old root was an **unresolvable path** a fixer could not open — not a stale line number. 1 body citation repointed in place; every rewritten path was confirmed to exist at plugin HEAD `ef8a1f1b`. 1 citation sits in history rows and is left verbatim per the append-only rule, mapping by the same rule; the mapped path was confirmed present at HEAD too. Path(s) here that move by more than the prefix in this ticket, taken from the plugin's rename history rather than the prefix rule: `Source/EditorAutomationRpcGateway/Private/Handlers/Chooser/ChooserAuthoringHandler.cpp` → `Source/PinWrightChooser/Private/Handlers/Chooser/ChooserAuthoringHandler.cpp`. No citation in this ticket carries a line number, so nothing here required line re-verification. Sweep-wide record, including the cases that could not be repointed: `E-module-rename-citation-sweep`.
