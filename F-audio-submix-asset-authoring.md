@@ -18,7 +18,7 @@ working master-bus / sub-bus topology, which is the first thing any
 real audio mix authoring agent needs to build.
 
 Three concrete gaps, verified against
-`Source/EditorAutomationRpcGateway/Private/Handlers/Audio/AudioAuthoringHandler.cpp`:
+`Source/PinWright/Private/Handlers/Audio/AudioAuthoringHandler.cpp`:
 
 1. **`create_submix_effect` is misnamed and under-spec'd.** Lines
    2264–2320 register `audio.authoring.create_submix_effect` with the
@@ -81,7 +81,7 @@ hierarchy via `set_class_parent`, SoundMix adjusters via
    include `parentSubmix` (path) so verification round-trips through
    the cache. The existing `USoundClass` branch at lines 2431–2440
    should also emit `outputSubmix` from `Properties.ParentSubmix`.
-5. Tests under `Source/EditorAutomationRpcGatewayTests/` covering:
+5. Tests under `Source/PinWright/Private/Tests/` covering:
    create-parent → create-child-with-parentSubmix → read back via
    asset verification; `set_submix_parent` to null clears the
    parent; `set_class_properties` with `parentSubmix` writes the
@@ -94,3 +94,4 @@ Broad UE audience: any project shipping with bus-routing
 - `#1-three-routing-gaps` `OPEN` reporter — Verified against `AudioAuthoringHandler.cpp`: `create_submix_effect` (lines 2264–2320) is the de-facto `create_sound_submix` (creates `USoundSubmix`, ignores its declared `effectType` param, never sets a parent); no `set_submix_parent` exists (grep `ParentSubmix` in `Private/Handlers/Audio/` returns zero hits); `set_class_properties` (lines 1269–1316) omits `USoundClass::Properties.ParentSubmix`. Net effect: agents can create submix and sound-class assets but cannot wire the routing graph — output always lands on the project master. Original proposal slug retained; reshaped to (a) flag the misnamed existing creator and propose `create_sound_submix` as canonical name + `parentSubmix` param, (b) add `audio.authoring.set_submix_parent` mirroring `set_class_parent`, (c) extend `set_class_properties` with `parentSubmix`, (d) add dump readback parity for `parentSubmix` / `outputSubmix`.
 - `#2-submix-routing-wired` `IN-REVIEW` developer — Added canonical create_sound_submix RPC (factored shared CreateSoundSubmixAsset helper); converted create_submix_effect into a deprecated wrapper calling the same helper. Added set_submix_parent mirroring set_class_parent. Extended set_class_properties with optional parentSubmix. get_audio_info now emits outputSubmix for USoundClass and a new USoundSubmix branch emitting parentSubmix. All submix code wrapped in #if MCP_HAS_SUBMIX. Regression test FAudioSubmixRoutingTest exercises creation-with-parent, set-then-clear, SoundClass routing, and dump readback round-trip.
 - `#3-verify-routing-wired` `DONE` tester — Verified: wiki.get on audio.authoring.create_sound_submix and audio.authoring.set_submix_parent both return populated schemas. Created SM_McpVerifyParent + SM_McpVerifyChild via create_sound_submix (child with parentSubmix arg) — both succeeded. set_submix_parent cleared then re-set parent — both calls returned "Submix parent updated". asset.dump readback of child shows properties.json with `ParentSubmix.value` = "/Game/App/UI/Test/SM_McpVerifyParent_FAudioSubmix.SM_McpVerifyParent_FAudioSubmix" after re-set. Temp assets cleaned up via asset.delete.
+- `#4-repoint-citations-after-module-rename` `DONE` reporter — Citation maintenance only; **no claim in this ticket changes and the status is untouched**. The plugin module directory was renamed `Source/EditorAutomationRpcGateway/` → `Source/PinWright/` (plugin commit `8962f163`), and `Source/EditorAutomationRpcGatewayTests/` was folded into `Source/PinWright/Private/Tests/`, so every citation under the old root was an **unresolvable path** a fixer could not open — not a stale line number. 2 body citations repointed in place; every rewritten path was confirmed to exist at plugin HEAD `ef8a1f1b`. No citation in this ticket carries a line number, so nothing here required line re-verification. Sweep-wide record, including the cases that could not be repointed: `E-module-rename-citation-sweep`.
