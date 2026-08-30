@@ -13,9 +13,10 @@ tags: [async, jobs, level, lighting, no-completion-signal]
 
 **Fix:** Handler now calls `Ctx.StartJob()` and binds both `FEditorDelegates::OnLightingBuildSucceeded` and `FEditorDelegates::OnLightingBuildFailed` delegates. The first to fire calls `FJobRegistry::CompleteJob(JobId, bSuccess, Message)` and unbinds both delegates.
 
-**Files:** `Source/EditorAutomationRpcGateway/Private/Handlers/Level/BuildLightingHandler.cpp`.
+**Files:** `Source/PinWright/Private/Handlers/Level/LevelHandler.cpp:693`.
 
 ## History
 - `#1-no-completion-signal` `OPEN` reporter — Lighting build started with no way to await its outcome.
 - `#2-bound-to-lighting-delegates` `IN-REVIEW` developer — Migrated to `Ctx.StartJob()`. Bound `FEditorDelegates::OnLightingBuildSucceeded` / `OnLightingBuildFailed`. First-fires-wins pattern cleans up both handles before calling `CompleteJob`.
 - `#3-verified-kickoff-and-cancel` `DONE` tester — Verified: kicked `level.build_lighting quality:"preview"` → ticket `j_20260427T023735_96daaa27` with `{status:"running", quality:"Preview", ticket_id, monitor_path, method, started_at}`. `system.job_cancel` on the running ticket returned `{cancelled:true}`. End-to-end completion delegate not observed (preview build still ran beyond the session window) but kickoff + registry integration + cancel path all confirmed.
+- `#4-repoint-citations-after-module-rename` `DONE` reporter — Citation maintenance only; **no claim in this ticket changes and the status is untouched**. The plugin module directory was renamed `Source/EditorAutomationRpcGateway/` → `Source/PinWright/` (plugin commit `8962f163`), and `Source/EditorAutomationRpcGatewayTests/` was folded into `Source/PinWright/Private/Tests/`, so every citation under the old root was an **unresolvable path** a fixer could not open — not a stale line number. 1 body citation repointed in place and verified against plugin HEAD `ef8a1f1b`. `BuildLightingHandler.cpp` never existed; the verb is `LevelHandler.cpp:693`, job at `:789`, completion delegated at `:742` to `Handlers/Level/LevelBuildBinds.h:92`. Sweep-wide record, including every case that could not be repointed: `E-module-rename-citation-sweep`.
