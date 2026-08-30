@@ -30,14 +30,14 @@ There is already precedent for in-domain helpers under `Handlers/Niagara/`:
 ## File inventory
 
 Files to move:
-- `Source/EditorAutomationRpcGateway/Private/Utils/NiagaraGraphResetUtils.h`
-- `Source/EditorAutomationRpcGateway/Private/Utils/NiagaraGraphResetUtils.cpp`
-- `Source/EditorAutomationRpcGateway/Private/Utils/NiagaraInstanceUtils.h`
-- `Source/EditorAutomationRpcGateway/Private/Utils/NiagaraInstanceUtils.cpp`
+- `Source/PinWright/Private/Handlers/Niagara/NiagaraGraphResetUtils.h`
+- `Source/PinWright/Private/Handlers/Niagara/NiagaraGraphResetUtils.cpp`
+- `Source/PinWright/Private/Handlers/Niagara/NiagaraInstanceUtils.h`
+- `Source/PinWright/Private/Handlers/Niagara/NiagaraInstanceUtils.cpp`
 
 Target location:
-- `Source/EditorAutomationRpcGateway/Private/Handlers/Niagara/NiagaraGraphResetUtils.{h,cpp}`
-- `Source/EditorAutomationRpcGateway/Private/Handlers/Niagara/NiagaraInstanceUtils.{h,cpp}`
+- `Source/PinWright/Private/Handlers/Niagara/NiagaraGraphResetUtils.{h,cpp}`
+- `Source/PinWright/Private/Handlers/Niagara/NiagaraInstanceUtils.{h,cpp}`
 
 Header surface is tiny (one namespace `EditorAutomationNiagara` with 3 free
 functions total: `ResetGraphForOutput`, `FindParameterMapPin`,
@@ -100,3 +100,4 @@ This entry covers only the Niagara scope.
 - `#2-relocated` `IN-REVIEW` developer — `git mv`'d all four files (`NiagaraGraphResetUtils.{h,cpp}`, `NiagaraInstanceUtils.{h,cpp}`) from `Utils/` to `Handlers/Niagara/`. Retargeted all 10 `#include` sites to the absolute-relative `"Handlers/Niagara/..."` style: 2 self-includes in the moved `.cpp`s plus 8 caller sites (`NiagaraEditHandler.cpp`, `NiagaraAdvancedEditHandler.cpp`, `NiagaraCurveHandler.cpp`, `NiagaraHandler.cpp`, `NiagaraJsonHelpers.cpp`, `Tests/Niagara/TestNIRFixtures.cpp`). No behavior change; ergonomic ticket, no regression test.
 - `#3-review-scope-check` `IN-REVIEW` developer — Re-reviewed against the `[spec]` drive-by complaint. Confirmed this ticket's edits are confined to exactly the 11 in-scope paths: the 4 relocated `Handlers/Niagara/Niagara{GraphReset,Instance}Utils.{h,cpp}` files (relocation + self-include flip), the 6 caller files (`NiagaraEditHandler.cpp`, `NiagaraAdvancedEditHandler.cpp`, `NiagaraCurveHandler.cpp`, `NiagaraHandler.cpp`, `NiagaraJsonHelpers.cpp`, `Tests/Niagara/TestNIRFixtures.cpp`), and this board file. Grep confirms zero remaining `"Utils/Niagara*Utils.h"` references and all 10 include sites point at `Handlers/Niagara/`. The ~100 other modified files in the working tree (AGIR, WikiHandler, Bpir, PropertyUtils, etc.) are sibling-ticket work in a shared tree — NOT touched by this ticket, and not safe to revert. The drive-by complaint is a commit-staging concern: the committer must stage only these 11 paths into this ticket's commit. No code change required to resolve.
 - `#4-verify-fix` `DONE` tester — Verified via file-system state (relocation ticket, surface is file/doc only). Glob confirms all 4 files (`NiagaraGraphResetUtils.{h,cpp}`, `NiagaraInstanceUtils.{h,cpp}`) now live under `Handlers/Niagara/` and zero remain under `Utils/`. Grep confirms 0 stale `Utils/Niagara*Utils.h` includes in code (remaining matches are board-doc text only) and all 10 include sites resolve to `"Handlers/Niagara/..."`: 2 self-includes + 8 callers (`NiagaraEditHandler` both, `NiagaraAdvancedEditHandler` both, `NiagaraCurveHandler`/`NiagaraHandler`/`NiagaraJsonHelpers`/`TestNIRFixtures` instance-only). `.Build.cs` has no `PrivateIncludePaths` ref to `Utils/`, matching the risk note.
+- `#5-repoint-citations-after-module-rename` `DONE` reporter — Citation maintenance only; **no claim in this ticket changes and the status is untouched**. The plugin module directory was renamed `Source/EditorAutomationRpcGateway/` → `Source/PinWright/` (plugin commit `8962f163`), and `Source/EditorAutomationRpcGatewayTests/` was folded into `Source/PinWright/Private/Tests/`, so every citation under the old root was an **unresolvable path** a fixer could not open — not a stale line number. 6 body citations repointed in place; every rewritten path was confirmed to exist at plugin HEAD `ef8a1f1b`. Path(s) here that move by more than the prefix in this ticket, taken from the plugin's rename history rather than the prefix rule: `Source/EditorAutomationRpcGateway/Private/Utils/NiagaraGraphResetUtils.h` → `Source/PinWright/Private/Handlers/Niagara/NiagaraGraphResetUtils.h`; `Source/EditorAutomationRpcGateway/Private/Utils/NiagaraGraphResetUtils.cpp` → `Source/PinWright/Private/Handlers/Niagara/NiagaraGraphResetUtils.cpp`; `Source/EditorAutomationRpcGateway/Private/Utils/NiagaraInstanceUtils.h` → `Source/PinWright/Private/Handlers/Niagara/NiagaraInstanceUtils.h`; `Source/EditorAutomationRpcGateway/Private/Utils/NiagaraInstanceUtils.cpp` → `Source/PinWright/Private/Handlers/Niagara/NiagaraInstanceUtils.cpp`. No citation in this ticket carries a line number, so nothing here required line re-verification. Sweep-wide record, including the cases that could not be repointed: `E-module-rename-citation-sweep`.
