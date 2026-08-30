@@ -36,7 +36,7 @@ yet means *map package path* in this verification helper, on the same surface.
 
 ## Root cause (source)
 
-`Source/EditorAutomationRpcGateway/Private/Utils/AssetUtils.cpp`,
+`Source/PinWright/Private/Utils/AssetUtils.cpp`,
 `AddActorVerification()`:
 
 ```cpp
@@ -137,3 +137,4 @@ with `actor.find_by_tag` / `actor.get` to obtain the real actor object path.
   object path and is NOT the package path, plus that the new `mapPath` equals the
   package path. Reverting the fix (setting `actorPath` back to the package path)
   fails the test. Not compiled/run here (a later phase verifies green).
+- `#3-repoint-citations-after-module-rename` `DONE` reporter — Citation maintenance only; **no claim in this ticket changes and the status is untouched**. The plugin module directory was renamed `Source/EditorAutomationRpcGateway/` → `Source/PinWright/` (plugin commit `8962f163`), and `Source/EditorAutomationRpcGatewayTests/` was folded into `Source/PinWright/Private/Tests/`, so every citation under the old root was an **unresolvable path** a fixer could not open — not a stale line number. 1 body citation repointed in place; every rewritten path was confirmed to exist at plugin HEAD `ef8a1f1b`. 1 citation sits in history rows and is left verbatim per the append-only rule, mapping by the same rule; the mapped path was confirmed present at HEAD too. No citation in this ticket carries a line number, so nothing here required line re-verification. Sweep-wide record, including the cases that could not be repointed: `E-module-rename-citation-sweep`.
