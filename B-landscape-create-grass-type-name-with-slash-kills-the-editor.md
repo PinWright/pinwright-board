@@ -1,7 +1,7 @@
 ---
 id: B-landscape-create-grass-type-name-with-slash-kills-the-editor
 title: "landscape.create_grass_type concatenates its `name` onto a hardcoded /Game/Landscape with no validation, so a name carrying a path — the only thing a caller can try, because the verb exposes no savePath — builds `/Game/Landscape//Game/...` and CreatePackage's Fatal log kills the editor process outright"
-status: OPEN
+status: IN-REVIEW
 severity: Critical
 category: bug
 tags: [landscape, create_grass_type, crash, editor-process-death, unvalidated-input, package-path, double-slash, data-loss, shared-editor]
@@ -140,3 +140,46 @@ before this fix the verb offered no other way to choose a destination.
   Whole-plugin sweep run as part of this report: 81 direct `CreatePackage` sites, 18 guarded, 63
   not. Dedup: no board ticket covers `create_grass_type`'s `name`; the three neighbours under
   Cross-links were each read and are different defects.
+- `#2-compose-through-shared-package-path-helper` `IN-REVIEW` developer — "**Lifted** the sibling
+  fix's file-local `PinWrightComposeFoliagePackagePath` out of `FoliageHandler.cpp` into a new
+  shared header `Handlers/PackagePathCompose.h` as `inline bool
+  PinWrightComposeAssetPackagePath(Folder, AssetName, OutPath, OutError)` — verbatim body, comment
+  generalised, `inline` rather than `static` because two translation units now include it under
+  Unity. Lifted rather than duplicated precisely because this is the second namespace to need it.
+  The foliage agent's four call sites (`FoliageHandler.cpp:132/1710/2332/2455`) were renamed to the
+  new symbol and nothing else about their behaviour changed; `grep` confirms zero remaining
+  references to the old name anywhere under `Plugins/PinWright/`.
+  `landscape.create_grass_type` now composes and checks its path **on the calling thread, before
+  the AsyncTask is queued** (`LandscapeHandler.cpp:1676-1687`) and the lambda captures the finished
+  `AssetName` / `PackagePath` / `FullPackagePath` by value, so nothing inside it can rebuild a path
+  from raw arguments. That ordering is load-bearing for the regression test and is commented as
+  such in the handler. Error codes are `ErrorCodes::ERR_INVALID_ARGUMENT` and
+  `ErrorCodes::ERR_SECURITY_VIOLATION` — symbols, not raw `TEXT()` literals, because this file is
+  `ErrorCodes::`-adopting; both were already declared in `Handlers/ErrorCodes.h` (`:538`, `:1191`)
+  so no new code was added.
+  **Added `savePath` to `landscape.create_grass_type`** (default `/Game/Landscape`), spelled and
+  validated exactly as `foliage.add_type` and `foliage.create_procedural` spell theirs
+  (`SanitizeProjectRelativePath` -> `SECURITY_VIOLATION`, trailing slash trimmed, effective folder
+  echoed as `save_path`) — three verbs with three spellings of one idea would be its own defect.
+  `save_path` is echoed on the created branch AND on the pre-existing `Asset already exists`
+  branch, so the field is never conditionally absent. The param is declared `\"string\"` to the
+  dispatcher's live type gate.
+  Regression tests: new `Tests/Environment/TestLandscapeCreateGrassTypeNamePathSafety.cpp`, three
+  cases — `.NameCarryingAPathIsRefused` (rooted path, interior slash, backslash, `..`, trailing
+  slash, plus a bare-name control), `.SavePathChoosesTheDestination`, `.TraversalSavePathIsRefused`.
+  **The suite can never reach the Fatal on either a fixed or a reverted build**: every refusal case
+  pairs its bad name with a well-formed `meshPath` naming no asset, and the pre-fix handler's async
+  body loaded that mesh as its FIRST act — above the concatenation — so a reverted build answers
+  `ASSET_NOT_FOUND` and the `INVALID_ARGUMENT` assertion goes red while the process lives. Because
+  this verb answers from an `AsyncTask` and `MakeAsyncToken` does not forward the dispatcher's
+  stack-owned synchronous capture (`HandlerContext.cpp:547-553`), the async cases run through
+  `InvokeHandlerWithSharedCapture` + `PumpUntilCaptured` (the route
+  `TestFoliageDensityScalabilityCVars.cpp` already uses for this verb) while
+  `.TraversalSavePathIsRefused` — which answers synchronously — runs through the real dispatcher,
+  making it the case that also proves `savePath` is REGISTERED and not merely read out of the
+  payload. `check_test_ids.py` clean (4822 ids, no dot-prefix collisions).
+  Wiki: added a `### landscape.create_grass_type` H3 to `Docs/wiki-src/landscape.md` documenting
+  the bare-name rule and `savePath`.
+  **The 62 other unguarded sites this ticket's sweep found were NOT touched** — they are filed as
+  `B-createpackage-unvalidated-paths-plugin-wide`. NOT COMPILED AND NOT RUN — the orchestrator
+  builds and runs after all agents return."
