@@ -1,12 +1,12 @@
 ---
 id: B-capture-open-level-pose-params-photograph-stale-grass
 title: "render.capture_open_level's location/rotation move the render camera but not the landscape-grass build, so a pose-driven capture photographs grass built around the persistent viewport camera — the identical pose reached via editor.set_camera shows a full grass carpet the capture reported as bare ground"
-status: IN-REVIEW
+status: DONE
 severity: High
 category: bug
 tags: [render, capture_open_level, landscape, grass, foliage, vegetation, stale, silent-wrong-data, verification-evidence, pose, viewport-camera, set_camera]
 encounters: 2
-lastSeen: 2026-08-29T20:50:00+03:00
+lastSeen: 2026-08-30T16:00:00+05:00
 ---
 
 # The pose parameters move the camera; the grass stays where it was
@@ -266,3 +266,14 @@ Frequency makes it the *first* High to work, not a Critical.
   **No severity change proposed:** High already, same impact class (silent stale data on a normal
   path, consumed as verification evidence), and a second observation is an `encounters` input, never
   a severity input. `encounters` 1 -> 2.
+- `#4-pose-drives-the-grass-build-verified` `DONE` verifier — 2026-08-30, **13:32 build**, editor pid 18592, `/Game/Maps/PW_VegetationTest`. `#2`'s `Handlers/Render/LandscapeGrassSettle.{h,cpp}` and the `viewport.grass` block are present in this checkout and live — `#2` was written against a tree that did not yet have them, so this is the first time they have been exercised here.
+
+  **The deciding evidence is a fact about the viewport camera, which no field of the capture response supplies.** Three `render.capture_open_level` calls at three poses — `(0,0,0)`, `(18000,18000,2000)`, `(-18000,-18000,2000)` — each returned `grass.builtForPose: true` with `grass.cameraLocation` equal to **the requested pose**, and `componentsBefore` → `components` of 136→190, 149→155 and 149→184 with `buildMs` 50.9 / 18.2 / 32.8. Then, read through `python.execute` against `UnrealEditorSubsystem::get_level_viewport_camera_info` — outside the capture verb entirely — **the persistent viewport camera was at `(21000, 5800, 1600)`, pitch -3, yaw 0, and had not moved.** That is exactly `#1`'s defect inverted: grass was built at three locations the viewport camera never occupied, which under `#1`'s mechanism (the build anchored to the persistent camera) is impossible.
+
+  **Confirmed on pixels, not only on numbers**, per this project's standing rule. `pw_grass_poseC_posed.png` at `(-18000,-18000,2000)` with exposure pinned (EV100 -0.5, `adaptedSource: fixedPin`, so auto-exposure cannot be cancelling the change) was looked at: a dense grass carpet across the whole meadow, wildflowers through it, rocks seated in it, trees on the ridge. `#1`'s failing comparison was "the identical pose reached via `editor.set_camera` shows a full grass carpet the capture reported as bare ground" — the pose-driven capture now *is* the full grass carpet.
+
+  **`#3`'s 60–150 s regrowth window is closed as well, and by mechanism rather than by patience.** `#3` measured the `set_camera` workaround as stale in time because `grass.MaxCreatePerFrame` is 1 and repopulating costs hundreds of frames. `#2`'s settle does not wait for frames: `SettleGrassForCapturePose` drives `ULandscapeSubsystem::RegenerateGrass` with `bForceSync` and the capture's own eye position (`LandscapeGrassSettle.cpp:57`), which is why the three builds above cost 18–51 **milliseconds**. Worth recording that `grass.MaxCreatePerFrame` appears nowhere in plugin source — it is named only in `Docs/wiki-src/render.md:127` and `Docs/wiki-src/vegetation-authoring.md:273` — so nothing reads or reports it; the cvar is bypassed, not tuned. `warmup.settled` reported `true` throughout, as `#3` warned it would, and it is **not** what this close rests on.
+
+  **One field of the new block is defective, and it is filed rather than folded in.** `grass.instances` read **0** on all three captures while `components` moved and the frame was visibly full of grass. Confirmed independently: `Landscape_0` holds 149 grass HISMs and `get_instance_count()` sums to 0 across all of them, because `LandscapeGrassSettle.cpp:40-50` sums `GetInstanceCount()` = `PerInstanceSMData.Num()`, an array landscape grass never populates. New ticket **`B-capture-grass-instances-always-zero`** (High) owns it. This ticket is closed anyway because its subject is *whether the pose drives the build*, which is verified three ways above; a wrong density number in the reporting `#2` added is a different defect, and reopening here would put two tickets on one fact.
+
+  **Not checked:** no capture emitted a `reach` block (`bReachMeasured` false), so "built but culled out of frame" — one of the three things `#2`'s `MeasureGrassFrameReach` exists to separate — was never exercised, and the three `grassWarning` texts at `LandscapeGrassSettle.cpp:277`/`:296`/`:322` were never triggered. Also unexercised: the ortho path, which emits the same block from `OrthoTileCaptureHandler.cpp:832`/`:952` and is separately tracked by `B-ortho-capture-renders-no-landscape-grass`.
