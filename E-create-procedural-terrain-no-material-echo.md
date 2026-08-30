@@ -23,7 +23,7 @@ omitted echo is the **applied material**, not vertex/triangle counts.
 
 ## Source (handler confirmed)
 
-`Source/EditorAutomationRpcGateway/Private/Handlers/Environment/EnvironmentHandler.cpp`,
+`Source/PinWright/Private/Handlers/Environment/EnvironmentHandler.cpp`,
 `environment.build.create_procedural_terrain` (handler ~:1006; line numbers below
 are approximate and drift with the file):
 
@@ -138,3 +138,4 @@ Cheap: the handler already holds both the requested path and the loaded
   `material` + no warning; bogus path → `materialApplied=false` + a `materialWarning`;
   no material → `materialApplied=false` + no `material` field. Fails if any echo is
   reverted. Files: `EnvironmentHandler.cpp`, `TestEnvironmentHandlers.cpp`.
+- `#3-repoint-citations-after-module-rename` `DONE` reporter — Citation maintenance only; **no claim in this ticket changes and the status is untouched**. The plugin module directory was renamed `Source/EditorAutomationRpcGateway/` → `Source/PinWright/` (plugin commit `8962f163`), and `Source/EditorAutomationRpcGatewayTests/` was folded into `Source/PinWright/Private/Tests/`, so every citation under the old root was an **unresolvable path** a fixer could not open — not a stale line number. 1 body citation repointed in place; every rewritten path was confirmed to exist at plugin HEAD `ef8a1f1b`. No citation in this ticket carries a line number, so nothing here required line re-verification. Sweep-wide record, including the cases that could not be repointed: `E-module-rename-citation-sweep`.
