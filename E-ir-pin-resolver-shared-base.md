@@ -23,10 +23,10 @@ and its three callers retargeted at `FIrTokenizer` directly.
 
 ## Divergence inventory
 
-Verified by reading `Source/EditorAutomationRpcGateway/Private/MGIR/MGIRPinResolver.{h,cpp}`,
-`Source/EditorAutomationRpcGateway/Private/AGIR/AGIRPinResolver.{h,cpp}`,
-`Source/EditorAutomationRpcGateway/Private/CRIR/CRIRPinResolver.{h,cpp}`,
-`Source/EditorAutomationRpcGateway/Private/Compiler/CodePinResolver.{h,cpp}`.
+Verified by reading `Source/PinWright/Private/MGIR/MGIRPinResolver.{h,cpp}`,
+`Source/PinWright/Private/AGIR/AGIRPinResolver.{h,cpp}`,
+`Source/PinWright/Private/CRIR/CRIRPinResolver.{h,cpp}`,
+`Source/PinWright/Private/Compiler/CodePinResolver.{h,cpp}`.
 
 | Aspect              | MGIR                                              | AGIR                                            | CRIR                                                   | Code (BPIR)                                       |
 |---------------------|---------------------------------------------------|-------------------------------------------------|--------------------------------------------------------|---------------------------------------------------|
@@ -220,3 +220,4 @@ Combined: roughly ~150 LOC removed.
   sites in `AGIRCompiler*.cpp` exercised). Three temp assets created and deleted
   (`asset.delete` deletedCount:3). BPIR compile would fail at tokenization if the
   `FBpirTokenizer` deletion / `GetBpirGrammar` retarget were broken; it isn't.
+- `#6-repoint-citations-after-module-rename` `DONE` reporter — Citation maintenance only; **no claim in this ticket changes and the status is untouched**. The plugin module directory was renamed `Source/EditorAutomationRpcGateway/` → `Source/PinWright/` (plugin commit `8962f163`), and `Source/EditorAutomationRpcGatewayTests/` was folded into `Source/PinWright/Private/Tests/`, so every citation under the old root was an **unresolvable path** a fixer could not open — not a stale line number. 4 body citations repointed in place; every rewritten path was confirmed to exist at plugin HEAD `ef8a1f1b`. No citation in this ticket carries a line number, so nothing here required line re-verification. Sweep-wide record, including the cases that could not be repointed: `E-module-rename-citation-sweep`.
