@@ -10,7 +10,7 @@ tags: [bpir, compiler, refactor]
 # Extract per-opcode strategies from FBpirCompiler::WireDataPins
 
 `FBpirCompiler::WireDataPins` at
-`Source/EditorAutomationRpcGateway/Private/Compiler/BpirCompiler.cpp:6350-6865`
+`Source/PinWright/Private/Compiler/BpirCompiler.cpp:7079-7318`
 is a single 516-line function whose body is dominated by one nested
 `switch (Inst.Opcode)` covering 15 opcode branches (`Branch`, `Foreach`,
 `ForeachBreak`, `While`, `Switch`, `SwitchInt`, `SwitchString`, `SwitchEnum`,
@@ -38,7 +38,7 @@ shared "wire arg value" tail would shrink the function dramatically and
 make the supported opcode set explicit.
 
 The 329 BPIR tests in
-`Source/EditorAutomationRpcGateway/Private/Tests/Bpir/` (and the BPIR
+`Source/PinWright/Private/Tests/Bpir/` (and the BPIR
 round-trip suite called out in `docs/bpir-test-matrix.md`) act as the
 regression safety net — any strategy split must keep the full suite
 green.
@@ -191,3 +191,4 @@ warrants the same treatment.
   dispatcher resolves the same target pins the old inline switch did. Temp BP
   deleted (`existsAfter:false`). The strategy extraction is logically equivalent
   and live in the editor binary.
+- `#6-repoint-citations-after-module-rename` `DONE` reporter — Citation maintenance only; **no claim in this ticket changes and the status is untouched**. The plugin module directory was renamed `Source/EditorAutomationRpcGateway/` → `Source/PinWright/` (plugin commit `8962f163`), and `Source/EditorAutomationRpcGatewayTests/` was folded into `Source/PinWright/Private/Tests/`, so every citation under the old root was an **unresolvable path** a fixer could not open — not a stale line number. 2 body citations repointed in place and verified against plugin HEAD `ef8a1f1b`. **Not just a path — the shape the body describes no longer exists, because this DONE ticket's own extraction landed.** The cited range is in bounds (the file is 8,311 lines) but wrong: `:6350` sits in the Select node-emission arm and `:6865` in dispatcher-name construction. `WireDataPins` is now `:7079-7318` (~240 lines, not 516) and contains **no `switch` at all** — per-opcode target-pin resolution was extracted to eleven file-static `ResolveTargetPin_*` strategies (`:532-783`) behind `ResolveTargetPinForOpcode` (`:784`, called from `:7108`) sharing `FWireDataPinsContext` (`:521`). Sweep-wide record, including every case that could not be repointed: `E-module-rename-citation-sweep`.
