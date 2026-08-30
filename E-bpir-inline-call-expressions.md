@@ -20,10 +20,10 @@ imperative form would be.
 
 The parser already understands `call` as an expression head on the RHS
 of `%nN: T = call ...` (see `ParseCallInstruction` in
-`Source/EditorAutomationRpcGateway/Private/Compiler/BpirParser.cpp:1475`);
+`Source/PinWright/Private/Compiler/BpirParser.cpp:1475`);
 allowing the same head to nest inside argument slots — recognised by
 `FBpirValueResolver::ResolveValue` in
-`Source/EditorAutomationRpcGateway/Private/Compiler/BpirValueResolver.cpp:140`
+`Source/PinWright/Private/Compiler/BpirValueResolver.cpp:143`
 (which today branches only on `%`, `$`, `self`, `cast<`, and literal,
 then errors out with "Could not resolve value '...' for pin '...'") —
 would let authors write
@@ -72,3 +72,4 @@ pattern used for the cast-RHS fix in `E-bpir-cast-as-set-rhs`).
 ## History
 - `#1-initial-repro` `OPEN` reporter — Authoring per-lap-button select expressions (10 buttons × 1 call each) required hoisting every `EqualEqual_IntInt` to its own `%eN: bool = call ...` line before referencing it from `select(Index: %eN, ...)`. 30 lines for what could be 10. Parser already understands `call` as expression head on RHS of `%nN: T = call ...` (BpirParser.cpp:1475); `FBpirValueResolver::ResolveValue` (BpirValueResolver.cpp:140) only handles `%`, `$`, `self`, `cast<`, literal — no `call`-headed branch, so falls through to "Could not resolve value 'call EqualEqual_IntInt(...)' for pin 'Index'". Closest neighbour `E-bpir-cast-as-set-rhs` (DONE) added the same shape for `cast<T>(...)`.
 - `#2-wontfix-low-roi` `WONTFIX` developer — Low severity, ergonomic-only; the `%tmp = call F(...)` hoist workaround is already in standard use and always succeeds. The parallel DONE sibling `E-bpir-cast-as-set-rhs` (same shape, for `cast<T>(...)` on the RHS) required five review rounds to land and produced a wildcard-survival regression in round #3 that had to be patched. Inline `call`-headed expressions would add the same parser/resolver complexity (recursive arg parse, `BlueprintPure` gate, `PreEmitVariableRefs` recursion into nested call args) and history shows that surface is hard to land cleanly. Closing without code change; reopen if a concrete authoring task hits >100 hoisted intermediates and the workaround becomes the bottleneck.
+- `#3-repoint-citations-after-module-rename` `DONE` reporter — Citation maintenance only; **no claim in this ticket changes and the status is untouched**. The plugin module directory was renamed `Source/EditorAutomationRpcGateway/` → `Source/PinWright/` (plugin commit `8962f163`), and `Source/EditorAutomationRpcGatewayTests/` was folded into `Source/PinWright/Private/Tests/`, so every citation under the old root was an **unresolvable path** a fixer could not open — not a stale line number. 2 body citations repointed in place and verified against plugin HEAD `ef8a1f1b`. Two citations. `Compiler/BpirParser.cpp:1475` lands exactly — the `{ TEXT("call"), … }` arm of `GetAfterEqualsDispatch` (`:1472`), with the `ParseCallInstruction` call at `:1477`. `BpirValueResolver.cpp:140` was the constructor's opening brace and is repaired to `:143`; `ResolveValue` is `:143-238` and still branches only on `%` (`:151`), `$` (`:168`), `self` (`:209`) and `cast<` (`:218`), so the claim holds. Aside for a fixer: the “Could not resolve value” text is emitted by the caller, `BpirCompiler.cpp:7214-7243`, not by `ResolveValue`. Sweep-wide record, including every case that could not be repointed: `E-module-rename-citation-sweep`.
