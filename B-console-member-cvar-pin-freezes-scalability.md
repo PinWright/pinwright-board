@@ -233,6 +233,14 @@ That is a different fix in a different file with a different failure mode (a ver
 versus a verb passing your string through), so it wants its own ticket rather than being smuggled
 in here. Recorded so it is not lost.
 
+**Now filed as `B-performance-typed-verbs-pin-scalability-cvars` (OPEN, High).** One correction it
+carries back to the list above: the count is **seven** `ECVF_Scalability` cvars across the two verbs,
+not six — `apply_baseline_settings` writes **six**, not five. The missing one is `r.VSync`
+(`ConsoleManager.cpp:4330`, flags `:4334`), which carries `ECVF_Scalability` on its declaration and
+has **no row in `BaseScalability.ini`**, so the ini-scan used to build the list above skipped it.
+That is precisely the `r.ScreenPercentage` case this ticket's own § *Fix* already warns about —
+*"Refuse on the flag, not on a hardcoded list"* — reappearing one section later in its own evidence.
+
 ## Distinct from
 
 - **`B-console-command-sg-cvar-pin-freezes-scalability`** (IN-REVIEW, High) — the same root cause
@@ -341,3 +349,4 @@ argued in both directions -> High
   `scalabilityGroupsChanged: false` at `:996`. Cross-link-only entries appended to
   `B-console-command-sg-cvar-pin-freezes-scalability` and `F-console-search-setby-priority` with
   their `encounters` / `lastSeen` deliberately untouched.
+- `#2-third-door-now-filed` `OPEN` reporter — **Cross-link and one correction. Status unchanged, and `encounters` / `lastSeen` deliberately left untouched** — this is not a re-observation of the member-cvar defect. The typed-verb door § *Scope note* recorded and declined to file is now `B-performance-typed-verbs-pin-scalability-cvars` (OPEN, High), filed on the terms this ticket set: different file, different failure mode, its own fix. The three doors are cross-linked in all directions so a fixer sees one defect with three entrances — `sg.` console line (`B-console-command-sg-cvar-pin-freezes-scalability`, IN-REVIEW), member cvar on a console line (this ticket), and typed verb with no console string at all (the new one). **Correction to this ticket's § *Scope note*, offered rather than edited into it silently:** the count is seven `ECVF_Scalability` cvars across the two verbs, not six, because `apply_baseline_settings` writes six rather than five. The one the note missed is `r.VSync` — `ECVF_Scalability | ECVF_RenderThreadSafe` on its declaration (`Runtime/Core/Private/HAL/ConsoleManager.cpp:4330`, flags `:4334`) with **no `BaseScalability.ini` row**, so an ini scan cannot see it. That is the same `r.ScreenPercentage` case this ticket's § *Fix* already argues for — *"Refuse on the flag, not on a hardcoded list … any list built by scanning `BaseScalability.ini` misses it"* — which means the note's own evidence was gathered by the method the ticket tells the fixer not to use. Worth carrying into the fix: whatever predicate `#2` ships must be flag-based, and the acceptance test should include a scalability cvar with no ini row.
