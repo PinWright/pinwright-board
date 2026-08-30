@@ -22,7 +22,7 @@ signature for the interaction subsystem and is not reusable for
 arbitrary dispatcher authoring.
 
 Source confirms the gap:
-- `Source/EditorAutomationRpcGateway/Private/Handlers/Blueprint/`
+- `Source/PinWright/Private/Handlers/Blueprint/`
   contains zero matches for `add_dispatcher` or
   `MulticastDelegateProperty`-as-creation; the existing
   `MulticastDelegateProperty` hits are read-only resolutions inside
@@ -89,3 +89,4 @@ the existing dispatcher-consumer tickets
 - `#1-no-create-dispatcher-rpc` `OPEN` reporter — BPIR §2.10 ships `call_dispatcher`/`bind_dispatcher`/`unbind_dispatcher`/`clear_dispatcher` but assumes the dispatcher already exists; `blueprint.add_variable` rejects multicast-delegate types and only the hardcoded `interaction.add_interaction_events` produces dispatchers. Confirmed by source sweep: no `add_dispatcher` in `Handlers/Blueprint/`, no `DelegateSignatureGraphs.Add(...)` writes anywhere, no entry in `rpc-method-reference.generated.md`. Proposes `blueprint.add_dispatcher` / `blueprint.remove_dispatcher` / `blueprint.set_dispatcher_signature` to close the authoring half of the BPIR dispatcher round-trip.
 - `#2-add-dispatcher-rpc` `IN-REVIEW` developer — Narrowed the ticket to blueprint.add_dispatcher, implemented dispatcher property plus correctly named delegate signature graph, and added regression coverage for property flags, graph naming, and generated signature function.
 - `#3-verify-add-dispatcher` `DONE` tester — Verified: created `/Game/App/UI/Test/W_McpVerifyTemp_FBlueprintAddDispatcher`, ran `blueprint.add_dispatcher` for `OnMcpVerified` with `string` and `int` params, observed `compiled=true`, `status=UpToDate`, `signatureGraph=OnMcpVerified`, `signatureFunction=OnMcpVerified__DelegateSignature`, and `blueprint.inspect` showed variable `OnMcpVerified` type `mcdelegate` plus graph `OnMcpVerified`; temp asset deleted with `asset.delete`.
+- `#4-repoint-citations-after-module-rename` `DONE` reporter — Citation maintenance only; **no claim in this ticket changes and the status is untouched**. The plugin module directory was renamed `Source/EditorAutomationRpcGateway/` → `Source/PinWright/` (plugin commit `8962f163`), and `Source/EditorAutomationRpcGatewayTests/` was folded into `Source/PinWright/Private/Tests/`, so every citation under the old root was an **unresolvable path** a fixer could not open — not a stale line number. 1 body citation repointed in place; every rewritten path was confirmed to exist at plugin HEAD `ef8a1f1b`. No citation in this ticket carries a line number, so nothing here required line re-verification. Sweep-wide record, including the cases that could not be repointed: `E-module-rename-citation-sweep`.
