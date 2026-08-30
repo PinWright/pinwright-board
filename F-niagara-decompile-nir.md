@@ -22,16 +22,16 @@ Dual-surface delivery: the plugin's `IrSidecarRegistry` is the canonical dual-su
 ## Files touched (v1a)
 
 New:
-- `Source/EditorAutomationRpcGateway/Private/NIR/NIRDecompiler.h`
-- `Source/EditorAutomationRpcGateway/Private/NIR/NIRDecompiler.cpp`
-- `Source/EditorAutomationRpcGateway/Private/Handlers/Niagara/NIRDecompileHandler.cpp`
-- `Source/EditorAutomationRpcGateway/Private/Tests/Niagara/TestNIRDecompiler.cpp`
+- `Source/PinWright/Private/NIR/NIRDecompiler.h`
+- `Source/PinWright/Private/NIR/NIRDecompiler.cpp`
+- `Source/PinWright/Private/Handlers/Niagara/NIRDecompileHandler.cpp`
+- `Source/PinWright/Private/Tests/Niagara/TestNIRDecompiler.cpp`
 - `docs/board/F-niagara-decompile-nir-overrides.md` (v1b spin-off)
 - `docs/board/F-niagara-decompile-nir-script-graphs.md` (v1c spin-off)
 
 Modified:
-- `Source/EditorAutomationRpcGateway/Private/Handlers/Asset/AssetDumpHandler.h` — adds `DumpFileNames::Nir`.
-- `Source/EditorAutomationRpcGateway/Private/Handlers/Asset/AssetDumpHandler.cpp` — adds `DumpFileNames::Nir` to the baseline `FixedCanonical[]` array.
+- `Source/PinWright/Private/Handlers/Asset/AssetDumpHandler.h` — adds `DumpFileNames::Nir`.
+- `Source/PinWright/Private/Handlers/Asset/AssetDumpHandler.cpp` — adds `DumpFileNames::Nir` to the baseline `FixedCanonical[]` array.
 - `docs/wiki/niagara.md` — replaces the "no text IR" caveat with an NIR section.
 
 ## Effort
@@ -81,3 +81,4 @@ Modified:
   options, not a parallel implementation.
 - `#3-reformulated-and-v1a-implemented` `IN-REVIEW` developer — Reformulated to v1a (System+Emitter shell) after analysis confirmed IrSidecarRegistry already enforces the dual-surface invariant and 5 of 6 complications are solved in existing NiagaraDumpBuilder/NiagaraModelBuilder/NiagaraResetModuleInputHelpers code. Spun off two follow-up tickets: F-niagara-decompile-nir-overrides (v1b — override-chain resolver) and F-niagara-decompile-nir-script-graphs (v1c — module-script graph emission). Implemented: Private/NIR/{NIRDecompiler.h,NIRDecompiler.cpp}; Private/Handlers/Niagara/NIRDecompileHandler.cpp registering niagara.decompile_nir + three IrSidecarRegistry entries (System/Emitter/Script). nir.txt sidecar wired via AssetDumpHandler.h DumpFileNames::Nir + AssetDumpHandler.cpp FixedCanonical[]. Wiki docs/wiki/niagara.md updated. Tests in Private/Tests/Niagara/TestNIRDecompiler.cpp cover system/emitter/script-placeholder shape, RPC/sidecar parity, compile-state-stale annotation. Override-chain inputs emit `# TODO: dynamic-input chain (F-niagara-decompile-nir-overrides)` placeholders preserving pin names; v1b substitutes cleanly. Module-script branch emits `# script graph emission deferred (F-niagara-decompile-nir-script-graphs)`.
 - `#4-verify-system-nir` `DONE` tester — Verified: `niagara.decompile_nir` on `/Game/Effects/Particles/Item/NS_Heal.NS_Heal` returned v1a NIR with `system`, emitter, renderer, stack module, static, and input rows; `asset.dump` on `/Game/Effects/Particles/Item/NS_Heal` wrote `.editor-automation/asset-dumps/Game/Effects/Particles/Item/NS_Heal/nir.txt`, whose opening system path and first stack/module rows matched the RPC output shape.
+- `#5-repoint-citations-after-module-rename` `DONE` reporter — Citation maintenance only; **no claim in this ticket changes and the status is untouched**. The plugin module directory was renamed `Source/EditorAutomationRpcGateway/` → `Source/PinWright/` (plugin commit `8962f163`), and `Source/EditorAutomationRpcGatewayTests/` was folded into `Source/PinWright/Private/Tests/`, so every citation under the old root was an **unresolvable path** a fixer could not open — not a stale line number. 6 body citations repointed in place; every rewritten path was confirmed to exist at plugin HEAD `ef8a1f1b`. 1 citation sits in history rows and is left verbatim per the append-only rule, mapping by the same rule; the mapped path was confirmed present at HEAD too. No citation in this ticket carries a line number, so nothing here required line re-verification. Sweep-wide record, including the cases that could not be repointed: `E-module-rename-citation-sweep`.
