@@ -38,7 +38,7 @@ from; discovery was pure trial and error.
 
 ## What's wrong
 
-`Source/EditorAutomationRpcGateway/Private/Handlers/Volume/VolumeHandler.cpp:1477`:
+`Source/PinWright/Private/Handlers/Volume/VolumeHandler.cpp:1538-1542`:
 
 ```cpp
 REGISTER_RPC_HANDLER("volume.get_volumes_info", "volume", "Get information about all volumes in the level",
@@ -93,3 +93,4 @@ that's undiscoverable and contradicted by the create response).
 
 ## History
 - `#1-initial-audit` `OPEN` reporter — Filed from the arena-walls struggle audit (seed `volume.create_blocking_volume`). Listing blocking volumes cost three failed calls before `volumeType="BlockingVolume"` worked: `volumeClass` (UNKNOWN_PARAMS), `filter="BlockingVolume"` (name filter, 0 results), `volumeType="ABlockingVolume"` (0 results — the create handler echoes `volumeClass:"ABlockingVolume"` but the filter matches the unprefixed `GetClass()->GetName()="BlockingVolume"` via `ClassName.Contains`). Source: `VolumeHandler.cpp:1477` (registration), `:1497`/`:1510-1513` (volumeType contains-match on unprefixed name), `:1496`/`:1515-1518` (filter is name/label substring), `:1552` (special-cased "Trigger"). Wrong-but-valid filter values return a silent empty list, so there is no error to learn from. Proposed: strip leading `A` / accept the echoed `volumeClass` form, and document `volumeType`'s accepted vocabulary in a new `### volume.get_volumes_info` section of `docs/wiki-src/volume.md`.
+- `#2-repoint-citations-after-module-rename` `DONE` reporter — Citation maintenance only; **no claim in this ticket changes and the status is untouched**. The plugin module directory was renamed `Source/EditorAutomationRpcGateway/` → `Source/PinWright/` (plugin commit `8962f163`), and `Source/EditorAutomationRpcGatewayTests/` was folded into `Source/PinWright/Private/Tests/`, so every citation under the old root was an **unresolvable path** a fixer could not open — not a stale line number. 1 body citation repointed in place and verified against plugin HEAD `ef8a1f1b`. `:1477` had drifted onto an INVALID_ARGUMENT bounds check in a different handler; the quoted `REGISTER_RPC_HANDLER("volume.get_volumes_info", …)` block with its `filter` / `volumeType` `RPC_PARAM_OPT`s matches verbatim at `:1538-1542`. Sweep-wide record, including every case that could not be repointed: `E-module-rename-citation-sweep`.
