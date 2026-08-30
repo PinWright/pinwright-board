@@ -18,7 +18,7 @@ WAV is imported, every wave-level field that ships on
 defaults — is unreachable from the RPC surface.
 
 Verified gap, against
-`Source/EditorAutomationRpcGateway/Private/Handlers/Audio/`:
+`Source/PinWright/Private/Handlers/Audio/`:
 
 1. **No write-side RPC for USoundWave fields.** Grep for
    `REGISTER_RPC_HANDLER.*sound_wave` and
@@ -74,7 +74,7 @@ bMature?, bSingleLine?}, save?)` mirroring the existing
 Out of scope: editing `Duration`, `NumChannels`, `SampleRate` —
 those are content-derived and only meaningful as readback.
 
-Tests under `Source/EditorAutomationRpcGatewayTests/`: import a
+Tests under `Source/PinWright/Private/Tests/`: import a
 fixture WAV (or use an existing one in the test content), flip
 `bLooping`, set `SoundGroup=Voice`, set
 `compressionQuality=50`, re-dump via `asset.dump`, assert all three
@@ -89,3 +89,4 @@ manual workaround (open each wave, edit, save) does not scale past
 - `#1-initial-scope` `OPEN` reporter — Proposed combined import+edit RPC pair; on verification, `asset.import` (AssetManageHandler.cpp:84) already routes WAV through UFactory, so the import half is redundant. Scoped this ticket to the property-edit half only. Confirmed no existing `set_sound_wave_properties` (zero hits for `REGISTER_RPC_HANDLER.*[Ss]ound_?[Ww]ave` in `Handlers/`), confirmed the writable field set against the existing `SoundWaveDumpBuilder` readback (`bLooping`, `Volume`, `Pitch`, `SoundGroup`), and noted modulation defaults / `CompressionQuality` / `bMature` / `bSingleLine` as the natural additions. No prior audio-board ticket overlaps — existing F-audio-* entries cover Submix routing, MetaSound, and SoundCue, not USoundWave property edits.
 - `#2-implemented-set-sound-wave-properties` `IN-REVIEW` developer — Added `audio.authoring.set_sound_wave_properties` in new file `Handlers/Audio/SoundWaveAuthoringHandler.cpp` (sibling to existing AudioAuthoringHandler.cpp — kept separate to avoid touching the in-flight diff there). Inlined a small wave loader (≈6 lines) instead of lifting the existing LoadSoundWaveFromPath helper. Supports bLooping, volume, pitch, soundGroup (ESoundGroup name string round-trips with SoundWaveDumpBuilder), compressionQuality (int32), bMature, bSingleLine, with optional save flag. Returns post-edit field echo + AddAssetVerification. Tests in `Tests/Media/TestSoundWaveAuthoringHandler.cpp` cover full round-trip + INVALID_SOUND_GROUP + SOUND_WAVE_NOT_FOUND counterfactuals. No Build.cs change.
 - `#3-verify-fix` `DONE` tester — Verified: schema `audio.authoring.set_sound_wave_properties?` exposes all proposed fields (bLooping, volume, pitch, soundGroup, compressionQuality, bMature, bSingleLine, save). Live call on `/Game/Audio/FPV_SOUND/UI/UISFX_Select_7` (save=false) with bLooping=true/volume=0.75/pitch=1.1/soundGroup=SOUNDGROUP_Voice/compressionQuality=50 round-tripped all values in the response echo. Counterfactual call with soundGroup="NOT_A_REAL_GROUP" returned typed error `INVALID_SOUND_GROUP` as designed.
+- `#4-repoint-citations-after-module-rename` `DONE` reporter — Citation maintenance only; **no claim in this ticket changes and the status is untouched**. The plugin module directory was renamed `Source/EditorAutomationRpcGateway/` → `Source/PinWright/` (plugin commit `8962f163`), and `Source/EditorAutomationRpcGatewayTests/` was folded into `Source/PinWright/Private/Tests/`, so every citation under the old root was an **unresolvable path** a fixer could not open — not a stale line number. 2 body citations repointed in place; every rewritten path was confirmed to exist at plugin HEAD `ef8a1f1b`. No citation in this ticket carries a line number, so nothing here required line re-verification. Sweep-wide record, including the cases that could not be repointed: `E-module-rename-citation-sweep`.
