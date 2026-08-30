@@ -52,7 +52,7 @@ Recompiling that output produces a graph where the `@else` branch's exec-out wir
 
 ## Root cause location
 
-`Source/EditorAutomationRpcGateway/Private/Decompiler/BpirDecompiler.cpp`:
+`Source/PinWright/Private/Decompiler/BpirDecompiler.cpp`:
 
 - `WalkExecChain` lines 907-1003 — the chain walker eagerly absorbs whatever's reachable through the current exec output, regardless of whether that node has additional incoming exec predecessors. There is no pre-pass that identifies multi-predecessor join nodes and forces them to start a fresh label.
 - Lines 957-1001 — reconvergence handler. When the second branch's walk hits a visited node, the code emits `exec -> @<NodeToEmittedLabel[Node]>`. That mapping points to whatever label was active when the node was first absorbed, which for a shared tail is the wrong label — it's the upstream branch's label, not a label that starts at the join.
@@ -68,7 +68,7 @@ If another branch reaches the same unvisited reserved join before merge processi
 
 ## Test plan
 
-Add a round-trip test under `Source/EditorAutomationRpcGateway/Private/Tests/`:
+Add a round-trip test under `Source/PinWright/Private/Tests/`:
 1. Compile the input BPIR from the repro section.
 2. Decompile.
 3. Assert the decompiled output contains a label whose block holds only the shared `SetVisibility(InVisibility: ...)` call (not preceded by either `SetVisibility(Target: $ReasonText, ...)` variant).
@@ -79,3 +79,4 @@ Add a round-trip test under `Source/EditorAutomationRpcGateway/Private/Tests/`:
 - `#1-initial-repro` `OPEN` reporter — Decompiler `WalkExecChain` (BpirDecompiler.cpp:907-1003) greedily absorbs shared join nodes inline into the first-walked branch, then routes the other branch's `exec ->` to that branch's label instead of to a fresh label at the join. Round-trip recompile produces a graph that re-runs the first branch's body when the second branch runs. Repro on `/App/App/UI/W_PhotoPopup.W_PhotoPopup ShowPopup` — reason text fails to show when `allowed=false` because the `else` branch jumps into the `then` branch and immediately collapses the text it just made visible. Existing retroactive-label-insert (lines 968-991) only covers join nodes in the pre-label block, not joins inside labeled blocks. Graph is correct; emission is wrong; round-trip corrupts behavior. See bpir-language-reference §2.8 for the documented language shape this should support.
 - `#2-dedicated-merge-label` `IN-REVIEW` developer — `WalkExecChain` now reserves a dedicated merge label for unvisited shared exec-input join nodes using the current source exec output pin, emits branch-local `exec -> @merge_N`, lets the reserved merge label emit the shared tail normally, and adds `FDecompilerSharedTailReconvergenceLabelTest` to guard the decompile -> recompile control-flow shape.
 - `#3-verify-fix` `DONE` tester — Verified: compiled BPIR `entry custom_event TestSharedTail(bool allowed)` with two-branch shared-tail shape (both `@show_reason`/`@hide_reason` doing `exec -> @show_self`) into temp BP `/Game/App/UI/Test/W_McpVerifyTemp_bpir_decompile_shared_tail`, then `blueprint.decompile` emitted a dedicated `@merge` label containing only the shared `PrintString("show_self")` call, with both `@then` and `@else` terminating in `exec -> @merge` (not `exec -> @<each_other>`). Matches the fix sketch and acceptance criteria from the ticket body.
+- `#4-repoint-citations-after-module-rename` `DONE` reporter — Citation maintenance only; **no claim in this ticket changes and the status is untouched**. The plugin module directory was renamed `Source/EditorAutomationRpcGateway/` → `Source/PinWright/` (plugin commit `8962f163`), and `Source/EditorAutomationRpcGatewayTests/` was folded into `Source/PinWright/Private/Tests/`, so every citation under the old root was an **unresolvable path** a fixer could not open — not a stale line number. 2 body citations repointed in place; every rewritten path was confirmed to exist at plugin HEAD `ef8a1f1b`. No citation in this ticket carries a line number, so nothing here required line re-verification. Sweep-wide record, including the cases that could not be repointed: `E-module-rename-citation-sweep`.
