@@ -1,7 +1,7 @@
 ---
 id: B-foliage-add-type-name-with-slash-kills-the-editor
 title: "foliage.add_type concatenates its `name` onto a hardcoded /Game/Foliage with no validation, so a name carrying a path — the only thing a caller can try, because the verb exposes no savePath — builds `/Game/Foliage//Game/...` and CreatePackage's Fatal log kills the editor process outright, taking every unsaved package with it"
-status: OPEN
+status: IN-REVIEW
 severity: Critical
 category: bug
 tags: [foliage, add_type, create_procedural, crash, editor-process-death, unvalidated-input, package-path, double-slash, data-loss, shared-editor]
@@ -236,3 +236,46 @@ crashed, which is weak evidence, not a test).
   reach modifiers declined. Dedup: no board ticket covers `add_type`'s `name`, `CreatePackage`
   double-slash, or this crash; the three neighbours named under Cross-links were each read and
   are different defects. No fix attempted — nothing under `Plugins/PinWright/Source/` was edited.
+- `#2-compose-through-engine-package-rules` `IN-REVIEW` developer — "Added file-local
+  `PinWrightComposeFoliagePackagePath(Folder, AssetName, OutPath, OutError)` to
+  `FoliageHandler.cpp` and routed **all four** of that file's `CreatePackage` sites through it, so
+  neither of CreatePackage's two Fatals (`//` at `UObjectGlobals.cpp:1094-1096`, empty name at
+  `:1118`) is reachable from this file. It reuses the engine's own rules rather than a character
+  list — `FName::IsValidXName` + `INVALID_OBJECTNAME_CHARACTERS` on the bare name (catches `/`,
+  `.`, `..`, `:`), then `FPackageName::IsValidLongPackageName(..., bIncludeReadOnlyRoots=true,
+  &FText Reason)` on the composed path (catches `//`, empty/too-short, missing leading slash,
+  trailing slash, `INVALID_LONGPACKAGE_CHARACTERS` incl. `\`, unmounted root) — and surfaces both
+  engine `OutReason` texts verbatim in the refusal. Sites, at HEAD line numbers after the edit:
+  `add_type` (`:1742`, the measured crash), `create_procedural`'s spawner (`:2343`, the ticket's
+  inferred second site), the per-entry `_FT_<n>` types (`:2466`, third site — unreachable once
+  the spawner name is checked, kept as a local restatement that skips the entry with a reason),
+  and the `Auto_<Mesh>` helper (`:171`, not caller-reachable, guarded for uniformity). All three
+  ticket line references re-derived unchanged before editing (`:1584-1589`, `:2083-2087`,
+  `:2194-2197`); the engine Fatal is at `C:/UE_5.8/.../UObjectGlobals.cpp:1096` in this host's
+  installed engine. Error codes are raw `TEXT()` literals matching this non-adopting file's
+  existing style; both codes emitted (`INVALID_ARGUMENT`, `SECURITY_VIOLATION`) are already
+  registered in `Handlers/ErrorCodes.h`, so no new code was added.
+  **Took recommendation 1 and added `savePath` to `foliage.add_type`** (default `/Game/Foliage`),
+  spelled and validated exactly as `create_procedural` spells it —
+  `SanitizeProjectRelativePath` -> `SECURITY_VIOLATION`, effective folder echoed as `save_path` —
+  because a refusal alone leaves the caller with the same hardcoded destination that motivated
+  the bad input. The `name`/`savePath` checks are deliberately placed ABOVE the `meshPath`
+  resolution; that ordering is load-bearing for the regression test and is commented as such in
+  the handler. Recommendation 2 (a central `CreatePackageChecked`) was NOT taken — out of scope
+  for one ticket and it would need the 318-site audit the ticket says is undone.
+  Regression tests: new `Tests/Environment/TestFoliageAddTypeNamePathSafety.cpp`, three cases —
+  `add_type.NameCarryingAPathIsRefused` (rooted path, interior slash, backslash, `..`, trailing
+  slash, plus a bare-name control), `.SavePathChoosesTheDestination`, `.TraversalSavePathIsRefused`.
+  **The suite can never reach the Fatal**: every refusal case pairs its bad name with a
+  well-formed but absent `meshPath`, so a build with the fix reverted is refused `ASSET_NOT_FOUND`
+  at the mesh load — above the concatenation — and the `INVALID_ARGUMENT` assertion goes red
+  instead of the host dying. `check_test_ids.py` clean (4790 ids, no dot-prefix collisions).
+  Wiki: added a `### foliage.add_type` H3 to `Docs/wiki-src/foliage.md` documenting the bare-name
+  rule and `savePath`, and one line under `### foliage.create_procedural` for its own `name`.
+  NOT COMPILED AND NOT RUN — the orchestrator builds and runs after all agents return.
+  **Fifth instance of the same defect found OUTSIDE this ticket's scope and left unedited:**
+  `landscape.create_grass_type` (`Handlers/Environment/LandscapeHandler.cpp:1670-1685`) reads an
+  unvalidated `name`, `Printf`s it onto a hardcoded `/Game/Landscape` and calls `CreatePackage`
+  — identical shape, identical Fatal, and it takes no `savePath` either. Not touched because it
+  is a different namespace and another agent is concurrently editing that file; it wants its own
+  ticket."
