@@ -4,9 +4,9 @@ title: "`actor.get_components` emits name, class, path and a scene transform and
 status: OPEN
 severity: Medium
 category: ergonomic
-tags: [actor, get_components, readback, collision, collision-profile, collision-channel, body-instance, object-type, ism, hism, pawn, census, missing-field, level-building]
-encounters: 1
-lastSeen: 2026-08-29T21:55:00+03:00
+tags: [actor, get_components, readback, collision, collision-profile, collision-channel, body-instance, object-type, ism, hism, pawn, census, missing-field, level-building, static-mesh, mesh-identity, instance-count, scatter, multi-agent, ground_instances, safety-practice]
+encounters: 2
+lastSeen: 2026-08-30T16:10:03+03:00
 ---
 
 # The component list knows what a component is and nothing about what it does
@@ -178,3 +178,81 @@ answer anywhere on the surface (`F-trace-channel-vocabulary-incomplete`,
   of the original finding, because it changes what the block must contain: 71 rows read
   `NO_COLLISION` with `respPawn: ECR_BLOCK`, so publishing responses without the enable state would
   be a confidently wrong census.
+- `#2-no-mesh-or-instance-count-either` `OPEN` reporter — **Second, disjoint field-pair missing from
+  the same four-field entry: `StaticMesh` and instance count.** Source read at HEAD `1a9e5778`
+  (the running editor is the 13:32 build `d8f1bc32`; nothing here was measured live, this is a
+  source-only re-derivation). The `#1` field list still holds line for line — registration
+  `ComponentHandler.cpp:455`, loop `:502-541`, `name` `:508`, `class` `:509-511`, `path` `:512`,
+  the `USceneComponent` branch `:513` with `relativeLocation` `:522` / `relativeRotation` `:528` /
+  `relativeScale` `:534`, then `components` `:540` and `count` `:541` — and `:513` is still the
+  loop's only type-specific branch. The file's ten `Cast<U...>` sites are `:134`, `:142`, `:148`,
+  `:152`, `:193`, `:303`, `:336`, `:409`, `:488`, `:513`; the only `UStaticMeshComponent` cast
+  (`:148`) is inside `actor.add_component`'s `meshPath` convenience and the only
+  `UPrimitiveComponent` cast (`:336`) is inside the write path, so neither the mesh nor any
+  instance count is reachable from the read loop. **What this pair blocks is a mandated safety
+  practice, and it is written down in this project rather than inferred:**
+  `Docs/map/vegetation-agent-brief.md:381-383` — *"Find it by mesh + count once, pass `component`
+  explicitly on every `ground_instances` call, and check the returned `instanceCount` equals your
+  own count before trusting the result"* — and `Docs/map/tree-seating-on-slopes.md:337`, which
+  registers `dev/planting/p_resolve.py` as *"components by mesh + count, **run before every
+  write**"*, with `:491` showing it applied (`HillTree_P2`, 177 instances, *"re-resolved live by
+  mesh + count"*). **The incidents behind it are recorded in the plugin's own source**:
+  `Private/Handlers/Actor/InstancedMeshUtils.h:86-88` — *"Three incidents in one session relocated
+  2,048 instances of other callers' authored scatters that way, two of them unrecoverably, because
+  the component was named in the response only AFTER the move"* — itemised on
+  `B-ground-instances-default-component-foreign-scatter` (IN-REVIEW, Critical, encounters 3). So
+  mesh-plus-count is not a convenience read: it is the identity check standing between a write and
+  another agent's scatter, and the verb that enumerates components publishes neither half.
+  **What DOES exist, stated as `#1` states it for collision, because "no verb reports it" is
+  refutable here too.** Count is reachable twice, mesh once, the pair never:
+  `actor.get_instances` (`Handlers/Actor/InstancedMeshHandler.cpp:294`) emits `instanceCount`
+  through `InstancedMeshUtils::WriteComponentIdentity` (`InstancedMeshUtils.h:289-304`, whose whole
+  output is `actor`, `actorPath`, `component`, `componentClass`, `instanceCount`) — one component
+  per call, ISM/HISM only, and **no mesh**; the `AMBIGUOUS_INSTANCED_COMPONENT` refusal
+  (`InstancedMeshUtils.h:162-186`, candidates built at `:164-173`) enumerates every candidate *with its instance count* and again no
+  mesh, and it is a refusal that only fires when `component` was omitted, so it cannot be used as a
+  read; and `actor.get_component_property` (`ComponentHandler.cpp:605`) reads `StaticMesh` one
+  component per call, the same one-field-at-a-time route `#1` names for collision. Two fields that
+  must be read TOGETHER to identify a component, reachable only from two different verbs neither of
+  which carries both — structurally the same trap as `#1`'s fact 2, where the enable state and the
+  response container disagree on 71 of 147 rows unless they arrive on one row. **The fallback was
+  paid, twice, in the same shape as `gc_census.py`:** `dev/planting/p_resolve.py` and
+  `dev/zoneE/pw_comp_map.py` are `python.execute` component/mesh/count censuses written because the
+  typed surface has no such row. **Dedup: filed here as an encounter rather than as its own ticket,
+  argued.** Same verb, same loop, same four-field entry, same missing-field shape, same
+  `python.execute` census workaround, and — decisively — the same *fix seat*: both asks are an
+  opt-in per-entry block hung off a new type-specific branch beside `:513`, governed by the same
+  spill constraint `#1` already reasons about (`E-actor-list-no-limit-spills`,
+  `E-actor-describe-no-header-only-read`, `E-blueprint-list-no-projection-spills`) and by the same
+  opt-in flag design. Two tickets would have two fixers re-litigate that one flag, and the second
+  would find it already decided. **The separation argument, named and declined:** a collision read
+  is a `UPrimitiveComponent`/`BodyInstance` read and a mesh-identity read is a
+  `UStaticMeshComponent`/`UInstancedStaticMeshComponent` read — different casts, different costs,
+  and in principle independently shippable. That is true and it is not enough: `#1`'s own proposed
+  block already reaches into instanced components for `instanceBodies` ("ISM/HISM only"), so the
+  ticket has already crossed that cast boundary once, and a `mesh` + `instanceCount` pair is the
+  cheaper neighbour of a field it already asks for. **Ask, additive to `#1`'s `collision` block and
+  under the same opt-in flag:** on a `UStaticMeshComponent` entry a `mesh` string (asset path,
+  empty when unset); on a `UInstancedStaticMeshComponent`/HISM entry that same `mesh` plus
+  `instanceCount`. That is one row per component answering "is this the component I authored", which
+  is the question the practice above asks before every write. **Severity: Medium stands, unmodified,
+  and the bump-up to High is declined again for `#1`'s reason with the new evidence weighed.** The
+  honest reading of the reach modifier is now "`actor.get_components` when the caller needs
+  collision state **or** mesh identity", which is a wider minority than `#1` scoped but still a
+  minority of the verb's calls, and the impact class has not moved: no field this verb emits is
+  false, the census fallback works, and the rubric's Medium clause *"a readback omits a field and
+  forces a fallback"* is exactly what happened twice. It is explicitly **not** re-rated on the
+  strength of the corruption incidents — those are `B-ground-instances-default-component-foreign-scatter`'s
+  Critical, earned by a verb that *moved* the instances; this verb only fails to help you avoid it.
+  Bump-down to Low declined for `#1`'s reason unchanged. `encounters` `1 -> 2` is the same-severity
+  work-ordering tiebreak the README defines and never a severity input. **Related, cross-linked not
+  restated:** `B-component-mesh-swap-silently-unseats-instances` (OPEN, Medium) is the write-side
+  cost of mesh identity on the very component this read cannot identify — 31 of 477 instances left
+  floating by up to 83 cm after a re-point. `B-ground-instances-default-component-foreign-scatter`
+  (IN-REVIEW, Critical) is the mutator whose refusal text (`InstancedMeshUtils.h:181-182`) already
+  tells callers *"actor.get_components lists them all"* — it lists them, and it lists them without
+  the two fields that would let a caller tell which one is theirs. The session's recurring class
+  (`B-foliage-paint-does-no-ground-projection` § *Same shape as*) applies in a named variant: here
+  the call succeeds and every number it reports is correct, but the wrong output lands on the
+  caller's *next* call rather than on this one — the deciding number was never reported, and the
+  damage is done by whatever mutator the caller aims with it.
