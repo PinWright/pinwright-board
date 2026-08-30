@@ -5,8 +5,8 @@ status: OPEN
 severity: High
 category: bug
 tags: [foliage, add_instances, paint, hism, cluster-tree, silent-false-success, ledger-vs-component, third-representation, honesty-fields, readback-blind-spot, behavioural-test-passes-on-defect, capture-verification]
-encounters: 1
-lastSeen: 2026-08-30T01:30:00+05:00
+encounters: 2
+lastSeen: 2026-08-30T13:10:00Z
 ---
 
 # Three representations were reported. The frame is a fourth, and it is the one nobody reads.
@@ -325,3 +325,73 @@ above ends with a field change and not just a `Refresh`.
   `:987-988`, `}` at `:989` — and the body now reads that. Everything the entry says about that
   branch (no `PostMoveInstances`, no rebuild, so it carries this defect) is unchanged and re-checked
   against those lines. Recorded rather than edited into `#1` because history is append-only.
+- `#3-ism-actor-instance-count-is-the-ledger-itself` `OPEN` reporter — **A third route to
+  "`ledgerMatchesRendered` cannot be false", source-only, re-derived at HEAD `1a9e5778`. No status
+  change, nothing above `## History` touched, and `#1`'s two routes are not restated.** Both routes
+  already on this ticket are about the **StaticMesh** representation. There is a third that needs no
+  mutator at all and holds at rest, because on the **ISM-actor** representation the field compares
+  the ledger with itself. `FFoliageImpl::GetInstanceCount()` is pure virtual
+  (`C:/UE_5.8/Engine/Source/Runtime/Foliage/Public/InstancedFoliage.h:219`) with three
+  implementations, chosen by `FFoliageInfo::GetImplementationType`
+  (`Private/InstancedFoliage.cpp:2132-2151`) and instantiated in `CreateImplementation`
+  (`:2074-2092`): `UFoliageType_InstancedStaticMesh` -> `EFoliageImplType::StaticMesh` (`:2134-2137`);
+  `UFoliageType_Actor` with `bStaticMeshOnly` -> `ISMActor` (`:2141-2144`); otherwise -> `Actor`
+  (`:2145-2148`). The three return three different quantities. `FFoliageStaticMesh::GetInstanceCount`
+  returns `Component->GetInstanceCount()` = `PerInstanceSMData.Num()`
+  (`InstancedFoliage.cpp:1188-1196`), a **second** array — the one this ticket's body indicts.
+  `FFoliageActor::GetInstanceCount` returns `ActorInstances.Num()` (`Private/FoliageActor.cpp:118-121`),
+  a genuinely independent array of spawned `AActor*` (`FoliageActor.h:12`) that **can** diverge from
+  the ledger. **`FFoliageISMActor::GetInstanceCount` is `return Info->Instances.Num();` — that is the
+  entire body — at `Private/FoliageISMActor.cpp:237-240`.** `Info` is the base's `FFoliageInfo* Info`
+  (`InstancedFoliage.h:210-211`), the owning info handed in at construction (`FoliageISMActor.h:18-19`,
+  ctor init `InstancedFoliage.h:197-201`), so `Info->Instances` is literally the ledger that
+  `instances[]` and `count` are built from: this representation holds **no second count anywhere**.
+  Its siblings are the same pass-through — `GetInstanceWorldTransform` also reads `Info->Instances[...]`
+  (`FoliageISMActor.cpp:286`), and `BeginUpdate`/`EndUpdate` (`:269-277`) delegate to
+  `AISMPartitionActor` and never touch `bAutoRebuildTreeOnInstanceChanges`, so this ticket's
+  tree-suppression mechanism is representation-specific too and was not exercised on this path.
+  **Connecting the engine tautology to the plugin field:** `CountRenderedFoliageInstances`
+  (`Source/PinWright/Private/Handlers/Environment/FoliageHandler.cpp:1094-1096`) is
+  `Info.Implementation->GetInstanceCount()` at `:1095`, accumulated at `:1408-1409` (filtered branch)
+  and `:1434-1435` (unfiltered), emitted as `renderedInstanceCount` at `:1464`; the verdict at
+  `:1465-1466` is `RenderedInstanceCount == InstancesArray.Num() + OrphanedInstanceCount`, where
+  `InstancesArray` is filled from `Info->Instances` (`:1411-1415`) and orphans are counted off the
+  same array (`:1438`). For an ISM-actor info **every term on both sides is `Info->Instances.Num()`**,
+  so that info contributes exactly zero possible divergence, and a scope in which every info is
+  ISM-actor answers `ledgerMatchesRendered: true` by identity — at rest, with no write having
+  happened. **The dispatch that lands there is deliberate and its reasoning is sound:** the comment at
+  `:1092-1093` chose `Implementation->GetInstanceCount()` over `GetComponent()->GetInstanceCount()`
+  *"because GetComponent() is null for every non-static-mesh impl type, which would read as 'draws
+  nothing'"*, which is correct — the cost is that on one of the three impls the honest-looking call
+  returns the ledger. **And the tautology is inherited, not introduced.** `:1091` names the quantity
+  as *"the exact quantity FFoliageInfo::CheckValid compares Instances.Num() against"*, and that
+  assertion is `check(Instances.Num() == Implementation->GetInstanceCount())`
+  (`InstancedFoliage.cpp:2200`) — the same invariant `FoliageHandler.cpp:1461-1462` and
+  `docs/wiki-src/foliage.md:21` cite as the thing `ledgerMatchesRendered` reports on. On ISMActor the
+  engine's own check is `x == x`, so the plugin field is not weaker than the engine assertion it
+  mirrors; it is exactly as empty. **Bound on the claim, recorded so this ticket is not over-claimed:
+  the field is NOT useless everywhere, and it has caught a real defect.** A level-wide
+  `foliage.get_instances` on `/Game/Maps/PW_VegetationTest` against the **13:32** build (plugin
+  `d8f1bc32`, confirmed an ancestor of HEAD `1a9e5778`) returned `count 23351`,
+  `renderedInstanceCount 23347`, `orphanedInstanceCount 0`, **`ledgerMatchesRendered: false`** — four
+  ledger-only ghosts of one `Auto_S_Bird_Of_Paradise...Var10_lod0` type, all zero-rotator and one at
+  an unprojected `z 2800`; `foliage.remove` on that type cleared them and the field went `true`.
+  Source of record: `X:/src/unreal/EAContentExamples58/Docs/map/vegetation-agent-brief.md`
+  § *New and load-bearing: `foliage.get_instances` publishes `ledgerMatchesRendered`* (project commit
+  `7d629ad9`). That level is the **StaticMesh** impl on this ticket's own evidence — its § *Measured
+  live* read `UHierarchicalInstancedStaticMeshComponent::GetInstanceCount()` there, and the brief's
+  removal check moved a component's `GetInstanceCount()` 12 -> 0 — i.e. the representation where the
+  two arrays are separable by a writer that touches one and not the other. **So the tautology
+  recorded here is scoped to `EFoliageImplType::ISMActor` and does not generalise to the namespace.**
+  **What it changes about the ticket:** the § *Fix* ask — read the tree, `NumBuiltInstances` alongside
+  `PerInstanceSMData.Num()` — is written for the StaticMesh impl and does not reach this one at all.
+  An ISM-actor's drawn instances live on the partition actor's ISM components behind
+  `FISMClientHandle` (`FoliageISMActor.h:31`; adds go `GetIFA()->AddISMInstance(ClientHandle, ...)`,
+  `FoliageISMActor.cpp:253-256`), which `foliage.get_instances` never reads. Whoever makes the
+  honesty fields capable of failing therefore has to do it **per representation**, or publish the
+  impl type beside the counts so a caller can tell which of the three numbers they were handed —
+  otherwise the fix lands on StaticMesh and `ledgerMatchesRendered` stays structurally `true` on
+  ISM-actor foliage with nothing saying so. **Source-only:** no ISM-actor foliage type was exercised
+  live; every citation above is a source derivation at HEAD, and all the engine lines sit outside the
+  plugin, so they are identical in the 13:32 build. `encounters` 1 -> 2, `lastSeen` refreshed; status
+  left `OPEN`.
