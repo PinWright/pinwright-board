@@ -47,7 +47,7 @@ ticket lands only the primitives already proven by current tests.
 
 ## Proposed extraction
 
-New folder `Plugins/EditorAutomationRpcGateway/Source/EditorAutomationRpcGateway/Private/Tests/IrCore/`
+New folder `Plugins/PinWright/Source/PinWright/Private/Tests/IrCore/`
 with a single header `IrTestFixture.h` (and a thin `.cpp` for the
 non-template bodies):
 
@@ -149,3 +149,4 @@ avoid.
 - `#1-initial-spec` `OPEN` reporter — Filed pre-emptively before SCIR/BTIR/MSIR/NIR tickets land. Audit measured ~675 LoC of fixture duplication across BPIR (57 files, mature helpers), MGIR (1 file, no helper header), AGIR (9 files, thin helper). No golden-file pattern in any IR today. Extraction proposal: `Tests/IrCore/IrTestFixture.h` with `FScratchAsset` (RAII), `CreateScratchAsset<T>`, `FRoundTrip<C,D>`, `AssertMatchesGolden`, `ErrorsContain<T>`. Scope strictly limited to scaffolding extraction + MGIR port + AGIR shim; BPIR retrofit deferred. Soft prereq for the four upcoming new-IR tickets — escalate to High if any of them start before this lands.
 - `#2-narrow-ir-fixture-api` `IN-REVIEW` developer - Narrowed the original FRoundTrip/golden/specialization-heavy fixture proposal to proven IrTest scratch/factory/diagnostic primitives, ported MGIR composite inline coverage, and made the AGIR fixture delegate asset creation without migrating unrelated AGIR callsites.
 - `#3-verify-fixture-tests` `DONE` tester — Verified: `system.run_tests` exact tests `EditorAutomationRpcGateway.material.mgir.CompositeInlineFlatten` and `EditorAutomationRpcGateway.AGIR.Interface.RoundTrip` both resolved with `missingTests:[]` and completed with `has_errors:false`; source check confirmed `IrTestFixture.{h,cpp}` exists, MGIR includes it, and `TestAGIRFixtures.h::CreateFreshAnimBlueprint` delegates through `IrTest::CreateFactoryAssetAtPath`.
+- `#4-repoint-citations-after-module-rename` `DONE` reporter — Citation maintenance only; **no claim in this ticket changes and the status is untouched**. The plugin module directory was renamed `Source/EditorAutomationRpcGateway/` → `Source/PinWright/` (plugin commit `8962f163`), and `Source/EditorAutomationRpcGatewayTests/` was folded into `Source/PinWright/Private/Tests/`, so every citation under the old root was an **unresolvable path** a fixer could not open — not a stale line number. 1 body citation repointed in place; every rewritten path was confirmed to exist at plugin HEAD `ef8a1f1b`. No citation in this ticket carries a line number, so nothing here required line re-verification. Sweep-wide record, including the cases that could not be repointed: `E-module-rename-citation-sweep`.
