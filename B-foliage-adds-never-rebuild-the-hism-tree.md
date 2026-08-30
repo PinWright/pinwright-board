@@ -117,7 +117,7 @@ because `bAllowInPlaceUpdateForRotationOrScaleChange = bIsGameWorld` (`:2331-233
 (`InstancedFoliage.cpp:1250-1255`).
 
 **Consequence: `foliage.paint` WITHOUT `surface` has this defect too.** That branch is the plain
-`else` at `FoliageHandler.cpp:985-988` — `AppendPaintedInstanceRow` and nothing else, no
+`else` at `FoliageHandler.cpp:986-989` — `AppendPaintedInstanceRow` and nothing else, no
 `PostMoveInstances`, no rebuild. It is also the branch every existing behavioural test uses. This
 half is **source-only**: unprojected paint was not captured.
 
@@ -317,3 +317,11 @@ above ends with a field change and not just a `Refresh`.
   neighbours are `B-component-mesh-swap-silently-unseats-instances` (a rebuild that happens and is
   unreported) and `B-ism-undo-record-unsafe` (forced rebuild on the undo path); neither covers an
   add that never rebuilds. Nothing on the board mentions `NumBuiltInstances`.
+- `#2-citation-corrected-unprojected-paint-branch` `OPEN` reporter — Citation fix only, no change of
+  claim, no status change. `#1` and the body cited `FoliageHandler.cpp:985-988` for `foliage.paint`'s
+  unprojected `else` branch; `:985` is the last line of the PROJECTING branch
+  (`AppendPaintedInstanceRow(..., &Seat)`) and the range straddled the boundary. The correct range is
+  **`:986-989`** — `} else {` at `:986`, `AppendPaintedInstanceRow(..., /*Seat*/ nullptr)` at
+  `:987-988`, `}` at `:989` — and the body now reads that. Everything the entry says about that
+  branch (no `PostMoveInstances`, no rebuild, so it carries this defect) is unchanged and re-checked
+  against those lines. Recorded rather than edited into `#1` because history is append-only.
