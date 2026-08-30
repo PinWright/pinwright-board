@@ -20,7 +20,7 @@ the section that should play it spans no time.
 ## Root cause (read in source)
 
 The `property="Transform"` branch of the frame-numbered writer
-(`Source/EditorAutomationRpcGateway/Private/Handlers/Sequencer/SequenceHandler.cpp:1556`–`1659`):
+(`Source/PinWright/Private/Handlers/Sequencer/SequenceHandler.cpp:2523-2567`–`1659`):
 
 - `Track->FindOrAddSection(0, bSectionAdded)` (`:1567`) creates a fresh
   `UMovieScene3DTransformSection` with its default (collapsed) range.
@@ -157,3 +157,4 @@ range is the only path, and that does not write transform keys.
   (section-identity params, non-transform sections, post-hoc trims) and should be a
   follow-up F-ticket modeled on the existing `sequencer.set_sub_section_range`
   handler (`SequenceHandler.cpp` `:2660`+).
+- `#5-repoint-citations-after-module-rename` `DONE` reporter — Citation maintenance only; **no claim in this ticket changes and the status is untouched**. The plugin module directory was renamed `Source/EditorAutomationRpcGateway/` → `Source/PinWright/` (plugin commit `8962f163`), and `Source/EditorAutomationRpcGatewayTests/` was folded into `Source/PinWright/Private/Tests/`, so every citation under the old root was an **unresolvable path** a fixer could not open — not a stale line number. 1 body citation repointed in place and verified against plugin HEAD `ef8a1f1b`. 2 citations sit in history rows and are left verbatim per the append-only rule. **Not just a path — the defect is fixed and the mechanics the body names are gone.** `:1556` had drifted into `sequencer.remove_actors`' binding-name resolution. The Transform branch of `sequence.add_keyframe` (registered `:2405`) is `:2523-2567` and now calls `TransformSection->ExpandToFrame(KeyWrite.TickFrame)` at `:2560` under a comment naming the collapsed-`[0,0]` failure this ticket reports; the generic float and bool branches do the same at `:2607` and `:2645`. Keys go through `SequenceKeyframeHelpers::ApplyTransformKeyWrite` (`:2551`), not raw `Channels[N]->GetData().AddKey`, and `Track->FindOrAddSection(0, …)` now lives inside `SequenceHelpers::GetOrAddTransformChannels` (`:330-332`). The ticket's `#4-fix-auto-expand` row landed this; the body was never updated. Sweep-wide record, including every case that could not be repointed: `E-module-rename-citation-sweep`.
