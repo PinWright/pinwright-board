@@ -27,7 +27,7 @@ LWC / SWC conversion-step machinery) that needs separate investigation.
 ## Scope
 
 - `BuildParameterValueJson` in
-  `Source/EditorAutomationRpcGateway/Private/Handlers/Niagara/NiagaraDumpBuilder.cpp`
+  `Source/PinWright/Private/Handlers/Niagara/NiagaraDumpBuilder.cpp`
   — needs a final case before the rawBytes fallback that uses
   `CopyParameterData` and reflected `PropertyUtils` JSON export for
   registered script structs.
@@ -52,3 +52,4 @@ LWC / SWC conversion-step machinery) that needs separate investigation.
 - `#3-returned-type-rejected` `OPEN` tester — Returned: duplicated `/App/App/FXE_Trail` to `/Game/App/UI/Test/NS_McpVerifyTemp_CustomStructRawbytes`, then `niagara.set_parameter` with `scope: user`, `name: User.McpVerifyConvertedVector`, `type: /Script/CoreUObject.Vector`, and vector fields returned `INVALID_PARAMETER_TYPE: Unsupported Niagara parameter type '/Script/CoreUObject.Vector'`. The reflected custom-struct writeback path from `#2` is not live for the same type shape used by the regression fixture; temp duplicate was deleted.
 - `#4-vector-path-alias` `IN-REVIEW` developer — Added `/Script/CoreUObject.Vector` as a safe vec3 type alias in validation and mutation, plus a regression test covering the returned set_parameter shape; reflected registered script-struct dump/writeback remains covered separately.
 - `#5-verify-vector-alias` `DONE` tester — Verified: duplicated `/App/App/FXE_Trail` to `/Game/App/UI/Test/NS_McpVerifyTemp_CustomStructRawbytes`, then `niagara.set_parameter` with `scope: user, name: User.McpVerifyConvertedVector, type: /Script/CoreUObject.Vector, value: {x:1,y:2,z:3}` now returns `PARAMETER_NOT_FOUND` (the parameter doesn't exist on this asset, an expected post-validation error) instead of the prior `INVALID_PARAMETER_TYPE: Unsupported Niagara parameter type '/Script/CoreUObject.Vector'`. The vec3 alias is live; temp duplicate deleted.
+- `#6-repoint-citations-after-module-rename` `DONE` reporter — Citation maintenance only; **no claim in this ticket changes and the status is untouched**. The plugin module directory was renamed `Source/EditorAutomationRpcGateway/` → `Source/PinWright/` (plugin commit `8962f163`), and `Source/EditorAutomationRpcGatewayTests/` was folded into `Source/PinWright/Private/Tests/`, so every citation under the old root was an **unresolvable path** a fixer could not open — not a stale line number. 1 body citation repointed in place; every rewritten path was confirmed to exist at plugin HEAD `ef8a1f1b`. No citation in this ticket carries a line number, so nothing here required line re-verification. Sweep-wide record, including the cases that could not be repointed: `E-module-rename-citation-sweep`.
