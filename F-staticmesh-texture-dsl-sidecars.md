@@ -77,9 +77,9 @@ Conventions match existing IRs:
 
 ## Implementation outline
 
-1. New files: `Source/EditorAutomationRpcGateway/Private/Handlers/Asset/StaticMeshTextEmitter.{h,cpp}` and `TextureTextEmitter.{h,cpp}`.
+1. New files: `Source/PinWright/Private/Handlers/Asset/StaticMeshTextEmitter.{h,cpp}` and `TextureTextEmitter.{h,cpp}`.
 2. Wire `static_mesh.txt` and `texture.txt` into `DumpFileNames`, explicit `AddStringFile` emission, and cache aspect versions.
-3. Tests under `Source/EditorAutomationRpcGateway/Private/Tests/`.
+3. Tests under `Source/PinWright/Private/Tests/`.
 4. Keep `static_mesh.json` and `texture.json` emitted as the structured dump format and the live `static_mesh.describe` / `texture.describe` surface.
 
 Effort: 2 days each (4 days total) once SCS DSL infrastructure (F-scs-dsl-sidecar) is in place. Sequencing matters — SCS first to validate the pattern, these as follow-ons.
@@ -90,3 +90,4 @@ Effort: 2 days each (4 days total) once SCS DSL infrastructure (F-scs-dsl-sideca
 - `#2-additive-sidecars` `IN-REVIEW` codex — implemented additive `static_mesh.txt` and `texture.txt` dump emission with new text emitters, cache aspect versioning, regression coverage, and docs. JSON files remain emitted for compatibility and live describe RPCs.
 - `#1-initial-proposal` `OPEN` reporter — small per-file but high count (18,740 files combined). Stable schemas, perfect fit for the IR DSL pattern. Should follow F-scs-dsl-sidecar to reuse infrastructure.
 - `#3-verify-fix` `DONE` tester — Verified: fresh `asset.dump` on `/Game/Textures/Asset` and `/App/App/Mesh/SM_Cube` emitted `texture.txt` and `static_mesh.txt` alongside the JSON sidecars (writtenPaths included all four files per asset). Sidecars are well-formed DSL with real data: texture.txt has kind/textureClass/size/pixelFormat/compressionSettings/lodGroup/srgb/source block; static_mesh.txt has bounds/materials/lods/trianglesByLod/verticesByLod/collision. JSON files still emitted, so additive contract holds.
+- `#4-repoint-citations-after-module-rename` `DONE` reporter — Citation maintenance only; **no claim in this ticket changes and the status is untouched**. The plugin module directory was renamed `Source/EditorAutomationRpcGateway/` → `Source/PinWright/` (plugin commit `8962f163`), and `Source/EditorAutomationRpcGatewayTests/` was folded into `Source/PinWright/Private/Tests/`, so every citation under the old root was an **unresolvable path** a fixer could not open — not a stale line number. 2 body citations repointed in place; every rewritten path was confirmed to exist at plugin HEAD `ef8a1f1b`. No citation in this ticket carries a line number, so nothing here required line re-verification. Sweep-wide record, including the cases that could not be repointed: `E-module-rename-citation-sweep`.
