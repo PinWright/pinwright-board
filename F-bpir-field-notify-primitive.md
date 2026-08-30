@@ -93,7 +93,7 @@ field_notify_unsubscribe <FieldName>(target: self, event: @Handler)
 
 ## Regression test
 
-`Source/EditorAutomationRpcGatewayTests/Private/Bpir/TestBpirFieldNotifySubscribeIntegrity.cpp`, modelled after
+`Source/PinWright/Private/Tests/Bpir/TestBpirFieldNotifySubscribeIntegrity.cpp`, modelled after
 `TestBpirBindDispatcherExternalLocalEventIntegrity.cpp`:
 - Compile BPIR that uses both opcodes against a widget BP with a
   `FieldNotify` property and a local `SetValues(UObject*, FFieldNotificationId)`
@@ -126,3 +126,4 @@ Related but distinct from `B-bpir-bind-dispatcher-external-target-local-event`
   over.
 - `#2-bpir-field-notify-opcodes` `IN-REVIEW` developer — Added FieldNotifySubscribe/FieldNotifyUnsubscribe BPIR opcodes mirroring bind_dispatcher. Compiler synthesizes UK2Node_CallFunction for K2_Add/RemoveFieldValueChangedDelegate with FieldId pin default and a UK2Node_CreateDelegate wired to a local event handler. Decompiler reuses ENodeSemantics::Dispatcher and extends EmitDispatcherNode keyword chain. Refactored shared CreateDelegate-wiring tail into WireCreateDelegateForBindNode helper. Added regression test FBpirFieldNotifySubscribeIntegrityTest.
 - `#3-verified-roundtrip` `DONE` tester — Verified live on a temp widget BP (`/Game/App/UI/Test/W_McpVerifyTemp`): compiled BPIR `entry custom_event SetValues(object<Object> InObject, struct<FieldNotificationId> InField){} entry event Construct(){ field_notify_subscribe Replay(target: self, event: @SetValues) }` → `compiled:true, status:UpToDate, errors:[], nodeCount:5` with 5 created GUIDs. Decompile round-trip returned `field_notify_subscribe Replay(event: @SetValues)` with no warnings. Parser, compiler, and decompiler emitter all wired through.
+- `#4-repoint-citations-after-module-rename` `DONE` reporter — Citation maintenance only; **no claim in this ticket changes and the status is untouched**. The plugin module directory was renamed `Source/EditorAutomationRpcGateway/` → `Source/PinWright/` (plugin commit `8962f163`), and `Source/EditorAutomationRpcGatewayTests/` was folded into `Source/PinWright/Private/Tests/`, so every citation under the old root was an **unresolvable path** a fixer could not open — not a stale line number. 1 body citation repointed in place; every rewritten path was confirmed to exist at plugin HEAD `ef8a1f1b`. No citation in this ticket carries a line number, so nothing here required line re-verification. Sweep-wide record, including the cases that could not be repointed: `E-module-rename-citation-sweep`.
