@@ -21,7 +21,7 @@ sequences end-to-end" container.
 
 Zero hits for `UAnimComposite`, `AnimSegment`, or `composite` (in the
 asset-class sense) across `docs/rpc-method-reference.generated.md` and
-`Source/EditorAutomationRpcGateway/Private/Handlers/Animation/`. The
+`Source/PinWright/Private/Handlers/Animation/`. The
 existing `CompositeSections` references in `AnimationAuthoringHandler.cpp`
 are `FCompositeSection` on `UAnimMontage` — unrelated.
 
@@ -83,3 +83,4 @@ concrete callers (YAGNI).
 - `#2-corrected-handler-contract` `OPEN` developer — Corrected the proposed handler contract to match existing animation-authoring params (`name`/`path`/`skeletonPath`, `animationPath`), current `SaveAnimAsset()` behavior, and UE editor skeleton compatibility validation.
 - `#3-add-composite-handlers` `IN-REVIEW` developer — Added `animation.authoring.create_composite` and `animation.authoring.add_composite_segment` in `AnimationAuthoringHandler.cpp`, documented the composite workflow, and added `FAuthoringCompositeCreateAndAddSegmentTest` coverage.
 - `#4-verify-composite-handlers` `DONE` tester — Verified: `animation.authoring.create_composite` created `/Game/App/UI/Test/AC_McpVerifyTemp_F_anim_composite_asset_creator` as `AnimComposite`, and `animation.authoring.add_composite_segment` appended `/Game/Characters/Heroes/Mannequin/Animations/Locomotion/Rifle/MM_Rifle_Idle_ADS.MM_Rifle_Idle_ADS` with `segmentIndex: 0`, `segmentCount: 1`, `compositeLength: 3.4000000953674316`; temporary asset deleted afterward with `asset.delete`.
+- `#5-repoint-citations-after-module-rename` `DONE` reporter — Citation maintenance only; **no claim in this ticket changes and the status is untouched**. The plugin module directory was renamed `Source/EditorAutomationRpcGateway/` → `Source/PinWright/` (plugin commit `8962f163`), and `Source/EditorAutomationRpcGatewayTests/` was folded into `Source/PinWright/Private/Tests/`, so every citation under the old root was an **unresolvable path** a fixer could not open — not a stale line number. 1 body citation repointed in place; every rewritten path was confirmed to exist at plugin HEAD `ef8a1f1b`. No citation in this ticket carries a line number, so nothing here required line re-verification. Sweep-wide record, including the cases that could not be repointed: `E-module-rename-citation-sweep`.
