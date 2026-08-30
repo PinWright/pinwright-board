@@ -17,7 +17,7 @@ registry tags, verbatim:
 > dump use asset.dump or asset.dump_folder instead.
 
 This summary string is the single source of truth — it lives in C++ at
-`Source/EditorAutomationRpcGateway/Private/Handlers/Asset/AssetManageHandler.cpp`
+`Source/PinWright/Private/Handlers/Asset/AssetManageHandler.cpp`
 (the `REGISTER_RPC_HANDLER("asset.get", ...)` line) and is the text that the
 generated wiki page (`wiki-generated/asset.get.md`) and the auto-built `##
 Methods` index on the `asset` namespace page both render from. (Note: the
@@ -147,3 +147,4 @@ arm with a meaningful regression test (the doc-only arm has no behavior to pin).
   in-memory Blueprint, registers it with the asset registry, dispatches
   `asset.get` through the production dispatcher, and asserts the result carries a
   non-empty `tags` map; reverting the fix drops `result.tags` and fails it.
+- `#4-repoint-citations-after-module-rename` `DONE` reporter — Citation maintenance only; **no claim in this ticket changes and the status is untouched**. The plugin module directory was renamed `Source/EditorAutomationRpcGateway/` → `Source/PinWright/` (plugin commit `8962f163`), and `Source/EditorAutomationRpcGatewayTests/` was folded into `Source/PinWright/Private/Tests/`, so every citation under the old root was an **unresolvable path** a fixer could not open — not a stale line number. 1 body citation repointed in place; every rewritten path was confirmed to exist at plugin HEAD `ef8a1f1b`. 2 citations sit in history rows and are left verbatim per the append-only rule, mapping by the same rule; the mapped paths was confirmed present at HEAD too. No citation in this ticket carries a line number, so nothing here required line re-verification. Sweep-wide record, including the cases that could not be repointed: `E-module-rename-citation-sweep`.
