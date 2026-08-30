@@ -13,10 +13,10 @@ Four IR families now use the same `FString::Printf(TEXT("n%d"), Counter)`
 pattern to allocate per-block local identifiers (`%n0`, `%n1`, ...) during
 decompile:
 
-- `Source/EditorAutomationRpcGateway/Private/Decompiler/BpirDecompiler.cpp:165`
-- `Source/EditorAutomationRpcGateway/Private/MGIR/MGIRDecompiler.cpp:60`
-- `Source/EditorAutomationRpcGateway/Private/MSIR/MSIRDecompiler.cpp:195`
-- `Source/EditorAutomationRpcGateway/Private/CRIR/CRIRTextEmitter.cpp` —
+- `Source/PinWright/Private/Decompiler/BpirDecompiler.cpp:310-313`
+- `Source/PinWright/Private/MGIR/MGIRDecompiler.cpp:62`
+- `Source/PinWright/Private/MSIR/MSIRDecompiler.cpp:376`
+- `Source/PinWright/Private/CRIR/CRIRTextEmitter.cpp` —
   `FCRIRTextEmitter::MakeLocalId`
 
 AGIR uses a richer mnemonic-based form (e.g. `%pose0`, `%link0`) and is not a
@@ -27,7 +27,7 @@ The CRIR Phase A sprint's reuse reviewer flagged this as the threshold case
 deferring to a follow-up because the touch-set spans existing files outside
 the CRIR sprint scope.
 
-**Fix:** Add a tiny helper to `Source/EditorAutomationRpcGateway/Private/IrCore/IrTextUtils.h`:
+**Fix:** Add a tiny helper to `Source/PinWright/Public/IrCore/IrTextUtils.h`:
 
 ```
 namespace FIrTextUtils
@@ -74,3 +74,4 @@ text is identical.
   (`BpirDecompiler.cpp`, `MGIRDecompiler.cpp`, `MSIRDecompiler.cpp`,
   `CRIRTextEmitter.cpp`), and covered by `FIrTextUtilsNumericLocalIdTest`
   assertions for `n0`, `n7`, and `n42`.
+- `#4-repoint-citations-after-module-rename` `DONE` reporter — Citation maintenance only; **no claim in this ticket changes and the status is untouched**. The plugin module directory was renamed `Source/EditorAutomationRpcGateway/` → `Source/PinWright/` (plugin commit `8962f163`), and `Source/EditorAutomationRpcGatewayTests/` was folded into `Source/PinWright/Private/Tests/`, so every citation under the old root was an **unresolvable path** a fixer could not open — not a stale line number. 5 body citations repointed in place and verified against plugin HEAD `ef8a1f1b`. All three call sites repaired: `BpirDecompiler.cpp:165`→`:310-313` (`:165` had drifted into a doc comment), `MGIRDecompiler.cpp:60`→`:62`, `MSIRDecompiler.cpp:195`→`:376` (`:195` had drifted onto a `#if MCP_MSIR_HAS_METASOUND_ASSET_MANAGER` line). The duplicated `FString::Printf(TEXT("n%d"))` the ticket is about is gone from all three — each now calls `FIrTextUtils::FormatNumericLocalId`, which is this DONE ticket's own fix. Sweep-wide record, including every case that could not be repointed: `E-module-rename-citation-sweep`.
