@@ -26,7 +26,7 @@ alias to, so no alias annotation can close it. The gap is a missing *capability*
 
 ## Source (handlers confirmed)
 
-`Source/EditorAutomationRpcGateway/Private/Handlers/Environment/EnvironmentHandler.cpp`:
+`Source/PinWright/Private/Handlers/Environment/EnvironmentHandler.cpp`:
 
 - `environment.build.create_sky_sphere` (:328) is declared `RPC_NO_PARAMS` —
   zero parameters, so no name/label can be supplied.
@@ -157,3 +157,4 @@ The wiki edit itself is the downstream process, not this ticket.
   omitting `name` keeps the default label prefix; both fail if the `name` slot is
   reverted. The `docs/wiki-src/environment.md` note is left as the downstream wiki
   process, not part of this code change.
+- `#3-repoint-citations-after-module-rename` `DONE` reporter — Citation maintenance only; **no claim in this ticket changes and the status is untouched**. The plugin module directory was renamed `Source/EditorAutomationRpcGateway/` → `Source/PinWright/` (plugin commit `8962f163`), and `Source/EditorAutomationRpcGatewayTests/` was folded into `Source/PinWright/Private/Tests/`, so every citation under the old root was an **unresolvable path** a fixer could not open — not a stale line number. 1 body citation repointed in place; every rewritten path was confirmed to exist at plugin HEAD `ef8a1f1b`. 1 citation sits in history rows and is left verbatim per the append-only rule, mapping by the same rule; the mapped path was confirmed present at HEAD too. No citation in this ticket carries a line number, so nothing here required line re-verification. Sweep-wide record, including the cases that could not be repointed: `E-module-rename-citation-sweep`.
