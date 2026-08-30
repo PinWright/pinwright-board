@@ -1,7 +1,7 @@
 ---
 id: B-create-procedural-spawned-count-always-zero
 title: "foliage.create_procedural reports instances_spawned: 0 while placing instances, because the counter is FFoliageInfo::GetPlacedInstanceCount() — which counts instances whose ProceduralGuid is NOT valid, i.e. exactly the non-procedural ones — so the before/after delta over a procedural spawn is structurally zero and the field can never report a success"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: bug
 tags: [foliage, create_procedural, procedural-foliage, instances_spawned, silent-false-negative, structurally-constant-field, verification-field, proceduralguid, inverted-code-comment]
@@ -250,3 +250,64 @@ defect over a correct mutation.
   `B-create-procedural-density-writes-paint-density` are the scale and density properties;
   `B-create-procedural-terrain-paints-nothing` is `landscape.create_procedural_terrain`, a different
   verb. Nothing on the board mentions `GetPlacedInstanceCount`.
+- `#2-count-by-proceduralguid-not-placed-count` `IN-REVIEW` developer — "Re-verified the mechanism
+  against `C:/UE_5.8/Engine/Source` before changing anything, and **the ticket has the direction
+  right**: `FFoliageInfo::GetPlacedInstanceCount` (`Runtime/Foliage/Private/InstancedFoliage.cpp`,
+  the `/* Get the number of placed instances */` body) increments only under
+  `if (!Instances[i].ProceduralGuid.IsValid())`, and the four-hop stamping chain is unconditional
+  as described (`ProceduralFoliageComponent.cpp` ctor `ProceduralGuid = FGuid::NewGuid()` ->
+  `Params.ProceduralGuid = GetProceduralGuid()` -> `ProceduralFoliageTile.cpp`
+  `DesiredInst->ProceduralGuid = ProceduralGuid` -> `FoliageEdMode.cpp`
+  `Inst.ProceduralGuid = PotentialInstance.DesiredInstance.ProceduralGuid`). One correction to the
+  ticket's line references, not to its argument: `GetProceduralGuid()` is on
+  `ProceduralFoliageComponent.h:142`, not `:125` — `:125` is `HasSpawnedAnyInstances()`. Both are
+  public. **Fix, in `FoliageHandler.cpp`'s `foliage.create_procedural`:** the
+  `CountWorldFoliageInstances` lambda and its before/after delta are gone. In their place
+  `MeasureFoliageInstancesByProceduralGuid(World, Guid, OutProcedural, OutHandPlaced)` walks
+  `FFoliageInfo::Instances` across every `AInstancedFoliageActor` **once, after** the
+  resimulation, and splits on the guid — matching
+  `AInstancedFoliageActor::ContainsInstancesFromProceduralFoliageComponent`'s predicate rather
+  than its complement. `instances_spawned` is now the count of instances carrying the spawned
+  volume component's own `GetProceduralGuid()`, so it is attributable to this call and needs no
+  baseline (a freshly minted guid cannot pre-exist), and no `FMath::Max` clamp. The hand-placed
+  total — what the old counter was actually measuring, and which this verb produces none of — is
+  published separately as `hand_placed_instances_in_world`, so neither number can be read as the
+  other. **Per the house convention:** both are MEASURED after the operation, and both are
+  **omitted rather than reported as 0** when nothing could be measured (no procedural component /
+  no world / no guid), with a `warnings[]` line saying the fields are absent rather than zero — a
+  0 now means 'nothing landed', a missing field means 'not counted'. The measured-vs-expected
+  disagreement is `bResimulated && InstancesSpawned == 0`: dispatch completed but nothing carries
+  the guid, which raises a `warnings[]` line naming the surfaceless-volume cause — the same
+  condition the engine's editor UI raises its 'Unable to spawn instances' toast on
+  (`ProceduralFoliageEditorLibrary.cpp`), which an MCP caller never sees. Deliberately **not**
+  also a `UE_LOG(Warning)`: a host on the engine default `bElevateLogWarningsToErrors=true`
+  promotes an automation-run log warning into a test error, and this branch is the normal outcome
+  of a surfaceless fixture. Both inverted comments named in the body are replaced by the real
+  mechanism. **Regression test:**
+  `PinWright.foliage.create_procedural.SpawnedCountMatchesTheFoliageActors`
+  (new file `Source/PinWright/Private/Tests/Environment/TestFoliageProceduralSpawnCount.cpp`)
+  — spawns a 40 m static-mesh floor through the real `actor.spawn` verb in an isolated far column,
+  ticks the world so the body reaches the scene-query structure, runs `foliage.create_procedural`
+  over it with `tileSize` matched to the volume so every seed lands inside the brush, then reads
+  ground truth by re-walking `FFoliageInfo::Instances` for the volume component's guid — never
+  from the response — and asserts the reported count equals it. It also asserts the ground truth
+  is positive, so a fixture that scattered nothing FAILS rather than passing vacuously (the exact
+  hole that let the old field survive three readings as evidence). **It is red today**: reported 0
+  vs a positive ground truth. It additionally pins `hand_placed_instances_in_world` against an
+  independently recomputed non-procedural total, so a fix that merely renamed the field fails.
+  The pre-existing `ReportsInstancesSpawned` keeps every assertion it had; only its rationale
+  comment changed, since 'a headless world has no surface' was the superseded explanation. Ran
+  `Content/Python/check_test_ids.py`: CLEAN, 4791 ids, no dot-prefix collision. **Sibling counters
+  in the same response audited, none has this defect:** `foliage_types_count` counts types
+  actually built; `foliage_types_requested` is the request echo under its own name;
+  `skippedCount` is measured; `tile_size` / `num_unique_tiles` are read back off the spawner
+  asset after the write; `tile_overlap` is read off the component and already omitted rather than
+  zeroed; `foliage_types[]` rows are read back off the assets. Wider sweep: `instancesPlaced`
+  (`foliage.paint`) and `instancesRemoved` (`foliage.remove`) are incremented by their own write
+  loops, and `GetPlacedInstanceCount` now appears nowhere in plugin source outside comments.
+  **A live scatter comparison is now possible** — the measurement the per-type simulation-property
+  work said it could not make while `instances_spawned` read zero for an unrelated reason. NOT
+  compiled and NOT run per instruction; the orchestrator builds and runs. `foliage.md` wiki overlay documents
+  both fields, the omission rule, the no-surface cause, and that a `0` from a pre-fix build
+  carries no information. **Recommendation for `B-create-procedural-ignores-scale-and-normal-fields`
+  `#3`: `instances_spawned` can come off its 'all correct' list — it was not correct, and now is.**"
