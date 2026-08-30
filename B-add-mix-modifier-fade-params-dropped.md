@@ -35,7 +35,7 @@ persist) — this ticket is that the param is accepted-and-discarded at the
 
 ## Source confirmation
 
-`Source/EditorAutomationRpcGateway/Private/Handlers/Audio/AudioAuthoringHandler.cpp`:
+`Source/PinWright/Private/Handlers/Audio/AudioAuthoringHandler.cpp`:
 
 - The handler **registers** the two params (lines 1552-1553):
   ```cpp
@@ -133,3 +133,4 @@ work**, the same resolution the sibling silent-drop tickets used
   `Mix->FadeInTime==1.5`/`FadeOutTime==2`, the result echoes both, and a second
   fade-less `add_mix_modifier` leaves them unchanged — every assertion regresses to
   false if the writes are reverted.
+- `#3-repoint-citations-after-module-rename` `DONE` reporter — Citation maintenance only; **no claim in this ticket changes and the status is untouched**. The plugin module directory was renamed `Source/EditorAutomationRpcGateway/` → `Source/PinWright/` (plugin commit `8962f163`), and `Source/EditorAutomationRpcGatewayTests/` was folded into `Source/PinWright/Private/Tests/`, so every citation under the old root was an **unresolvable path** a fixer could not open — not a stale line number. 1 body citation repointed in place; every rewritten path was confirmed to exist at plugin HEAD `ef8a1f1b`. 2 citations sit in history rows and are left verbatim per the append-only rule, mapping by the same rule; the mapped paths was confirmed present at HEAD too. No citation in this ticket carries a line number, so nothing here required line re-verification. Sweep-wide record, including the cases that could not be repointed: `E-module-rename-citation-sweep`.
