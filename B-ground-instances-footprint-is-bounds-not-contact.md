@@ -5,8 +5,8 @@ status: IN-REVIEW
 severity: High
 category: bug
 tags: [spatial, ground_instances, ism, hism, instanced-static-mesh, scatter, vegetation, trees, bounds, aabb, footprint, contact-patch, underside, bounds-plane, silent-wrong-data, false-pass, placement, level-building, no-workaround]
-encounters: 3
-lastSeen: 2026-08-29T22:10:00+03:00
+encounters: 4
+lastSeen: 2026-08-30T13:10:00Z
 ---
 
 # The footprint is the silhouette, and for a tree the silhouette is the canopy
@@ -468,3 +468,100 @@ right band without it.
   **downward-facing** points. That ticket carries its own note of this; the two remain split for the
   reasons both already state. `encounters` 2 -> 3, `lastSeen` refreshed; status left `IN-REVIEW`
   because `#3`'s `contactRadius` fix is untouched by any of the above and nothing here challenges it.
+- `#5-contact-radius-fixed-the-span-not-the-underside` `IN-REVIEW` reporter — **`#3`'s
+  `contactRadius` measured live against this ticket's own canonical population. It works, it is a
+  3.2x improvement, and it does NOT close the gap. Additional evidence only: no status change, no
+  existing prose edited, and nothing here challenges `#3`'s implementation.** Build: the **13:32**
+  editor binaries, plugin `d8f1bc32` (confirmed an ancestor of source HEAD `1a9e5778`; source leads
+  the binaries, and none of the lines cited below changed between them). Population: `Actor_3` /
+  `HISM_ZF_HillTree`, the same **177 `HillTree_P2`** instances `#1` and `#2` used, already carrying
+  `#2`'s offline ring seat (ring gap after: 30 -> 2 floating, max **+1.2 cm**) — so the right answer
+  is known and a correct solve should propose ~0. All runs `apply:false`,
+  `surface {preset:"landscape"}`, `detail:"all"`, `expectedCount:177`. Figures of record and method:
+  `X:/src/unreal/EAContentExamples58/Docs/map/tree-seating-on-slopes.md` § *`contactRadius` measured
+  on the 13:32 build (`d8f1bc32`)* (project commit `7d629ad9`); taken from that document, not
+  relayed, and it agreed on every figure with the brief this entry was filed from.
+  **What shipped works.** Defaults (`contactRadius 0, samples 3, inset 0.1, pct 0, embedFrac 0.02`)
+  sampled a **1138 x 1245 cm** footprint and proposed dZ p50 **+197.1**, p90 +564.6, max +796.4,
+  lifting **177/177** — which reproduces `#1`'s original +196.0 / +773.4 / 177 to within a
+  centimetre, so the two builds are comparable and the defect is unchanged at defaults.
+  `contactRadius 100, samples 5, inset 0, pct 0` sampled 147.7 x 147.7 cm: p50 +99.9, max +349.9,
+  still 177/177. `contactRadius 100, samples 5, inset 0, **pct 1**`: p50 **+62.1**, p90 +117.5, max
+  +152.7, lifts **159/177**. The parameter does exactly what it claims on XY and proves it on the
+  wire: `seat.footprintSource` echoed `"contact_radius"` with `contactRadiusCm: 100`, per-instance
+  `contact.footprintHalfExtentCm` was **147.70 x 147.70** on instance 0 — precisely `100 x` its own
+  mean XY scale of 1.4770, which is the mesh-local claim a bounds ratio could not make — and
+  `contactPoints` went 6 -> **25 of 25**. False-lift median down **3.2x**.
+  **What does not, and it is structural rather than a tuning question.** It still proposes a lift on
+  **159 of 177 correctly-planted trees** by a median of **62 cm**, against an offline residual of
+  **max +1.2 cm**; only **13/177** land within 20 cm of a no-op. Mechanism, re-derived at HEAD
+  `1a9e5778` (all under `Source/PinWright/Private/Handlers/Spatial/`, and `#1`'s line numbers have
+  moved since `6d0e91a3`): `contactRadius` is read into `Config.ContactRadiusCm` at
+  `GroundPlacementHandler.cpp:1533-1534`, and **the very next line, `:1535`, hardcodes**
+  `Config.UndersideModel = GroundPlacement::EUndersideModel::BoundsPlane;` — a setting that is not
+  even consulted afterwards, because `GroundPlacement::SeatInstance` passes
+  `EUndersideModel::BoundsPlane` as a **literal** at both measurement sites, the pre-solve
+  (`GroundPlacementUtils.cpp:1681-1683`) and the post-move readback (`:1776-1779`). The radius itself
+  is mesh-local and scaled per instance by that instance's own mean XY scale (`MeanScaleXY`
+  `:1654-1656`, `ContactHalfExtent` `:1657-1662`) and handed to both calls through
+  `const TOptional<FVector2D>& ContactHalfExtentCm` (`:1067`). Inside `MeasureContactForBounds` it
+  replaces **only** `HalfX`/`HalfY` (`:1108-1115`, clamped to the instance's own `Extent`), and the
+  two comment lines immediately above say so outright: *"TopZ/BottomZ stay the real bounds - the
+  underside plane and the probe span are properties of the whole object, not of its contact patch"*
+  (`:1106-1107`). `BottomZ = Origin.Z - Extent.Z` (`:1117`) is untouched, and in the `BoundsPlane`
+  branch every column's underside is that one number (`:1182-1184`). The header states the same
+  contract: `ContactRadiusCm` *"overrides the XY span of the sample grid - and ONLY that span"*
+  (`GroundPlacementUtils.h:812-813`). **So the grid now samples the right ground and then seats a
+  flat plane at the rotated world-AABB minimum onto it.** For a tree that plane sits below the trunk
+  bottom, which is why 159 still lift. **Quantified, from the same document:** subtracting the
+  per-instance world-AABB inflation (`impliedLocal - impliedAabb`, `dev/planting/out/column.json`)
+  from the third run's `proposedDeltaZCm` takes the median **+62.1 -> +15.8 cm** and the count within
+  20 cm **13/177 -> 79/177**; Pearson r between the proposed lift and the inflation is **0.479** and
+  the inflation's own median is **+47.7 cm**, i.e. it accounts for roughly three quarters of the
+  residual median. The +15.8 cm that remains is about the offline embed itself (`0.10 * r`, ~+14.8 cm
+  at scale 1.48) — the amount a tangent-rest solve *should* want to lift an instance the offline pass
+  deliberately bedded. A second, smaller contributor: `contactRadius` sets a **square** half-extent,
+  not a circular radius (`FVector2D(ScaledRadius, ScaledRadius)`,
+  `GroundPlacementUtils.cpp:1660-1661`), so its corners reach `r * sqrt(2)` — 41% further uphill than
+  `#2`'s 16-azimuth ring, a systematic over-lift on a slope.
+  **The asymmetry, verified at HEAD.** `undersideModel` is a declared parameter on
+  `spatial.ground_actors` (`GroundPlacementHandler.cpp:807-812`, registration `:725`) and on
+  `spatial.verify_grounding` (`:1080-1083`, registration `:1043`), both read through the shared
+  `GroundRpcReadSampling` (`:645-648`); `level.audit` reads it too
+  (`Handlers/Level/LevelAuditHandler.cpp:507`, `:731-734`, echoed `:917-918`). It is **absent from
+  `spatial.ground_instances`' spec** (registration `:1262`; the parameter list runs `samples` `:1331`,
+  `footprintInset` `:1337`, `contactRadius` `:1342`, `seatPercentile` `:1360`, `embedFraction` `:1365`,
+  `embedDepth` `:1369`, `minCoverage` `:1372` — no `undersideModel`), so the dispatcher's top-level
+  unknown-key gate refuses it: `Dispatch/RpcDispatcher.cpp:171-196` builds `KnownParams` from the
+  registration's own `FParamSpec` list and sends `UNKNOWN_PARAMS` for any key not in it. The
+  measurement doc reports exactly that refusal.
+  **But do not read that asymmetry as the fix, and this entry does not reopen the hardcode `#1`
+  declined to reopen.** The omission is deliberate and reasoned:
+  `GroundPlacementHandler.cpp:1517-1519` says declaring the parameter *"would advertise a choice this
+  verb cannot honour"*, and `GroundPlacementUtils.h:805-810` gives the reason —
+  `UInstancedStaticMeshComponent::LineTraceComponent` answers from every instance body at once and
+  cannot attribute a hit, so a per-column probe would silently measure a **neighbour's** geometry.
+  Plumbing the existing `mesh` model through would therefore not help: `mesh` *is* that per-column
+  actor-geometry trace (`GroundPlacementUtils.cpp:1173-1179`), the exact thing an ISM cannot answer.
+  What `#4` measured to work is a **third** underside model neither verb has — a per-instance field
+  of **downward-facing** vertices (`n . Z < -0.15`, rotated into the instance basis) bucketed into a
+  world-XY grid keeping the lowest point per cell, with a lower-envelope fallback for open-bottomed
+  meshes. That is a new `EUndersideModel` for the instance path, not the actor path's model exposed
+  on one more verb.
+  **The sharpest statement of what remains, so this cannot be closed on the parameter alone.**
+  `contactRadius` fixed the **sampling span**, and only the sampling span; the underside is still a
+  flat plane at the instance's rotated world-AABB minimum. Matching the offline model needs **three**
+  things — a contact-patch span, `seatPercentile` at the sinking end, and a mesh-aware underside —
+  and **two of the three now exist**. On the one population whose right answer is known, those two
+  take the false-lift median from +197.1 to +62.1 cm and leave **159 of 177 correctly-planted trees
+  still proposed for a lift**, every row still reporting truthfully about a box that is not the tree.
+  A tester should verify what `#3` actually claims — the XY span, the `footprintHalfExtentCm` /
+  `footprintSource` echo, and the new regression test — and record this residual, rather than reading
+  a green `contactRadius` run as this ticket's subject being gone.
+  **Two pieces of usable guidance that fell out, both already on the verb's page.** Pass
+  `seatPercentile` **0.85-1.0** on instances: `seatPercentile 0` roughly doubles the error on its own
+  (+99.9 vs +62.1 at the same radius), and it is what `#1`'s original defect measurement used. And
+  the prop classes (bounds/contact area ratios 0.98-2.49x) were already served correctly by the
+  bounds footprint and are unaffected — `contactRadius 0` remains right for them. `encounters` 3 -> 4,
+  `lastSeen` refreshed; status left `IN-REVIEW`, because a reporter does not flip it and nothing
+  above challenges `#3`'s fix.
