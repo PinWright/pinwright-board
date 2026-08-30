@@ -99,7 +99,7 @@ grammar for `%name = call …`, `%name = branch(…)`, `%name = latent …`,
 etc. has **no production for a type annotation** on the register name or
 on the call expression.
 
-The emitter (`Source/EditorAutomationRpcGateway/Private/Decompiler/BpirTextEmitter.cpp`,
+The emitter (`Source/PinWright/Private/Decompiler/BpirTextEmitter.cpp`,
 e.g. `EmitCallNode` at ~line 1061) writes:
 
 ```cpp
@@ -157,7 +157,7 @@ gap.
 ## Scope
 
 - Parser: add the optional suffix to the BPIR body grammar in
-  `Source/EditorAutomationRpcGateway/Private/Compiler/` (likely the
+  `Source/PinWright/Private/Compiler/` (likely the
   statement-parsing path that handles `%name = …`). Parse-and-discard
   is sufficient for v1; pin-type cross-validation is a follow-up.
 - Emitter: after computing `ResultName` in `EmitCallNode` / `EmitPureNode`
@@ -194,3 +194,4 @@ non-trivial graphs.
 - `#2-implement-register-type-annotations` `IN-REVIEW` developer — Added optional `%name: Type =` register-binding annotation to BPIR. Emitter (`BpirTextEmitter.cpp`) hoists `ResolvePrimaryOutputTypeAnnotation` from existing `CollectParams` filter and prepends `: <PinTypeToBpirType>` at 23 binding sites; exec/delegate/hidden pins yield no annotation. Parser (`BpirParser.cpp`) consumes optional `Colon`-prefixed typespec before `Equals` in the `PercentRef`-led path, records on new `FBpirInstruction::{DeclaredResultType, bHasDeclaredResultType}` fields, parse-and-record only (no validation in v1). Per-keyword dispatch lambdas untouched. Added Tests 1–4 (CallEmitsPinTypeAnnotation, BranchAndCastEmitTypeAnnotation, ParserAcceptsOptionalTypeAnnotation, RoundTripPreservesAnnotatedGraph). Docs updated in `bpir-language-reference.md` §2/§6 and `bpir-examples.md`.
 - `#3-review-fixes` `IN-REVIEW` developer — Applied review battery findings: extracted shared `IsPrimaryOutputDataPin` predicate so `ResolvePrimaryOutputTypeAnnotation` and `CollectParams` share it (DRY); switched parser warning from `LogTemp` to `LogBpirCompiler`; trimmed WHAT-style comments in emitter helper and parser block per CLAUDE.md; switched Test 1 substring check to line-level via `ContainsLineWith`; removed/replaced tautological assertion in Test 2; added explicit `TestTrue`/`TestNotNull` on the foreach sub-test in Test 3 to fail loudly on compile failure; resolved placeholder heading in `bpir-language-reference.md`; switched `OutInst.DeclaredResultType = ParsedType` to `MoveTemp` to avoid TUniquePtr deep-copy.
 - `#4-verify-fix` `DONE` tester — Verified: `blueprint.decompile` on `/App/App/LevelBlueprints/B_DronePlayerController` (one of the ticket's four cited assets). BeginPlay now emits `%n0: object<DroneGameInstance> = call GetDroneGameInstance()`, `%n1: object<GameUserSettings>`, `%n2: enum<EWindowMode>`, `%n3: bool`, `%n4: object<AppActivationSubsystem>` — exactly the types the reporter said had to be inferred. Branch/latent `%n` bindings whose primary output is exec/delegate correctly carry no annotation (e.g. `%n0 = branch(...)`, `%n1 = latent Delay(...)`), matching the spec's exec/delegate/hidden-pin exclusion.
+- `#5-repoint-citations-after-module-rename` `DONE` reporter — Citation maintenance only; **no claim in this ticket changes and the status is untouched**. The plugin module directory was renamed `Source/EditorAutomationRpcGateway/` → `Source/PinWright/` (plugin commit `8962f163`), and `Source/EditorAutomationRpcGatewayTests/` was folded into `Source/PinWright/Private/Tests/`, so every citation under the old root was an **unresolvable path** a fixer could not open — not a stale line number. 2 body citations repointed in place; every rewritten path was confirmed to exist at plugin HEAD `ef8a1f1b`. No citation in this ticket carries a line number, so nothing here required line re-verification. Sweep-wide record, including the cases that could not be repointed: `E-module-rename-citation-sweep`.
