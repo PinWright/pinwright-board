@@ -1,7 +1,7 @@
 ---
 id: B-foliage-adds-never-rebuild-the-hism-tree
 title: "foliage.add_instances writes instances the level never draws: the engine add path suppresses the HISM cluster-tree rebuild for the duration of the add and nothing restores it, and every honesty field the namespace has — renderedInstanceCount, ledgerMatchesRendered, expectedDrawnInstances — is computed from an instance ARRAY rather than the built tree, so all three certify a level that shows nothing"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: bug
 tags: [foliage, add_instances, paint, hism, cluster-tree, silent-false-success, ledger-vs-component, third-representation, honesty-fields, readback-blind-spot, behavioural-test-passes-on-defect, capture-verification]
@@ -395,3 +395,71 @@ above ends with a field change and not just a `Refresh`.
   live; every citation above is a source derivation at HEAD, and all the engine lines sit outside the
   plugin, so they are identical in the 13:32 build. `encounters` 1 -> 2, `lastSeen` refreshed; status
   left `OPEN`.
+- `#4-rebuild-and-a-field-that-can-fail` `IN-REVIEW` developer — "Both halves fixed. **(1) The
+  rebuild.** New `Source/PinWright/Private/Handlers/Environment/FoliageClusterTreeState.h` carries
+  `RebuildFoliageClusterTreeAfterAdd(FFoliageInfo&)`, which is `Info.Refresh(Async, Force)` behind an
+  `IsInitialized()` guard (`Refresh` opens `check(Implementation.IsValid())`). Called after the add
+  loop in `foliage.add_instances` (`FoliageHandler.cpp`, after `IFA->Modify()`, re-resolving the info
+  through `FindInfo` because the loop's own handle is scoped to the iteration) and
+  **unconditionally** after `foliage.paint`'s loop — on the projecting branch too, because that
+  branch's rebuild was the `PostMoveInstances` side effect this ticket identified and it must not stay
+  load-bearing. **Deviation from the ticket's § *Fix*, stated because it is deliberate: `Async=false`,
+  not the `Refresh(true, true)` the engine's in-file callers use.** The same response now publishes
+  the measured `builtInstanceCount`, and an async build returns with `bIsOutOfDate` still set — a
+  caller would read a warning about a scatter that is merely a few frames early, which reproduces this
+  ticket's shape rather than closing it. The engine already forces sync for a component's FIRST build
+  (`bForceSync = NumBuiltInstances == 0 && !World->HasBegunPlay()`,
+  `HierarchicalInstancedStaticMesh.cpp:2812`), so this only changes the append case. `FFoliageInfo::
+  AddInstances` batching was NOT taken — the ticket is explicit that it goes through the same
+  `AddInstancesImpl` and would look like a fix while changing nothing. **(2) The field that can fail.**
+  `builtInstanceCount` = `Component->NumBuiltInstances`, `clusterTreeUpToDate` =
+  `Component->IsTreeFullyBuilt()`, plus `clusterTreeWarning`, published by
+  `AddFoliageClusterTreeReport` on `add_instances`, `paint` AND `get_instances`. House convention
+  followed throughout: measured value published, the requested counter named separately as
+  `RequestedFieldName` (`instances_count` / `instancesPlaced` / `renderedInstanceCount`), **OMITTED
+  rather than zeroed** in two distinct cases — no component at all (a type before its first add), and
+  any info in scope whose impl is not StaticMesh — and a warning when the layers disagree. The
+  non-mesh omission is `#3`'s ISM-actor concern answered directly: `builtInstanceCount` is absent with
+  a `clusterTreeWarning` naming why, rather than silently short. `get_instances` **reports and does
+  not repair** — a read verb that rebuilt a stale tree would hide the writer that broke it.
+  **`ledgerMatchesRendered`, `renderedInstanceCount` and `expectedDrawnInstances` are untouched**, per
+  this ticket's own instruction not to reopen `B-foliage-remove-empties-ledger-not-component`; the
+  new field sits beside them and the warning text names `ledgerMatchesRendered` explicitly as the
+  verdict that stays `true` throughout, so the blind spot is stated on the wire rather than silently
+  patched. **`builtInstanceCount` vs `expectedDrawnInstances`, kept apart on purpose.** They are
+  adjacent layers and the engine keeps both numbers next door to each other:
+  `NumBuiltInstances` is PRE-density and `NumBuiltRenderInstances` is post-density
+  (`HierarchicalInstancedStaticMeshComponent.h:156-161`). Reading `NumBuiltInstances` is what keeps
+  the density cull reported ONCE, by `expectedDrawnInstances`, instead of twice. A caller tells them
+  apart by what a shortfall means: `builtInstanceCount` short = **stale tree**, fixed by rebuilding or
+  saving; `expectedDrawnInstances` short = **scalability setting**, fixed by raising
+  `foliage.DensityScale`. Neither is a camera figure. Stated in the header, in all three registration
+  summaries, and in a new `##` section of `Docs/wiki-src/foliage.md` (placed above the first `###`, so
+  it renders on the namespace page). **(3) Regression test**, new file
+  `Source/PinWright/Private/Tests/Environment/TestFoliageClusterTreeRebuild.cpp`, two ids:
+  `PinWright.foliage.add_instances.AddedInstancesReachTheClusterTree` and
+  `PinWright.foliage.paint.UnprojectedPaintReachesTheClusterTree`. **Asserts `NumBuiltInstances` and
+  `IsTreeFullyBuilt()` read LIVE off the component — nothing else in the suite would go red on this
+  defect.** Deliberately asserts the array and ledger layers alongside, labelled as the checks that
+  agreed throughout, so the blind spot is documented in the test rather than merely avoided; a reader
+  can see which layer the coverage was missing. Counterfactuals: reverting the `add_instances`
+  `Refresh` leaves 0 built against 14 stored; reverting paint's leaves the unprojected branch at 0;
+  switching to `Async=true` is caught by the second-batch (append) assertions, which are the case the
+  engine does NOT force sync; publishing `builtInstanceCount` from `GetInstanceCount()` instead makes
+  the response assertions pass while the live-component ones stay red. New file rather than an
+  addition to `TestFoliagePlacementBehaviour.cpp` because four other agents were editing
+  `FoliageHandler.cpp` concurrently; helpers carry a `Ctr` prefix and were grep-verified unique across
+  `Source/` for the Unity build. `Content/Python/check_test_ids.py` re-run: `SCANNED 4790 id(s), 4790
+  unique ... CLEAN`. **NOT COMPILED AND NOT RUN** — the orchestrator builds and runs the suite after
+  all agents return; the defect was verified in this checkout statically (`Refresh` / `BuildTree` /
+  `MarkRenderStateDirty` / `NumBuiltInstances` still return **zero** hits in `FoliageHandler.cpp` at
+  local `d8f1bc32`, and the whole engine chain from `AddInstancesImpl` through `BeginUpdate`'s
+  `bAutoRebuildTreeOnInstanceChanges = false` to an `EndUpdate` that restores without rebuilding was
+  re-read at `C:/UE_5.8/Engine/Source`) rather than driven live, because the shared editor was in use
+  by fifteen concurrent agents and one of them is fixing an editor-killing `foliage.add_type` crash.
+  **Access check done rather than assumed:** `NumBuiltInstances` and `bIsOutOfDate` sit in the
+  `GENERATED_UCLASS_BODY()` section, whose generated legacy body ends in `public:` (verified in
+  `HierarchicalInstancedStaticMeshComponent.generated.h`), so the reads need no accessor. No error
+  code added, so `FoliageHandler.cpp` keeps its zero `ErrorCodes::` references and its raw-literal
+  style intact. Docs: the new `##` section plus per-verb paragraphs on `get_instances`,
+  `add_instances` and `paint` in `Docs/wiki-src/foliage.md`."
