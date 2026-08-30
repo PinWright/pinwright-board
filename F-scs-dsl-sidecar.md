@@ -64,11 +64,11 @@ Conventions match the existing IR family:
 
 ## Implementation outline
 
-1. New file: `Source/EditorAutomationRpcGateway/Private/Handlers/UI/SCSTextEmitter.{h,cpp}` (parallel to existing `NIRTextEmitter.cpp`).
+1. New file: `Source/PinWright/Private/Handlers/Blueprint/SCSTextEmitter.{h,cpp}` (parallel to existing `NIRTextEmitter.cpp`).
 2. Reuse `IrTextUtils` tokenizer infrastructure.
 3. Wire `scs.txt` (or `.scs`) into `DumpFileNames`, `GetAspectVersion` (start at v1, no bump needed), and `IrSidecarRegistry`.
 4. Keep `scs.json` emission gated behind a flag for one release cycle as fallback; remove once consumers (plugin tests, agents) cut over.
-5. Add fixture tests under `Source/EditorAutomationRpcGateway/Private/Tests/`.
+5. Add fixture tests under `Source/PinWright/Private/Tests/`.
 
 Effort estimate: 3 days for emitter + tests + wire-up; +1 day if a round-trip parser is needed (probably not, since the plugin is the only writer).
 
@@ -78,3 +78,4 @@ Effort estimate: 3 days for emitter + tests + wire-up; +1 day if a round-trip pa
 - `#2-scs-txt-sidecar` `IN-REVIEW` implementer — added `Handlers/Blueprint/SCSTextEmitter`, emits `scs.txt` alongside existing `scs.json`, reconstructs nested `children {}` blocks from flat parent links, and covers both synthetic nested text and asset-dump smoke behavior.
 - `#1-initial-proposal` `OPEN` reporter — scs.json is 17 MB across 905 files with stable schema (component → properties → children tree). Strong fit for DSL emission; 5–10× compression expected. See related B-asset-dump-scs-omits-inherited-parent.
 - `#3-verify-scs-txt` `DONE` tester — Verified: ran `asset.dump` on 3 assets (B_RaceTrack_Stabilized_Trainig_06_5, B_MenuDroneSpawner, BP_Medieval_Building_DoorExtension). Each `writtenPaths` includes `scs.txt` next to `scs.json`. Content matches proposed DSL: `component(Name) { type: ..., source: scs|native, transform {...}, properties {...} }`, indent-nested blocks, native UE vector syntax, inline `/App/...` and `/Game/...` paths.
+- `#4-repoint-citations-after-module-rename` `DONE` reporter — Citation maintenance only; **no claim in this ticket changes and the status is untouched**. The plugin module directory was renamed `Source/EditorAutomationRpcGateway/` → `Source/PinWright/` (plugin commit `8962f163`), and `Source/EditorAutomationRpcGatewayTests/` was folded into `Source/PinWright/Private/Tests/`, so every citation under the old root was an **unresolvable path** a fixer could not open — not a stale line number. 2 body citations repointed in place; every rewritten path was confirmed to exist at plugin HEAD `ef8a1f1b`. Path(s) here that move by more than the prefix in this ticket, taken from the plugin's rename history rather than the prefix rule: `Source/EditorAutomationRpcGateway/Private/Handlers/UI/SCSTextEmitter.h` → `Source/PinWright/Private/Handlers/Blueprint/SCSTextEmitter.h`; `Source/EditorAutomationRpcGateway/Private/Handlers/UI/SCSTextEmitter.cpp` → `Source/PinWright/Private/Handlers/Blueprint/SCSTextEmitter.cpp`. No citation in this ticket carries a line number, so nothing here required line re-verification. Sweep-wide record, including the cases that could not be repointed: `E-module-rename-citation-sweep`.
