@@ -10,7 +10,7 @@ tags: [chooser, animation, authoring, asset-creation, missing-namespace]
 # Chooser first-slice asset/row/column authoring (`chooser.*`)
 
 Zero RPCs in the plugin touch `UChooserTable`. Grep across
-`Source/EditorAutomationRpcGateway/Private/Handlers/` returns no hits
+`Source/PinWright/Private/Handlers/` returns no hits
 for `chooser` or `UChooserTable`, and the generated method reference
 (`docs/rpc-method-reference.generated.md`) contains no `chooser.*`
 namespace. The Chooser editor plugin
@@ -125,3 +125,4 @@ end-to-end without leaving MCP.
   package-path cleanup to `SanitizeProjectRelativePath` after the
   chooser-specific object-path and `.uasset` conversions.
 - `#5-verify-chooser-reuse` `DONE` tester — Verified: `chooser.create` accepted `/Game/App/UI/Test/W_McpVerifyTemp_FChooserNamespace.uasset` and returned assetPath `/Game/App/UI/Test/W_McpVerifyTemp_FChooserNamespace`; `chooser.add_column` with `kind:"BOOL"` returned `columnIndex:0`, `columnCount:1`, and `kind:"bool"`; temp asset deleted with `asset.delete`.
+- `#6-repoint-citations-after-module-rename` `DONE` reporter — Citation maintenance only; **no claim in this ticket changes and the status is untouched**. The plugin module directory was renamed `Source/EditorAutomationRpcGateway/` → `Source/PinWright/` (plugin commit `8962f163`), and `Source/EditorAutomationRpcGatewayTests/` was folded into `Source/PinWright/Private/Tests/`, so every citation under the old root was an **unresolvable path** a fixer could not open — not a stale line number. 1 body citation repointed in place; every rewritten path was confirmed to exist at plugin HEAD `ef8a1f1b`. 1 citation sits in history rows and is left verbatim per the append-only rule, mapping by the same rule; the mapped path was confirmed present at HEAD too. No citation in this ticket carries a line number, so nothing here required line re-verification. Sweep-wide record, including the cases that could not be repointed: `E-module-rename-citation-sweep`.
