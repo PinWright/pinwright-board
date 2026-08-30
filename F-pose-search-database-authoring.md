@@ -17,7 +17,7 @@ Matching workflow — `UPoseSearchSchema`, `UPoseSearchDatabase`, the
 references to any of this surface: a grep for `pose_search`, `PoseSearch`,
 `motion_match`, `MotionMatching` across
 `docs/rpc-method-reference.generated.md` and
-`Source/EditorAutomationRpcGateway/Private/Handlers/` returns nothing.
+`Source/PinWright/Private/Handlers/` returns nothing.
 
 Effect: agents authoring locomotion / motion-matching pipelines cannot
 create or populate the schema and database assets that Motion Matching
@@ -94,3 +94,4 @@ because schema/database are content-browser assets, not graph nodes.
 - `#2-add-pose-search-authoring` `IN-REVIEW` developer — Added gated `pose_search.create_schema`, `pose_search.create_database`, and `pose_search.add_database_animation` handlers, documented the Pose Search pipeline, and added `FPoseSearchSchemaDatabaseAuthoringPipelineTest` coverage.
 - `#3-review-iteration-1-fixes` `IN-REVIEW` developer — Tightened PoseSearch build-rule discovery, reused shared path/load/save helpers in the handler, and rejected database animations whose skeleton is incompatible with the bound schema.
 - `#4-verify-mismatch-rejection` `DONE` tester — Verified: `pose_search.create_schema` created `/Game/EditorAutomationRpcGatewayTests/PSSchema_Verify_FPoseSearchDatabaseAuthoring_Mannequin` with `skeletonCount: 1`, `channelCount: 1`, `saved: false`; `pose_search.create_database` with that schema and mismatched `/App/Meshes/Truck/SK_Truck_Anim.SK_Truck_Anim` returned `SKELETON_MISMATCH` before database creation.
+- `#5-repoint-citations-after-module-rename` `DONE` reporter — Citation maintenance only; **no claim in this ticket changes and the status is untouched**. The plugin module directory was renamed `Source/EditorAutomationRpcGateway/` → `Source/PinWright/` (plugin commit `8962f163`), and `Source/EditorAutomationRpcGatewayTests/` was folded into `Source/PinWright/Private/Tests/`, so every citation under the old root was an **unresolvable path** a fixer could not open — not a stale line number. 1 body citation repointed in place; every rewritten path was confirmed to exist at plugin HEAD `ef8a1f1b`. 1 citation sits in history rows and is left verbatim per the append-only rule, mapping by the same rule; the mapped path was confirmed present at HEAD too. No citation in this ticket carries a line number, so nothing here required line re-verification. Sweep-wide record, including the cases that could not be repointed: `E-module-rename-citation-sweep`.
