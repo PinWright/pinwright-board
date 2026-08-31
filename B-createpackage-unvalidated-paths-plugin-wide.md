@@ -678,3 +678,199 @@ verdict on each. No site below was driven — confirming one costs an editor.
   `PinWright.core.error_codes.RegistryAdoptingFilesUseConstantsOnly` fails on. Not reverted, not
   edited; flagged for whoever owns that file.
   Not compiled and not run per instruction; the orchestrator builds after the wave.
+- `#9-ui-widget-cluster-three-sites-guarded` `OPEN` developer — Closed the UI/WIDGET cluster: three
+  sites in three files. Status left `OPEN`; the rest of the sweep is in flight.
+  **Files:** `Handlers/UI/WidgetCreateHandler.cpp`, `Handlers/Editor/UtilityWidgetHandler.cpp`,
+  `Handlers/UI/WidgetAuthoringUtils.cpp` (+ its `.h` for the changed nullptr contract), plus new
+  `Tests/UI/TestWidgetCreatePackagePathSafety.cpp` and `Docs/wiki-src/{widget,editor}.md`.
+  **Sites re-derived at working-tree HEAD; all three line numbers were still exact**
+  (`WidgetCreateHandler.cpp:64` `widget.create_widget_blueprint`, `UtilityWidgetHandler.cpp:70`
+  `editor.create_utility_widget`, `WidgetAuthoringUtils.cpp:71`
+  `WidgetAuthoringHelpers::CreateAssetPackage`).
+  **Both "folder guarded, name unchecked" classifications CONFIRMED by reading the code, not
+  assumed.** Each verb runs `folder` through `SanitizeProjectRelativePath` AND assigns the result
+  back over the variable (`Folder = SanitizedFolder;`), then composes `Folder / Name` with `Name`
+  straight off the payload. Because `PathAppend` does not double, a *rooted* name is not a kill
+  here (unlike the Printf sites) — but `name: "a//b"` is, at both, and so is `name: ".."`, which
+  reaches the SECOND Fatal (`UObjectGlobals.cpp:1118`, empty after `ResolveName2`, whose delimiters
+  are `.` and `:` — never `/`).
+  **THE SHARED HELPER'S CALLER LIST IS EMPTY, which is the one substantive finding here.**
+  `WidgetAuthoringHelpers::CreateAssetPackage` is declared in `Handlers/UI/WidgetAuthoringUtils.h`
+  and defined in the `.cpp`, and `grep -rn CreateAssetPackage Source/` returns exactly five hits:
+  the declaration, the definition, and **a separate file-local `static CreateAssetPackage` in
+  `Handlers/Blueprint/BlueprintTypeDefinitionHandler.cpp:495` plus its two call sites (`:508`,
+  `:566`)** — a different function, and the `:497` entry the ticket lists under another agent's
+  file. `git log -S CreateAssetPackage -- Source/` shows only the squash, so it has been callerless
+  since. **No RPC verb reaches that site today**; it is guarded anyway (the guard is what makes it
+  safe for its first caller) and NOT deleted — removing pre-existing dead code is out of scope, but
+  it is flagged here as a deletion candidate for whoever owns that file next.
+  **Guards.** The two verbs: `PinWrightComposeAssetPackagePath` on `(folder, name)`, replacing the
+  `operator/` composition. The folder's trailing slash is popped immediately before the call
+  (`RemoveFromEnd(TEXT("/"))`) because the helper joins with `Printf("%s/%s")` — the sanitizer
+  preserves a trailing slash, so an untrimmed folder would compose the very `//` the helper exists
+  to refuse, which would newly over-refuse `folder: "/Game/UI/"` (it works today via `PathAppend`).
+  The mount-point fallback was moved from the composed path to the folder, which is
+  behaviour-identical in every reachable case: after the sanitizer, `Folder` is either empty or
+  already a mounted path, and empty still yields `/Game`. The shared helper: one whole
+  caller-supplied path, so `FPackageName::IsValidLongPackageName(..., bIncludeReadOnlyRoots=true)`
+  directly, applied AFTER the existing `/Game/` prepend — deliberately, because that prepend is
+  itself a manufacturer of the Fatal (an unmounted `"/Foo/Bar"` becomes `"/Game//Foo/Bar"`, i.e.
+  the function creates `//` out of an input that carried none). It returns `nullptr` with one
+  `UE_LOG(..., Warning, ...)` naming the engine's reason; nothing logs at Error.
+  **One extra ordering change, made only because the test could not be built safely without it.**
+  In `WidgetCreateHandler.cpp` the bare-name half is hoisted ABOVE the folder sanitizer as a direct
+  `FName::IsValidXName(Name, INVALID_OBJECTNAME_CHARACTERS, &Reason)`; the composed-path half stays
+  at the composition. That verb has no other above-`CreatePackage` bail except the folder block, so
+  without the hoist there is no payload that makes a reverted build stop before the concatenation.
+  `editor.create_utility_widget` needed no hoist: its parent-class resolution already sits between
+  the folder check and `CreatePackage`. Both handlers carry a comment saying the placement is
+  load-bearing and naming the test.
+  **Error-code adoption checked per file: all three cite `ErrorCodes::` ZERO times**, so both verbs
+  use raw `TEXT("INVALID_ARGUMENT")` and stay non-adopting; the shared helper sends nothing at all
+  (bool/nullptr + log), which sidesteps the trap entirely. No new code — `INVALID_ARGUMENT` is
+  already registered (`ErrorCodes.h:538`).
+  **Regression coverage:** three new leaf ids in one file —
+  `PinWright.widget.create_widget_blueprint.NameCarryingAPathIsRefused`,
+  `PinWright.editor.create_utility_widget.NameCarryingAPathIsRefused`,
+  `PinWright.widget.authoring_utils.CreateAssetPackageRefusesInvalidPaths`. Helpers live in a named
+  namespace (`WidgetCreatePackagePathSafetyHelpers`) per the cluster's Unity/ODR convention.
+  `check_test_ids.py` CLEAN (4855 ids, no dot-prefix collisions, no duplicates);
+  `check_test_skips.py` CLEAN.
+  **Fatal-unreachability, on both a fixed and a reverted build — three different constructions,
+  one per site.** (1) `widget.create_widget_blueprint`: every bad `name` is paired with
+  `folder: "/Game/../../Engine/Content"`, which `SanitizeProjectRelativePath` rejects, so a
+  reverted build answers `SECURITY_VIOLATION` from the folder block — above the concatenation — and
+  the `TestEqual` on `INVALID_ARGUMENT` goes red with the process alive. The one case that cannot
+  use that lever is the backslash (it survives `INVALID_OBJECTNAME_CHARACTERS` and is caught by the
+  package rule *below* the folder block), so it is driven with a valid folder instead, and that is
+  safe on its own terms: a backslash composes neither `//` nor an empty name, so a reverted build
+  merely creates an asset and fails the `TestFalse`. (2) `editor.create_utility_widget`: every bad
+  `name` is paired with a well-formed `parentClass` naming no existing class (fresh GUID under
+  `/Game/PinWrightMissing/`), so a reverted build is refused `INVALID_PARENT_CLASS` at the
+  parent-class resolution, above `CreatePackage`. (3) The shared helper has no second argument and
+  therefore no lever, so its negative cases are restricted to inputs invalid for
+  `IsValidLongPackageName` yet harmless for `CreatePackage` — a backslash and a trailing slash,
+  neither of which composes `//` or resolves to empty (`ResolveName2` splits on `.`/`:`, never `/`,
+  so a trailing slash survives non-empty). The file header forbids adding a `//`, `..` or
+  unmounted-root case there in as many words, and says why each would end a live editor.
+  **Controls:** a bare-name valid-input control per verb (creates the asset under
+  `/Game/PinWrightTests/WidgetCreatePathSafety`, asserted via `DoesAssetExist`, torn down with
+  `CleanupTestAsset` in `ON_SCOPE_EXIT`), plus a valid-path control on the helper, plus an ORDERING
+  WITNESS asserting a good name with the rejected folder still returns `SECURITY_VIOLATION` — so
+  the hoist added a check rather than replacing one.
+  **Doc:** `### widget.create_widget_blueprint` added to `Docs/wiki-src/widget.md` immediately
+  before the first pre-existing `###` (so no `##` section is newly swallowed), and
+  `### editor.create_utility_widget` to `Docs/wiki-src/editor.md` likewise. Cross-references
+  between the two are plain prose inside those `###` bodies, never a foreign-namespace `###`.
+  Not compiled and not run per instruction; the orchestrator builds after the wave.
+- `#10-gas-gameframework-blueprinttypes-three-sites` `OPEN` developer — Closed the three sites in
+  `Handlers/Systems/GASHandler.cpp`, `Handlers/Systems/GameFrameworkHandler.cpp` and
+  `Handlers/Blueprint/BlueprintTypeDefinitionHandler.cpp`. Status left `OPEN`; the rest of the
+  sweep is in flight. Numbered `#10` because earlier numbers were claimed concurrently by the time this
+  one landed. **Line numbers re-derived on the shared tree; all three still matched the ticket
+  (`:2458`, `:98`, `:497`), but two of the three CLASSIFICATIONS did not.**
+  **`GASHandler.cpp:2458` — `gas.create_ability_set`; the ticket's verdict was right and this was
+  the only genuinely reachable-lethal one of my three.** `setPath`/`assetPath` is one whole caller
+  path, so it is guarded with `FPackageName::IsValidLongPackageName(..., bIncludeReadOnlyRoots=true,
+  &Reason)` directly rather than with the folder+name composer, refusing `INVALID_ARGUMENT` with
+  the engine reason verbatim. **Placed after the `IsValidMountPoint` fallback and ABOVE the existing
+  `LoadObject` existence check, not merely above `CreatePackage`; both halves of that are
+  load-bearing.** After the fallback, because the fallback is itself a second kill shape:
+  `IsValidMountPoint` refuses any rooted path outside `/Game|/Engine|/Script` that is not a mounted
+  long package name, and the next line prepends `/Game/` onto it, so `"/NotAMount/X"` became
+  `"/Game//NotAMount/X"` from one argument. Above the `LoadObject`, because that call is a SECOND
+  door to the same Fatal — read in engine source, not assumed: for a path with no `.`,
+  `StaticLoadObjectInternal` retries as `"<path>.<shortname>"` and `ResolveName2` then calls
+  `CreatePackage` on the package half itself (`UObjectGlobals.cpp:1297-1311`), so a guard sitting
+  immediately above `CreatePackage` would have left the verb exactly as lethal while reading as
+  fixed. `GASHandler.cpp:772` (`CreateGASBlueprint`) was checked while here and is genuinely
+  guarded (`ValidateAssetCreationPath` + `IsValidAssetPath`), consistent with its absence from the 61.
+  **`GameFrameworkHandler.cpp:98` — classified "no guard at all"; true, but the site is DEAD CODE
+  and no verb reaches it.** `CreateGameFrameworkBlueprint` has exactly one caller,
+  `GF_CREATE_CLASS_HANDLER`, and that macro is DEFINED AND NEVER INSTANTIATED anywhere in
+  `Source/`: the file registers nine `game_framework.configure_*` / `set_respawn_rules` /
+  `get_game_framework_info` verbs and no `create_*` verb at all, so `CreateGameFrameworkBlueprint`,
+  `FCommonParams::ExtractSavePath` and `FCommonParams::Path` are all unreachable from the wire.
+  **The assignment's `ExtractSavePath` hint does not apply:** it never sees the bare `name`, and the
+  folder it sanitises is re-normalised inside the create helper afterwards, so the composition point
+  is the only correct home. Guarded there with the shared `PinWrightComposeAssetPackagePath` on
+  `(FullPath, Name)`; the refusal travels out through the existing `OutError` and would read
+  `CREATION_FAILED` at the hypothetical caller rather than `INVALID_ARGUMENT` — accepted
+  deliberately rather than reordering a macro nobody expands.
+  On the sibling agent's trailing-slash correction: it does not bite here, and this was verified
+  rather than reasoned around — the line directly above the call already does
+  `if (FullPath.EndsWith("/")) FullPath = FullPath.LeftChop(1)`, so the composer's `Printf("%s/%s")`
+  never sees a folder ending in `/`. That `if` is a single strip, so `"/Game//"` survives it and is
+  now REFUSED — the right outcome, because `FString::operator/` DOES double on a left side already
+  ending in `/`, which made that input a Fatal before this change. A comment at the call site
+  records that the `LeftChop` is now load-bearing. **Dead code NOT deleted** (`ExtractSavePath`
+  landed recently and is another agent's work; the project rule is to report dead code, not remove
+  it) — flagged here so whoever owns the cleanup can decide whether the macro, the helper and the
+  `Path` slot should go.
+  **`BlueprintTypeDefinitionHandler.cpp:497` — classified "no guard at all"; that verdict is WRONG,
+  the site was already guarded transitively.** Both callers of `CreateAssetPackage`
+  (`CreateUserDefinedStructAsset`, `CreateUserDefinedEnumAsset`) are reached only from
+  `blueprint.create_struct` / `blueprint.create_enum`, and both handlers run `ParseAssetPath` ->
+  `NormalizeAssetPath` (`Utils/AssetUtils.cpp:51-129`) first, which sets `bIsValid` only on a path
+  `FPackageName::IsValidLongPackageName` has already accepted — via either its direct check (`:86`)
+  or the fallback-root loop, which gates on the same call (`:110`). So a `//` path has always been
+  refused `INVALID_ASSET_PATH` here and no editor could die through this site. An explicit
+  `IsValidLongPackageName` check was still added INSIDE `CreateAssetPackage`, logged at `Warning`
+  (never `Error`) and returning `nullptr`: the invariant is enforced two call frames up and nothing
+  at the `CreatePackage` line said so, and the cost of a future caller composing its own path is
+  process death rather than a bug. It is labelled a backstop in the code; the reachable refusal is
+  unchanged.
+  **Error codes: all three files checked independently and none was flipped.** All three reference
+  `ErrorCodes::` ZERO times, so each is raw-literal-only and a raw `TEXT("...")` is the correct
+  spelling in each (`RegistryAdoptingFilesUseConstantsOnly` is per-file). Every code emitted
+  (`INVALID_ARGUMENT`, plus the pre-existing `INVALID_ASSET_PATH` / `ALREADY_EXISTS` /
+  `CREATE_FAILED` the tests assert on) is already registered in `Handlers/ErrorCodes.h`; no new
+  code, that header untouched.
+  **Regression coverage: two files, three new leaf ids.**
+  `Tests/Gameplay/TestGasCreateAbilitySetPathSafety.cpp` ->
+  `PinWright.gas.create_ability_set.SetPathIsCheckedBeforePackageCreation`;
+  `Tests/Blueprint/TestBlueprintCreateTypePathSafety.cpp` ->
+  `PinWright.blueprint.create_enum.PathIsCheckedBeforePackageCreation` and
+  `PinWright.blueprint.create_struct.PathIsCheckedBeforePackageCreation`. `check_test_ids.py` CLEAN
+  (4854 ids, no dot-prefix collisions, no duplicates); `check_test_skips.py` CLEAN.
+  **Fatal-unreachability, stated per file because the argument differs and is weaker at GAS than the
+  foliage precedent.** At `gas.create_ability_set` the verb takes NO second argument — no mesh, no
+  parent class, no attribute set — that a pre-fix build could bail on first: `setPath` is the entire
+  payload, so the assignment's "pair the bad name with a well-formed other argument" construction is
+  not available at this verb. The lever used instead is the handler's own already-exists branch: the
+  refusal case is driven with `"/Engine/BasicShapes/Cube.Cube"`, whose `.` is in
+  `INVALID_LONGPACKAGE_CHARACTERS`, so a fixed build refuses it `INVALID_ARGUMENT` above everything
+  while a REVERTED build resolves it at the `LoadObject`, answers `status:"already_exists"` and
+  returns — above the concatenation, having created and saved nothing, with the test red on the
+  wrong outcome and the process alive. `CreatePackage` is unreachable on both builds. **The `//`
+  members of the class are deliberately NOT driven at this verb, and the test header says so with a
+  "do not add one" instruction**: any `//` value reaches the Fatal on a reverted build through the
+  `LoadObject` and would end the suite host rather than report a red. They are covered only by the
+  single `IsValidLongPackageName` call that also produces the invalid-character rejection that IS
+  asserted. At `blueprint.create_*` the `//` case IS driven, safely on every build: it is refused
+  above the concatenation today by `ParseAssetPath`, and if that upstream check is ever lost the new
+  backstop refuses it inside `CreateAssetPackage` and the verb answers `CREATE_FAILED`, so the case
+  goes red on the wrong code with the process intact — a forward guarantee rather than a
+  discriminator, which the header states plainly (reverting THIS change leaves those two tests
+  green, because they lock a contract the change did not alter). Both files end with a valid-input
+  control that creates and saves nothing: a path naming an existing asset, answered
+  `already_exists` / `ALREADY_EXISTS` from the branch below the new guard, which is the proof a
+  well-formed path got past it. Both controls are gated on that fixture actually being present
+  (`PinWrightTestSkip::SkipAssertions`, reason `basic-shapes-cube-fixture-absent`) — without the
+  gate a well-formed path would run on into a real create inside Engine content; the GAS refusal
+  case shares the gate because it is also what gives that case its reverted-build bail.
+  `GAS_NOT_AVAILABLE` is skipped through the same emitter, never passed. Every refusal path carries
+  a fresh GUID leaf, because `NormalizeAssetPath` retries the leaf segment under `/Game`, `/Engine`
+  and `/Script` and ACCEPTS the rewrite if such a package exists, which could otherwise turn a
+  refusal case into a success on some host. No readback with `UEditorAssetLibrary::DoesAssetExist`
+  on a malformed path: the engine logs `DoesPackageExist called on PackageName that will always
+  return false` at `Warning` (`PackageName.cpp:2415`) and `bElevateLogWarningsToErrors` defaults
+  true, so that readback would fail the test it was meant to strengthen.
+  **On the `..` correction:** covered at all three sites without a special case, because `.` is in
+  both `INVALID_OBJECTNAME_CHARACTERS` and `INVALID_LONGPACKAGE_CHARACTERS`, so the engine calls
+  used here reject `..` before it can reach the second Fatal at `UObjectGlobals.cpp:1118`.
+  **Doc:** one `### gas.create_ability_set` section appended to `Docs/wiki-src/gas.md` — placed
+  after `## See also` because it introduces that file's FIRST `###` and every `##` below one stops
+  rendering. No doc change for the other two: `blueprint.create_*` behaviour is unchanged, and the
+  game-framework site has no verb to document. Not compiled and not run per instruction; the
+  orchestrator builds after the wave.
