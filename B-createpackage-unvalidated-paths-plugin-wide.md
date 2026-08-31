@@ -2254,6 +2254,19 @@ verdict on each. No site below was driven — confirming one costs an editor.
   paths, not against `IsValidMountPoint`, so it still fails if the narrowing returns by another
   route, and it carries the refusals (traversal, unmounted root, drive letter, empty) so the accept
   rows cannot be satisfied by a function that returns its input.
+  **Two measured facts from `#20` land in this predicate's doc comment, and one of them corrects
+  the plan.** (a) `FPackageName::GetPackageMountPoint(TEXT("/Game"))` returns the FName `Game`, not
+  `NAME_None` — the plan listed that as explicitly unknown and requiring measurement. (b) The plan
+  claims the `GetPackageMountPoint` one-liner refuses `/Game//X`. **It does not**, before or after
+  the rewrite: `GetPackageMountPoint` never runs `IsValidTextForLongPackageName`, which is where the
+  engine's `//` rule lives, and the parent-relative helper explicitly strips duplicate separators
+  after the parent. So `IsValidMountPoint` is not and cannot be a `//` guard. `CanReachCreatePackageFatal`
+  and the dispatch-boundary type gate are the WHOLE `//` defence, and `SanitizeProjectRelativePath`
+  is not a third one — it collapses `//`, but it is a normalizer only some callers run, not a gate
+  every path passes. Added that as an explicit closing paragraph on the predicate's doc comment
+  ("NOTHING ELSE IN THIS FILE BACKS THIS PREDICATE UP - do not weaken it on the assumption that
+  something does"), so the reciprocal of `#20`'s "THIS PREDICATE IS NOT THE '//' GUARD" note is
+  written on this side too and a future reader cannot thin either one by assuming the other covers it.
   **`/Content` -> `/Game` branch removed from `NormalizeContentAssetPath` after confirming
   reachability, per the orchestrator's instruction to verify first.** It ran only on a string that
   had already passed the mount check, and `/Content` is not a mount point: the engine registers
@@ -2387,7 +2400,7 @@ verdict on each. No site below was driven — confirming one costs an editor.
   that is not a type field. `CameraFrameHandler.cpp`, `RenderingProjectSettingsHandler.cpp` and
   `CaptureSubject*.cpp` declare no path-shaped parameter and were not edited. Not compiled and not
   run per instruction.
-- `#24-asset-editor-ui-niagara-system-and-all-five-gated-sub-modules-retyped` `OPEN` developer — Declaration-only
+- `#25-asset-editor-ui-niagara-system-and-all-five-gated-sub-modules-retyped` `OPEN` developer — Declaration-only
   retype across `Handlers/Asset|Editor|UI|Niagara|Utility|Reflection|System|SourceControl|Localization|Input`
   and all five gated sub-modules. **230 declarations: 193 `path`, 19 `classref`, 18 `filepath`.** No guard,
   no error code, no behaviour change outside the type literal. By module — Asset 40/2/4, Editor 7/1/3,
