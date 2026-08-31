@@ -232,8 +232,27 @@ verdict on each. No site below was driven — confirming one costs an editor.
   regression test safe; each carries a comment saying not to move it back down. Regression coverage:
   `Tests/Gameplay/TestAnimationAuthoringNamePathSafety.cpp`, three new leaf ids
   `PinWright.animation.authoring.{create_animation_sequence,create_blend_space_1d,create_pose_library}.NameCarryingAPathIsRefused`
-  — one verb per handler file, six bad names each (`a//b`, rooted path, interior slash, backslash,
-  `../Escape`, trailing slash) plus a bare-name control. `check_test_ids.py` CLEAN, 4832 ids.
+  — one verb per handler file, seven bad names each (`a//b`, rooted path, interior slash,
+  backslash, `../Escape`, `..`, trailing slash) plus a bare-name control. `..` is there because
+  `CreatePackage` has a SECOND Fatal — a name resolving to EMPTY through `ResolveName2`
+  (`UObjectGlobals.cpp:1118`), not the `//` check at `:1094-1096` — which a slash-only filter would
+  miss; the shared helper covers it because `INVALID_OBJECTNAME_CHARACTERS` contains `.` and `:`.
+  Two `path`-side cases were added after a sibling agent's correction:
+  `ExpectDoubleSlashFolderRefused` (`path: "/Game//Animations"` with a bare `name` —
+  `NormalizeAnimPath` does not collapse an interior `//`, so the FOLDER was an equally live
+  one-argument kill that the ticket's per-site notes do not spell out) and
+  `ExpectTrailingSlashFolderStillAccepted`, which pins that a trailing-slash folder is still
+  ACCEPTED. That second one addresses the sibling's other warning —
+  `PinWrightComposeAssetPackagePath` composes with `Printf("%s/%s")` and would double a separator
+  where `FString::operator/` does not, so routing a site through it blind can start refusing a
+  folder that works today. **Not a hazard at these nine:** `Path` is
+  `AnimationAuthoringHelpers::NormalizeAnimPath(...)` output at every one of them, and that
+  function runs `while (EndsWith("/")) LeftChopInline(1)`, so a trailing slash provably cannot
+  reach the helper. No trim was added; the test pins the property instead. The ticket's
+  "no guard at all" verdict on these nine was re-verified rather than assumed: the three files
+  contain no `SanitizeProjectRelativePath` / `IsValidAssetPath` / `ValidateAssetCreationPath` /
+  `SanitizePackageName` / `IsValid*LongPackageName` call anywhere, before or after this change.
+  `check_test_ids.py` re-run on the shared tree: CLEAN, 4855 ids.
   **Fatal-unreachability:** every bad name is paired with a well-formed `skeletonPath` naming no
   asset (fresh GUID under `/Game/PinWrightMissing/`). On the fixed build the compose check sits
   above the skeleton load and answers `INVALID_ARGUMENT`; on a reverted build the skeleton load is
@@ -309,6 +328,22 @@ verdict on each. No site below was driven — confirming one costs an editor.
   argument refusal. The crash is closed either way, but the message is misleading and wants
   `INVALID_ARGUMENT` plus the engine reason. Left alone deliberately — that file is another agent's
   in this wave.
+  **Two cross-agent corrections checked against this fix rather than assumed away.** (1) The SECOND
+  Fatal (`:1118`, empty after `ResolveName2`) is excluded here by a separate argument, not by the
+  `//` one: `ResolveName2` (`UObjectGlobals.cpp:1219-1240`) walks `.` and `:` delimiters and returns
+  the name UNCHANGED the moment it finds neither, so a dotless, colonless name resolves to itself
+  and cannot empty. **No fixture string reaching `CreatePackage` in the new test contains `.` or
+  `:`** (the GUID suffixes are `EGuidFormats::Digits`, hex only); the test header now states that
+  and forbids adding one, and `..` — the known killer of that branch — appears nowhere in it.
+  (2) The trailing-slash OVER-refusal that `PinWrightComposeAssetPackagePath`'s `Printf("%s/%s")`
+  can cause does not arise here, verified rather than reasoned around: that helper is not used,
+  `:1878` strips every trailing slash from the folder (`AssetUtils.cpp:1945-1948`) BEFORE the new
+  check runs, and `:1502` validates the finished path as given, which its one caller composes with
+  `FString::operator/` — never a trailing slash from a non-empty name. The `PackagePath`-as-given
+  contract is now stated in `AssetUtils.h` so a future caller does not hand it a folder. On treating
+  the ticket's per-site classifications as claims rather than facts: both of this file's entries
+  were re-read at the call site and both were accurate — `:1502` passes only `PackagePath` to
+  `CreatePackage`, `:1878` passes the composition, and neither carried any guard.
 - `#5-aihandler-four-sites-guarded` `OPEN` developer — Closed the four
   `Handlers/AI/AIHandler.cpp` sites. Line numbers re-derived on the shared tree (the ticket's were
   stale): `:248` → `CreateBlackboardAsset`, `:763` → `ai.create_state_tree`, `:1145` →
