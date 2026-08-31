@@ -206,3 +206,44 @@ verdict on each. No site below was driven — confirming one costs an editor.
   `create_data_layer`, an even earlier world/WP/subsystem gate) and the test goes red on the wrong
   code while the process lives — no host-dependent fixture involved. A bare-name control asserts
   the refusal is not blanket. Not compiled and not run: the orchestrator builds after the wave.
+- `#3-animation-authoring-nine-sites` `OPEN` developer — Closed the nine `animation.authoring`
+  sites, all in the "no guard at all" class, all one idiom (`Path / Name` off `Ctx.GetString` with
+  `Path` pre-normalized by `AnimationAuthoringHelpers::NormalizeAnimPath`, composed inline at the
+  `CreatePackage` line). Re-derived line numbers matched the ticket exactly at pick time and moved
+  during the edits; the sites by verb are
+  `AnimationAuthoringHandler_Sequence.cpp` `create_animation_sequence` / `create_montage` /
+  `create_composite`, `AnimationAuthoringHandler_BlendSpace.cpp` `create_blend_space_1d` /
+  `create_blend_space_2d` / `create_aim_offset`, and
+  `AnimationAuthoringHandler_AnimBlueprint.cpp` `create_pose_library` / `create_ik_retargeter` /
+  the `#elif MCP_HAS_CONTROLRIG_BLUEPRINT` (UE 5.1-5.4) fallback branch of `create_control_rig`.
+  **No shared local composition helper existed** to guard once: the three files share
+  `AnimationAuthoringHelpers` but it carries only `NormalizeAnimPath` (folder normalization), and
+  each site composed inline. A per-cluster `Ctx`-aware wrapper was considered and rejected — it
+  would save ~2 lines a site, pull `FHandlerContext` into a pure-data helpers header, and diverge
+  from the shape `FoliageHandler.cpp` / `LandscapeHandler.cpp` already ship. All nine therefore call
+  the plugin-wide `PinWrightComposeAssetPackagePath` directly, refusing `INVALID_ARGUMENT` with the
+  engine reason text quoted. **Error-code adoption differs per file and was checked independently:**
+  `_Sequence.cpp` already cites `ErrorCodes::` 69 times with zero raw literals, so it uses
+  `ErrorCodes::ERR_INVALID_ARGUMENT`; `_BlendSpace.cpp` and `_AnimBlueprint.cpp` cite it zero times
+  and carry many raw literals and are in no `PartiallyConvertedHandlerFiles` baseline, so they use
+  the raw `TEXT("INVALID_ARGUMENT")` and stay non-adopting. `INVALID_ARGUMENT` was already
+  registered (`ErrorCodes.h:538`); no new code. **Placement:** the composition is hoisted ABOVE the
+  `LoadSkeletonFromPathAnim` call in the seven verbs that have one, which is what makes the
+  regression test safe; each carries a comment saying not to move it back down. Regression coverage:
+  `Tests/Gameplay/TestAnimationAuthoringNamePathSafety.cpp`, three new leaf ids
+  `PinWright.animation.authoring.{create_animation_sequence,create_blend_space_1d,create_pose_library}.NameCarryingAPathIsRefused`
+  — one verb per handler file, six bad names each (`a//b`, rooted path, interior slash, backslash,
+  `../Escape`, trailing slash) plus a bare-name control. `check_test_ids.py` CLEAN, 4832 ids.
+  **Fatal-unreachability:** every bad name is paired with a well-formed `skeletonPath` naming no
+  asset (fresh GUID under `/Game/PinWrightMissing/`). On the fixed build the compose check sits
+  above the skeleton load and answers `INVALID_ARGUMENT`; on a reverted build the skeleton load is
+  above the concatenation and answers `SKELETON_NOT_FOUND`, so the test goes red on the wrong code
+  with the process alive and `CreatePackage` is unreachable on both. `create_ik_retargeter` and the
+  `create_control_rig` fallback are deliberately NOT driven — they resolve nothing before their
+  composition, so there is no earlier refusal to catch a reverted build and a bad name would reach
+  the Fatal; they are fixed the same way and left uncovered rather than covered by a test that is
+  only safe while the fix is present. Doc: one `##` section (above the first `###`) in
+  `Docs/wiki-src/animation.authoring.md`. Noted, not touched: `FString FullPath = Path / Name;` in
+  the `create_control_rig` fallback branch is pre-existing dead code, and that overlay page is
+  ~25 KB, over the ~20 KB soft guideline (23.6 KB before this edit). Not compiled and not run: the
+  orchestrator builds after the wave.
