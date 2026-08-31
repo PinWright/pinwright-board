@@ -699,6 +699,52 @@ verdict on each. No site below was driven — confirming one costs an editor.
   lines below its compose refusal — that shape is what
   `PinWright.core.error_codes.RegistryAdoptingFilesUseConstantsOnly` fails on. Not reverted, not
   edited; flagged for whoever owns that file.
+  **AMENDED — the FOLDER is a live one-argument kill here, and this site's "folder guarded"
+  classification is misleading.** `savePath`'s guard is `IsValidLongPackageName` (a validator,
+  which does reject `//`) **but on failure it falls back to
+  `TryConvertFilenameToLongPackageName` and assigns the result with no re-validation.** That
+  fallback is a normalizer, not a validator: `FPaths::NormalizeFilename` is called with
+  `bRemoveDuplicateSlashes=false` (`Paths.cpp:1332-1339`) and `InternalFilenameToLongPackageName`
+  ends in `OutPackageName << Result`, returning the last attempted span — so
+  `savePath: "/Game//Physics"` comes back out **verbatim and reporting success**. Read in
+  `C:/UE_5.8/Engine/Source/`, not assumed. Pre-fix that composed a fatal package path with a
+  perfectly BARE `physicsAssetName` — and with NO `physicsAssetName` at all, since the derived
+  `<MeshName>_Physics` default takes the same route. It is stopped only because
+  `PinWrightComposeAssetPackagePath` validates the COMPOSED path; a name-only character check
+  would not have caught it. The other two sites take one whole path and validate the composed
+  string directly, so the same property holds there. **None of the three routes a folder through
+  `SanitizeProjectRelativePath`** (which does collapse `//` in a loop). Coverage added: two folder
+  cases on the physics verb (`/Game//Physics` and `//Game/Physics`, each paired with a BARE
+  well-formed name, asserting the refusal quotes the FOLDER) and one on `create_physics_asset`
+  (`/Game//Physics/PA_Safety` — `//` entirely in the directory half, bare leaf).
+  **AMENDED — `CreatePackage` is not the first door at the physics site, and the hoist turned out
+  to be load-bearing for that too.** `LoadObject` -> `StaticLoadObjectInternal` calls
+  `ResolveName2(..., Create=true)` (`UObjectGlobals.cpp:1427`), and `ResolveName2` calls
+  `CreatePackage(*PartialName)` (`:1310`). `physics.setup_physics_simulation` has exactly the
+  shape that makes that fatal: its already-exists branch runs
+  `UEditorAssetLibrary::DoesAssetExist(PhysicsAssetObjectPath)` and then
+  `LoadObject<UPhysicsAsset>(nullptr, *PhysicsAssetObjectPath)` on the COMPOSED path, both several
+  lines ABOVE the enumerated `CreatePackage`. **A guard placed immediately before `CreatePackage`
+  would have been no guard at all.** Both composition guards were already hoisted to the top of
+  the handler for the regression test's sake, so they sit above it; re-verified by line number
+  (`:102` and `:228` vs `:239`/`:248`/`:261`) and now commented at the existence check so they are
+  not moved back down. The other two sites load nothing on the composed path. `FindObject` is the
+  safe counterpart (`Create=false`, `:620`) and is what the no-leaked-object assertions use.
+  **NEW DOOR FOUND, NOT FIXED — recommend a separate ticket; it is not in the 61.** The same
+  `ResolveName2(Create=true)` fact makes every `LoadObject`/`StaticLoadObject` on **unvalidated
+  caller text** an editor-kill, and this sweep is direct-`CreatePackage`-only by construction, so
+  none of those are enumerated anywhere. In my files, ungated: `PhysicsAssetHandler.cpp`'s
+  `LoadSkeletalMeshFromPathPhys(SkeletalMeshPath, ...)` and
+  `AnimationAuthoringHelpers::LoadSkeletonFromPathAnim(SkeletalMeshPath)`, plus
+  `PhysicsHandler.cpp`'s second `LoadObject<USkeleton>(nullptr, *SkeletonPath)` and
+  `physics.setup_ragdoll`'s. Incidentally protected: `PhysicsHandler`'s first `meshPath` /
+  `skeletonPath` loads, each behind a `DoesAssetExist` registry lookup, which creates nothing and
+  cannot match a `//` path. Deliberately NOT fixed here: the correct guard differs per site
+  (`LoadSkeletonFromPathAnim` intentionally accepts `/Content`-prefixed and backslash paths that
+  `IsValidLongPackageName` would refuse, so validating the raw string over-refuses), the class
+  spans the whole plugin, and patching two files would be inconsistent without being safe. My
+  tests are unaffected: every source path they pass is a well-formed GUID path.
+  Doc: the `savePath` normalizer fact added to `Docs/wiki-src/physics.md`.
   Not compiled and not run per instruction; the orchestrator builds after the wave.
 - `#9-ui-widget-cluster-three-sites-guarded` `OPEN` developer — Closed the UI/WIDGET cluster: three
   sites in three files. Status left `OPEN`; the rest of the sweep is in flight.
