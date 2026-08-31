@@ -593,6 +593,28 @@ verdict on each. No site below was driven — confirming one costs an editor.
   (a bare dotted method name), stating that `name` is a bare leaf and that a nested destination goes
   in `path`. No pose_search doc change — nothing about that verb's behaviour changed. Not compiled
   and not run per instruction; the orchestrator builds after the wave.
+  **Amended for the folder dimension.** Checked rather than assumed, since a sibling found a
+  normalizer that strips trailing slashes and maps `/Content` to `/Game` but does NOT collapse an
+  interior `//`: **neither of my files has that shape.** Both route every folder and every whole
+  path through `SanitizeProjectRelativePath`, whose collapse loop (`PathUtils.cpp:57-60`) rewrites
+  `//` to `/` before anything is composed — chooser via `NormalizePackagePath` on BOTH branches
+  (folder+name at `:60`, whole `path` at `:100`), pose_search via `NormalizePackagePath` after
+  `NormalizeAssetPath`, which refuses a `//` path outright rather than collapsing it. So a
+  `path: /Game//Chooser` with an impeccable bare name is collapsed to `/Game/Chooser`, not
+  composed into a Fatal. The guards satisfy the practical rule independently of that: both validate
+  the COMPOSED string with `FPackageName::IsValidLongPackageName` — inside
+  `PinWrightComposeAssetPackagePath` on the chooser name branch, and at the end of
+  `BuildCreatePaths` on every branch of both files — so if the sanitizer were ever swapped for a
+  non-collapsing one the answer flips to `INVALID_ARGUMENT`/`INVALID_PATH`, never to a dead editor.
+  Folder cases added to both sub-modules' own `Private/Tests/` trees, no new test ids
+  (`check_test_ids.py` CLEAN, 4855; `check_test_skips.py` CLEAN): chooser gets a `//`-folder case
+  on the folder+name branch AND a `//` case on the `path`-alone branch, both with a bare legal
+  leaf, both asserting `CLASS_NOT_FOUND` — the collapse-and-proceed contract — so the file goes RED
+  rather than fatal the day that sanitizer changes; pose_search gets a root-spelled `//Game/...`
+  variant on both verbs alongside the existing mid-path `/Game/PinWrightTests//<leaf>` cases, which
+  already carried the `//` in the FOLDER portion with a bare GUID leaf. Safe to drive on both a
+  fixed and a reverted build: every one of these composes or refuses above `CreatePackage`, and the
+  chooser cases reach only `ResolveUClass` on an already-loaded script package.
 - `#8-skeleton-physics-three-sites-guarded` `OPEN` developer — Closed the three skeleton/physics
   sites. Status left `OPEN`; the rest of the sweep is in flight.
   **Files:** `Handlers/Animation/SkeletonHandler.cpp`, `Handlers/Physics/PhysicsHandler.cpp`,
@@ -762,6 +784,28 @@ verdict on each. No site below was driven — confirming one costs an editor.
   before the first pre-existing `###` (so no `##` section is newly swallowed), and
   `### editor.create_utility_widget` to `Docs/wiki-src/editor.md` likewise. Cross-references
   between the two are plain prose inside those `###` bodies, never a foreign-namespace `###`.
+  **Amended after the wave's folder-dimension and LoadObject-door corrections, both re-checked
+  against source rather than accepted.** (1) **`folder` is NOT a live kill at these two sites, and
+  it is now pinned that way.** `SanitizeProjectRelativePath` is a validator, not merely a
+  normalizer: it collapses `//` in a `while` loop (`Utils/PathUtils.cpp:56-60`), rejects `..`,
+  forces a leading slash and requires a mounted root, so `folder: "/Game//Widgets"` reaches the
+  composition already collapsed. Independently, both sites route the COMPOSED string through
+  `PinWrightComposeAssetPackagePath`, i.e. `IsValidLongPackageName` on the final path, so a
+  name-only check is not what is relied on. Two acceptance pins were added - an interior-`//`
+  folder and a trailing-slash folder must both still SUCCEED - because the Printf join could
+  otherwise have turned the crash fix into an over-refusal. (2) **Guard placement re-audited
+  against `StaticLoadObjectInternal` -> `ResolveName2(Create=true)` (`:1427`) -> `CreatePackage`
+  (`:1310`).** None of the three sites loads the composed path before creating it - there is no
+  already-exists probe on any of them - and every guard sits above every intervening call, so no
+  guard is defeated by that door. **Three instances of that door were nonetheless found in this
+  cluster and are deliberately NOT patched here, because a one-file patch on a class this broad
+  advertises coverage that would not exist:** `WidgetAuthoringHelpers::LoadWidgetBlueprint`
+  (`WidgetAuthoringUtils.cpp:197,203`) hands a caller `widgetPath`, normalized only by a `/Game/`
+  prepend, straight to `StaticLoadObject` - high reach, it is the widget cluster's loader;
+  `UtilityWidgetHandler.cpp:86` hands the caller's `parentClass` to `LoadClass`; and
+  `ResolveUClass` (`Utils/ClassUtils.cpp:113`) does `LoadObject<UClass>` on raw caller text and is
+  shared by dozens of verbs, including the other file in this cluster. Each is a one-argument kill
+  by `"//"`. They want their own ticket and their own sweep.
   Not compiled and not run per instruction; the orchestrator builds after the wave.
 - `#10-gas-gameframework-blueprinttypes-three-sites` `OPEN` developer — Closed the three sites in
   `Handlers/Systems/GASHandler.cpp`, `Handlers/Systems/GameFrameworkHandler.cpp` and
