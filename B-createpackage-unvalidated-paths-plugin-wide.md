@@ -1722,3 +1722,85 @@ verdict on each. No site below was driven — confirming one costs an editor.
   `ChaosVehicleHandler.cpp` were being edited concurrently by the `IsValidMountPoint` agent; the
   two diffs land on disjoint lines and neither was reverted (verified against the working tree).
   Not compiled and not run per instruction; the orchestrator builds after the wave.
+- `#18-blueprint-ir-datatable-gameplaytags-retype` `OPEN` developer — Retyped **112 declarations
+  across 29 files** in the blueprint / IR-compiler / interaction / data_table / gameplay_tags
+  cluster: **100 → `path`, 11 → `classref`, 1 → `filepath`**. No code emitted; every changed line is
+  a type token (verified: every `+` line carries one of the three new tokens, every `-` line carried
+  `"string"`). **61 of the 112 are not `RPC_PARAM_*` at all** — they are
+  `BlueprintHandlerUtils::BlueprintPathParamReq/Opt` (`BlueprintHandlerUtils.h:220`/`:232`), which
+  brace-builds an `FParamSpec` and takes its type as an **argument**, so a macro-shaped grep reports
+  these files clean. That one helper is the whole `blueprint.*` / `blueprint.graph.*` identity slot
+  and its alias set covers six wire spellings (`path`, `assetPath`, `blueprintPath`,
+  `blueprint_path`, `requestedPath`, `name`), so one retype per site closes all six; its
+  `TypedAliases` (`blueprintCandidates`/`candidates`) declare their own `array` and were left alone.
+  Two more are `ParamAliasUtils::MakeAliasParamSpec` in `data_table.create`. A full sweep for
+  `FParamSpec` construction confirms the remaining 49 are plain macros and that this cluster calls
+  none of the other 22 shared param builders. **The brief's density claim is wrong**: `blueprintPath`
+  has 95 declarations plugin-wide but only 14 are here (SCS 7, interaction 6, SCS-duplicate 1) — the
+  bulk sit in Animation (20), Networking (19), GAS (18) and Character (13), other agents' files. The
+  blueprint cluster's density is in the shared helper, not the literal name.
+  **Task 2 answered: a literal `//` survives every IR tokenizer in the plugin, and needs no trick to
+  do it. The IR comment character is `#`, not `//`.** `FIrTextUtils::StripTrailingComment`
+  (`IrCore/IrTextUtils.cpp:154-178`), `FIrTokenizer` (`IrCore/IrTokenizer.cpp:145`) and BPIR's own
+  copy (`Compiler/BpirParser.cpp:92-115`) all cut only at an unquoted `#`; `/` is special nowhere in
+  the lexer (in the token path it falls through to `EIrTokenType::Unknown`, and the arg path never
+  tokenizes). `Unquote` (`AGIR/AGIRCompiler_BlendSpace.cpp:42-49`) — read, since nobody had — strips
+  one surrounding pair of `"` and returns the rest **verbatim**; it filters nothing. AGIR arg values
+  are pure substring (`AGIRParser.cpp:534`, `:594`, `:637`:
+  `Arg.Value = Trimmed.Mid(EqualsIdx + 1).TrimStart()`), with no character-class check. So
+  ``blend_space `BS` class=/Game//X.X_C {`` reaches `LoadObject<UClass>(nullptr, ...)` at
+  `AGIRCompiler_BlendSpace.cpp:283` with the `//` intact → `StaticLoadObjectInternal` →
+  `ResolveName2(Create=true)` → `CreatePackage` → **Fatal**. Quoting is optional; `Unquote` is a
+  no-op on the bare form.
+  **This is a hole the dispatch gate does not close and A2's `ResolveUClass` guard does not cover
+  either**, because these are raw `LoadObject`, not `ResolveUClass`. Seven caller-text sites,
+  enumerated: `AGIR/AGIRCompiler.cpp:1040` (`call` opcode `SymbolName` — bare tokens are held to
+  `[A-Za-z_][A-Za-z0-9_]*` by `FIrTextUtils::IsBareNameToken`, but the backtick form routes through
+  `DecodeDelimitedToken`, which accepts every character: ``%n1 = call `/Game//X.X_C`()``);
+  `AGIRCompiler.cpp:1615` (`implements`, same `ReadLeadingNameToken` backtick/quote path,
+  `AGIRParser.cpp:967`); `AGIRCompiler_BlendSpace.cpp:124` (sample-graph child `call`), `:283`
+  (`class=`) and `:360` (`asset=` → `LoadObject<UBlendSpace>`) — the last two need no delimiter
+  trick; `CRIR/CRIRCompiler.cpp:1059` (`control_enum=` sub-block value → `LoadObject<UEnum>`); and
+  `Compiler/CodeNodeEmitter.cpp:1502` reached from `Compiler/BpirCompiler.cpp:5741`, the expand-node
+  `Class:` argument taken as literal BPIR text and loaded raw — **the one BPIR site that does not
+  route through a guarded resolver**, against 25 that do (`ResolveUClass` ×13, `ResolveUEnum` ×6,
+  `ResolveUScriptStruct` ×5, `ResolveClassByName` ×1). Entry verbs are `anim.compile_agir`,
+  `controlrig.compile_crir`, `blueprint.compile_bpir`; their IR-source param (`text`,
+  `AGIRCompileHandler.cpp:39`) is correctly `string` and **must stay** `string` — typing it `path`
+  would refuse every legitimate multi-line document. **This needs its own ticket**: the fix is
+  `CanReachCreatePackageFatal` at those seven loads (or at an AGIR/CRIR class-resolution helper that
+  does not exist yet), not anything the boundary can reach. Three sites checked and cleared:
+  `AGIRCompiler.cpp:1587` (`Options.Context`) and `CRIRCompiler.cpp:1446` (`Options.TargetAssetPath`)
+  take the verb's declared asset-path param, so the gate covers them, and `CodeNodeEmitter.cpp:234`
+  loads a hardcoded engine literal.
+  **A second raw load the gate now defends alone.** `data_table.set_row_struct` and
+  `data_table.create` reach `ResolveRowStruct` (`DataTableAuthoringHandler.cpp:56-59`), which calls
+  `LoadObject<UScriptStruct>(nullptr, *StructPath)` on the caller's `structPath` with nothing above
+  it — **not** `ResolveUScriptStruct`, so A2's chokepoint misses it. The `path` retype is the entire
+  defence there.
+  **Skipped as already covered, each verified by reading the flow.** All 24 `blueprint.graph.*`
+  verbs resolve through `BlueprintGraphHelpers::ResolveBlueprintAndGraph` (A3's guard) — declaration
+  retyped only, file untouched. `BlueprintTypeDefinitionHandler.cpp`'s file-local `ParseAssetPath`
+  already validates via `NormalizeAssetPath`, so its eight `path` declarations are correctness only.
+  No `Ctx.RequireAssetPath` or `UEditorAssetLibrary::LoadAsset` site in this cluster needed action.
+  **Checked and deliberately NOT retyped.** `variableType` (`BlueprintPropertyHandler.cpp:39`) and
+  `fieldType` (`BlueprintTypeDefinitionHandler.cpp:1051`) are compound type tokens
+  (`class:/Script/X.Y`), not class references — `classref` would misdescribe the shape, and the
+  suffix reaches `ResolveUClass`, which A2 guards. `target` (`BlueprintGraphCrudHandler.cpp:332`,
+  `:732`) is a `Class::Function` / `Class.Member` spec. `blueprintType`, `switchType`, `traceType`,
+  `nodeType`, `newNodeType`, `typeId`, `filter`, `matchMode` are vocabulary tokens.
+  `gameplay_tags.*` `source` is a bare INI filename, not a path; `searchPath` **is** a disk root
+  directory handed to `IGameplayTagsEditorModule::AddNewGameplayTagSource`
+  (`GameplayTagsHandler.cpp:507`), so it is the cluster's single `filepath` — `path` there would
+  refuse a UNC root. `blueprint.references` `targetPath` is a substring filter rather than a load
+  path and was typed `path` anyway, since no legitimate reference path contains `//`.
+  **Array/nested residual, the same `FParamSpec` gap as `#11` and `#17`:** `blueprint.api_index`
+  `classFilter` (array of class names), `blueprint.modify_scs` `operations[]`, and
+  `gameplay_tags.build_query` `target: {assetPath, propertyPath}` all carry paths or class names as
+  ELEMENTS or nested values, and nothing in `FParamSpec` can type a nested key, so none is
+  declarable today.
+  **Error-code trap: cleared.** Zero `ErrorCodes::` references added (measured on the diff); no code
+  was emitted anywhere in this cluster, so no file's adoption state moved. A3's
+  `BlueprintGraphHelpers.cpp` and agent A's new untracked
+  `Handlers/Blueprint/BlueprintPathLoad.h` — dropped into this directory — were left untouched.
+  Not compiled and not run per instruction; the orchestrator builds after the wave.
