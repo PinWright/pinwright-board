@@ -1238,3 +1238,195 @@ verdict on each. No site below was driven — confirming one costs an editor.
   asset. Separate defect, separate ticket, and `Utils/AssetUtils.cpp` was under another agent's edit
   at the time.
   Not compiled and not run per instruction; the orchestrator builds after the wave.
+- `#13-audio-cluster-retyped-at-the-dispatch-boundary` `OPEN` developer — Retyped the AUDIO
+  cluster's parameter declarations onto the wave's new `path` / `classref` / `filepath` vocabulary
+  and folded the cluster's two safe path normalizers into the shared
+  `NormalizeContentAssetPath` (`Utils/PathUtils.h`). No guard was added anywhere; the dispatch gate
+  is the mechanism. **108 declarations retyped across 16 files** — 107 to `path`, 1 to `classref`
+  (`audio.authoring.create_source_effect_preset`'s `effectClass`, which documents a short name, a
+  class name and a `/Script/Module.Class` path, so nothing narrower than the `//` rule is correct
+  on it), and **zero to `filepath`**.
+  **The brief's expectation that this cluster holds the most `filepath` parameters is wrong, and
+  the opposite is true: the audio cluster accepts NO disk path on any verb.** Every path-shaped
+  slot here is mounted content. `audio.analysis.*` refuses a filesystem path explicitly rather
+  than reading it (`AudioAnalysisHandler.cpp:432-451` rejects `.wav/.ogg/.mp3/.flac/.aif/.aiff`
+  with "names a file on disk, and there is no file-reading path here by design"; `:1751-1752`
+  refuses a filesystem `folder` and names `/Game/Audio` instead). The analyzer PNGs
+  (`plots`) are OUTPUTS — the parameter carries plot NAMES (`waveform`, `spectrogram`,
+  `constantq`) and only the response carries paths — so it stays `array|string`. WAV import lives
+  in `Handlers/Asset/AssetManageHandler.cpp` (`sourcePath`), not here.
+  **Not retyped, deliberately:** `nodeClassName` / `interfaceName` / `inputType` / `outputType` /
+  `variableType` are MetaSound *registry* names (`UE.Sine.Audio`, `UE.OutputFormat.Mono`, `Float`,
+  `WaveAsset`), not UClass references and not paths — `classref` would be a false contract in the
+  wiki; `name` is a bare leaf; `targetVoices` and `stems` are arrays (see the nested gap below).
+  **Normalizer fold — de-duplication, and byte-identical.** Deleted the file-static
+  `NormalizeAudioPath` (`AudioAuthoringHandler.cpp`) and `PinWright::MetaSound::NormalizeAudioAssetPath`
+  (`MetaSound/MetaSoundPathUtils.{h,cpp}`) and renamed **66 call sites** to `NormalizeContentAssetPath`
+  — 48 in `AudioAuthoringHandler.cpp` (plus one comment) and 18 across seven MetaSound TUs. The two
+  bodies were byte-equivalent to each other and to the shared one; **the only observable difference
+  is the prefix of the rejection `UE_LOG(..., Warning, ...)`**, which now reads
+  `NormalizeContentAssetPath:` instead of `NormalizeAudioPath:` / `MetaSound NormalizeAudioAssetPath:`.
+  Reachability: `AudioAuthoringHandler.cpp` gets `Utils/PathUtils.h` through `PinWrightHelpers.h`;
+  for the MetaSound TUs the include was added to `MetaSoundPathUtils.h`, which all seven already
+  include for the compat macros, rather than to each `.cpp`. Net −75 lines in the cluster.
+  **`EveryCreatePackageIsGuarded` checked before AND after**: `AudioAuthoringHandler.cpp` 13/13 and
+  `MetaSound/MetaSoundPatchPresetHandler.cpp` 2/2, total 15 — unchanged, and
+  `CountOccurrences("PackagePath = Path / Name")` is still 0. Neither edit touches either token.
+  (Separately: `FAudioPackagePathGuardTrailingSlashFolderComposesTest` in the same file asserts the
+  trailing-slash trim that agent A1 is deleting from `AudioPackagePathGuard.h`; that is A1's to
+  reconcile, not this entry's.)
+  **Two live editor-kill surfaces found in this cluster that the wave brief said did not exist.**
+  The claim "the audio cluster's 49 load sites were never at risk" holds only for the sites fed by
+  the two normalizers. Two more helpers normalize by hand and never call
+  `SanitizeProjectRelativePath`, so they collapse no `//` and reject no `..`:
+  `SoundWaveAuthoringHandler.cpp:26-36` `LoadSoundWaveByPath` (only `\Content\`→`/Game/`,
+  backslashes, trailing slashes) feeding `StaticLoadObject` at `:35`, and
+  `AudioSynthAuditionHandler.cpp:47-68` `PwResolveAuditionSound` (backslashes and trailing slashes
+  only) feeding `StaticLoadObject` at `:67`. `audio.authoring.set_sound_wave_properties
+  {assetPath: "/Game//X"}` and `audio.synth.audition {assetPath: "/Game//X"}` were both process
+  death TODAY. A third shape: `AudioHandler.cpp:246/253` and `:647/654` hand
+  `Ctx.GetString("attenuationPath")` / `("concurrencyPath")` straight to `LoadObject<>` with no
+  normalization at all. **All four are now closed by the retype**, which is the wave's whole
+  point — no guard was added, and none is needed while the declarations stand. The two hand-rolled
+  normalizers were left in place: folding them into `NormalizeContentAssetPath` would newly reject
+  `..` and unmounted roots on those verbs, which is a contract change the dispatch gate does not
+  require.
+  **Residual, and it needs agent B's nested gate, not a guard:** `AudioMusicHandler.cpp:1744`
+  loads `Stem.AssetPath` from the nested `stems[].assetPath` of `audio.music.create_interactive_music`.
+  The top-level type gate cannot see it. Same shape for `dialogue`'s `targetVoices` array and
+  `create_sound_mix`'s `classAdjusters[].soundClass`.
+  **`SoundCueDumpBuilder::NormalizeSoundCuePath` (`Handlers/Asset/SoundCueDumpBuilder.cpp:85-115`)
+  — reported, NOT edited (outside this agent's files), and it CANNOT fold as-is.** Its first three
+  steps (`FPaths::NormalizeFilename`, the `while (Contains("//"))` collapse, the leading-slash
+  prepend) are exact duplicates of work `SanitizeProjectRelativePath` already does
+  (`PathUtils.cpp:58/68/81`), so they are redundant, not different. The one real divergence is
+  ORDERING: it rewrites `/Content`→`/Game` **before** the sanitizer, so `/Content/Audio/SC_X`
+  survives; `NormalizeContentAssetPath` sanitizes first, and `IsValidMountPoint("/Content/...")`
+  is false, so that input is refused and returns empty. Folding it silently drops a working input
+  shape on `audio.authoring.describe_sound_cue` and friends.
+  **Corollary worth recording about the newly shared helper:** for the same reason, the
+  `/Content`→`/Game` branch inside `NormalizeContentAssetPath` (`PathUtils.cpp:117-125`) is
+  **unreachable** — it runs only on a string that already passed the mount check, and no
+  `/Content...` string ever does. It was dead in `NormalizeAudioPath` too, which is why this fold
+  is behaviour-preserving. Removing it is a separate, tiny cleanup; whether `/Content` should be
+  accepted at all is a product question, not a safety one.
+  **Not cleaned up, on purpose:** `MetaSoundPathUtils.cpp` no longer uses
+  `SanitizeProjectRelativePath` or `LogPinWrightSubsystem`, so its `Utils/PathUtils.h` (now
+  redundant with the header's) and `PinWrightSubsystem.h` includes are orphans of this change.
+  Dropping headers from a Unity-built TU while other agents edit the same blob is not worth the
+  risk in this wave; left for the orchestrator's post-build pass.
+  Not compiled and not run per instruction; the orchestrator builds after the wave.
+- `#14-ai-gas-character-networking-declaration-retype` `OPEN` developer — Layer-1 DECLARATION RETYPE
+  only for the AI / GAS / game-framework / character / networking cluster: `Handlers/AI/**`
+  (`AIHandler.cpp`, `NavigationHandler.cpp`, `BehaviorTreeHandler.cpp`, `EQSHandler.cpp`,
+  `StateTreeAuthoringHandler.cpp`, `BehaviorTreeDecompileHandler.cpp`),
+  `Handlers/Systems/{GASHandler,GameFrameworkHandler}.cpp`, `Handlers/Character/CharacterHandler.cpp`,
+  `Handlers/Networking/NetworkingHandler.cpp`. **167 `FParamSpec::Type` declarations retyped: 136
+  `path`, 31 `classref`, 0 `filepath`.** No guard, no handler code, no test, no doc, no error code —
+  the dispatch gate (`Handlers/ParamTypeCheck.h`) is the mechanism and the declaration is its input.
+  Per file, `path`/`classref`: AIHandler 40/5, NavigationHandler 3/6, BehaviorTreeHandler 4/6 (+1
+  helper), EQSHandler 6/3, StateTreeAuthoringHandler 5/4, BehaviorTreeDecompileHandler 1/0,
+  GASHandler 31/3 (+2 raw specs), GameFrameworkHandler 8/2, CharacterHandler 18/0,
+  NetworkingHandler 19/0.
+  **`spectatorClass` is declared `classref`** (`GameFrameworkHandler.cpp:780`), as asked.
+  **THREE DECLARATIONS IN THIS CLUSTER DO NOT USE THE `RPC_PARAM_*` MACROS and a macro-shaped lint
+  regex will not see them.** `BehaviorTreeHandler.cpp:66` builds its spec with
+  `ParamAliasUtils::MakeAliasParamSpec(TEXT("assetPath"), TEXT("path"), ...)` inside
+  `BTAssetPathParamReq()`, one helper covering SEVEN `behavior_tree.*` verbs at `:666, :856, :870,
+  :884, :955, :988, :1021`; and `GASHandler.cpp:1541` / `:1673` are brace-initialised
+  `FParamSpec{TEXT("attribute"), TEXT("classref"), ...}` written out longhand because they carry an
+  `attributeName` alias. All three are retyped here, but whoever writes the Layer-1 ratchet must
+  match `FParamSpec` construction generally, not `RPC_PARAM_` — otherwise it reports this cluster
+  clean while eight verbs are undeclared.
+  **Four live `//` editor kills found in this cluster that the ticket's direct-`CreatePackage`
+  enumeration does not list**, each reached from raw caller text with nothing argument-driven above
+  it. They are recorded because they are evidence for the wave's premise that `CreatePackage` is not
+  the door that matters: (a) `game_framework.configure_spectating` reads `spectatorClass` with a bare
+  `Ctx.GetString` and hands it straight to `LoadClassFromPath` -> `LoadClass` -> `StaticLoadObject`
+  (`GameFrameworkHandler.cpp:794-797`); (b) the SEVEN `GF_CREATE_CLASS_HANDLER` verbs read
+  `parentClass` into the same `LoadClassFromPath` (`GameFrameworkHandler.cpp:270`) — a second door in
+  the same file, and the more reachable one; (c) `behavior_tree.create_{task,service,decorator}_blueprint`
+  read `parentClass` into `ResolveBTBlueprintParentClass` (`BehaviorTreeHandler.cpp:196-217`), whose
+  second attempt is `LoadClass<UObject>(nullptr, *Trimmed)` on the untouched caller string; (d)
+  `gas.add_effect_modifier` / `gas.set_modifier_attribute` read `attribute`, and
+  `ResolveGameplayAttributeFromSpec` (`GASHandler.cpp:601-612`) splits it on the LAST `.` and calls
+  `LoadObject<UClass>` on the left half — `//` carries no dot, so it survives the split intact and
+  the split is not a sanitiser. None of these four is a `CreatePackage` call site; all four are now
+  refused at dispatch.
+  **Classifications that a find-replace on the parameter NAME would have got wrong**, each read at
+  the call site rather than inferred from the spelling. Typed `classref` despite ending in `Path`:
+  `costEffectPath`, `cooldownEffectPath` (`GASHandler.cpp:1166`/`:1220`) name a GameplayEffect CLASS
+  and go through `ResolveGameplayEffectClassArg` / `ResolveGasSubclassArg`, never an asset load.
+  Typed `path` despite containing `Class`: `executionClassPath` (`:2976`), because `:2987` does
+  `LoadObject<UBlueprint>` on it — it is a blueprint asset path. Typed `path`: `enumPath` (`:2754`),
+  an object path handed to `LoadObject<UEnum>` (`:2798`). Typed `classref` despite a `*Type` name:
+  `nodeType` (`BehaviorTreeHandler.cpp:667`, resolved by `ResolveClassByName` at `:771`) and
+  `generatorType` / `testType` / `contextClass` (`EQSHandler.cpp:820`/`:832`/`:847`, resolved by
+  `ResolveClassByPathOrName` at `:65-82`) each accept EITHER a built-in vocabulary word OR a class
+  path, which is exactly the shape `classref` was added for.
+  **One judgement call, flagged rather than buried:** `evaluatorClass`, `taskClass`, `conditionClass`
+  and `payloadStruct` (`StateTreeAuthoringHandler.cpp:510`/`:556`/`:612`/`:704`) are **UScriptStruct**
+  references, not UClass — they resolve through `ResolveUScriptStruct` (`:124`, `:748`), the
+  chokepoint the plan lists separately from `ResolveUClass`. They are typed `classref` because the
+  vocabulary has no struct spelling, `classref`'s `//`-only rule is precisely correct for them, and
+  three of the four are name-matched by any `*Class` ratchet anyway. If a `structref` token is ever
+  added these four move. `attribute` (`GASHandler.cpp:1541`/`:1673`) is the same kind of
+  approximation in the other direction: its value is a class path with a member name appended after a
+  final `.`, so `classref` also refuses a `//` appearing only in the member half — nonsense input, but
+  a wider refusal than the load strictly needs.
+  **Deliberately left `string`, because a `*Path` sweep would have mis-declared them.**
+  `state_tree.add_binding`'s `sourcePath` and `targetPath` (`StateTreeAuthoringHandler.cpp:806-807`)
+  are PROPERTY-BINDING EXPRESSIONS (`nodeId:property`, `nodeName.property`, or a bare property paired
+  with `sourceId`/`targetId`), not paths of any kind; typing them `path` would publish a rule that
+  does not apply to the slot. AIHandler's `compositeType` (`:658`), `taskType` (`:675`),
+  `decoratorType` (`:692`) and `serviceType` (`:703`) are closed node-kind vocabularies on four verbs
+  that are already disabled and answer `DEPRECATED_HANDLER` unconditionally, resolving nothing —
+  note the near-collision, because the LIVE deprecated aliases in the same file (`generatorType`
+  `:728`, `contextType` `:738`, `testType` `:748`) route into the real `PinWrightEQS` handlers and DID
+  become `classref`. `attributeName` at `GASHandler.cpp:846`/`:916` is a bare attribute name and stays
+  `string`; the identically spelled `attributeName` at `:1543`/`:1675` is an ALIAS on the `attribute`
+  slot and inherits `classref` through the gate's alias resolution, so the two spellings are typed
+  differently on purpose.
+  **`filepath` count is zero, and that was measured rather than assumed.** All ten files were grepped
+  for disk-path shapes (`file`, `directory`, `folder`, `export`, `import`, `output`, `destination`,
+  `absolute`, file extensions) with no hit. The one trap is `savePath` (`BehaviorTreeHandler.cpp:551`,
+  `:631`, `:643`, `:655`), which reads as a disk name and is documented "Folder path (default /Game)"
+  — a CONTENT folder. It is `path`. A cluster agent applying the plan's `*Path`-is-disk heuristic
+  without reading would have turned four working verbs into UNC-shaped `filepath` slots.
+  **What was skipped, and why.** `BehaviorTreeDecompileHandler.cpp:51` is this cluster's ONLY
+  `Ctx.RequireAssetPath` caller (whole-cluster grep) — its declaration is still retyped to `path`
+  because the declaration is the published contract, but no guard was added: `RequireAssetPath`
+  already runs `SanitizeProjectRelativePath` AND re-checks with `IsValidAssetPath`. Everything
+  reaching `ResolveUClass` / `ResolveClassByName` / `ResolveUScriptStruct` was left to the
+  chokepoint-guard agent; the declarations were retyped regardless, per the wave's rule that the
+  dispatch gate is the primary defence and the guard is depth. No `UEditorAssetLibrary::LoadAsset`
+  site in this cluster needed anything. `GameFrameworkHandler.cpp` and `NetworkingHandler.cpp` were
+  touched for DECLARATIONS ONLY per the ownership split; the concurrent unification of their two
+  duplicate `LoadBlueprintFromPath` copies into `Handlers/Blueprint/BlueprintPathLoad.h` was present
+  in the working tree and is untouched here.
+  **Not covered by this retype, and it needs the nested gate:** `GASHandler.cpp:2977`
+  (`gas.set_execution_capture`) declares `captures` as an `array` whose per-entry `attribute` values
+  carry the same `AttributeSetClassPath_C.AttrName` shape and reach the same
+  `LoadObject<UClass>` at `:601-612`. The top-level type gate never sees a nested value, so the
+  `//` refusal does not reach it. This is a concrete candidate for the `NestedParamKeyCheck.h`
+  extension the plan describes.
+  **Error-code trap checked per file and cleared:** `grep -c "ErrorCodes::"` is **0 at HEAD and 0
+  now** in all five files that carry raw literals (`GameFrameworkHandler.cpp`,
+  `NetworkingHandler.cpp`, `AIHandler.cpp`, `GASHandler.cpp`, `CharacterHandler.cpp`). No
+  `ErrorCodes::` reference was introduced anywhere, so no non-adopting file was flipped into
+  `RegistryAdoptingFilesUseConstantsOnly`'s scope; `Handlers/ErrorCodes.h` is untouched. This
+  retype emits no code at all, so no refusal message and no error code changed. No test added, so
+  `check_test_ids.py` was not re-run. No doc change: a `Type` retype alters no verb behaviour, and
+  the wiki renders that same field, so every namespace page picks the new spelling up on the next
+  regeneration.
+  **BLOCKING CROSS-AGENT GAP, verified in source rather than predicted.** `ParamSpec.h` and
+  `ParamTypeCheck.h` have landed the three new tokens, but the PRE-EXISTING registry-wide vocabulary
+  test has not been extended: `PinWright.infra.contract.ParamTypes.ValidTypeNames`
+  (`Tests/Infra/TestContractConsistency.cpp:184`) builds `ValidAtomicTypes` at `:192` from the
+  original eight tokens only, and `IsSupportedTypeExpr` (`:203`) hard-fails any part not in that set.
+  Until `path`, `classref` and `filepath` are added there, that test goes RED on all 167 declarations
+  below AND on every other retype cluster in this wave — it iterates
+  `FAutoRegisterHandler::GetPendingRegistrations()` plugin-wide, so this is not a per-file failure.
+  That file is outside this agent's ownership and was deliberately not edited. Stated here so a
+  partial landing is diagnosable as an ordering problem rather than a bad retype.
+  Not compiled and not run per instruction; the orchestrator builds after the wave.
