@@ -309,3 +309,66 @@ verdict on each. No site below was driven — confirming one costs an editor.
   argument refusal. The crash is closed either way, but the message is misleading and wants
   `INVALID_ARGUMENT` plus the engine reason. Left alone deliberately — that file is another agent's
   in this wave.
+- `#5-aihandler-four-sites-guarded` `OPEN` developer — Closed the four
+  `Handlers/AI/AIHandler.cpp` sites. Line numbers re-derived on the shared tree (the ticket's were
+  stale): `:248` → `CreateBlackboardAsset`, `:763` → `ai.create_state_tree`, `:1145` →
+  `ai.create_smart_object_definition`, `:1640` → `ai.create_mass_entity_config`. **Both of the
+  ticket's classifications re-verified in source rather than trusted**, and both hold: the
+  blackboard site did sanitise the folder through `SanitizeAIAssetPath` and then concatenate the
+  caller's `name` onto it raw, and the other three were `Ctx.GetString(path) / Ctx.GetString(name)`
+  with nothing argument-driven above the concatenation at all.
+  **Guard.** All four route through one new file-local `PinWrightAiComposeCreatePackagePath`
+  (distinctive name, file-scope `static`, Unity-safe) that trims a trailing `/` off the folder —
+  `FString::operator/` tolerated one and the shared composer's `Printf("%s/%s")` would turn it into
+  the `//` it exists to reject — then delegates to `PinWrightComposeAssetPackagePath` and refuses
+  with `INVALID_ARGUMENT` carrying the engine's reason verbatim. The shared helper was used, not a
+  hand-rolled filter, precisely because `INVALID_OBJECTNAME_CHARACTERS` covers `.` and `:` as well
+  as `/` — a `..` name reaches the SECOND Fatal (`:1118`, empty after `ResolveName2`), which a
+  slash-only filter would miss. Three sites are the three-line drop-in. The blackboard site needed
+  more: the compose was hoisted into the `ai.create_blackboard_asset` handler ABOVE
+  `CreateBlackboardAsset`, whose signature now takes the validated `FullPath` instead of
+  re-deriving one from the raw arguments — leaving the old `SanitizeAIAssetPath`+concat in place
+  would have validated one string and passed a different one, i.e. this ticket's own
+  "computed and then discarded" shape. The engine check that replaced that sanitiser is strictly
+  stronger on every input it covered (traversal, `\`, `~`, unmounted root) and additionally refuses
+  `//` rather than silently repairing it. `SanitizeAIAssetPath` stays live for `ai.create_blackboard`
+  (`:2388`, already guarded — the whole composed path is sanitised there; untouched).
+  **Error code:** `AIHandler.cpp` references `ErrorCodes::` zero times, so it has not adopted the
+  registry and a raw `TEXT("INVALID_ARGUMENT")` is correct here (`RegistryAdoptingFilesUseConstantsOnly`
+  is per-file); the code is already registered as `ERR_INVALID_ARGUMENT` in `Handlers/ErrorCodes.h`,
+  so `AllEmittedCodesAreRegistered` is satisfied and that header is untouched.
+  **Regression test** `Tests/Gameplay/TestAiCreateAssetNamePathSafety.cpp`, four new leaf ids
+  (`PinWright.ai.{create_blackboard_asset,create_state_tree,create_smart_object_definition,create_mass_entity_config}.NamePathSafety`),
+  driving the real registered handlers. **Fatal-unreachability, stated exactly because it differs
+  per site.** No case anywhere sends a name containing `//`, and none needs to: `/` is in
+  `INVALID_OBJECTNAME_CHARACTERS` (`Core/Public/UObject/NameTypes.h:191`), so `FName::IsValidXName`
+  refuses `Sub/Leaf` and `a//b` by the same predicate for the same reason — the survivable member
+  of the class proves the lethal one. Every refusal case pairs its bad name with an UNMOUNTED
+  folder (`/PinWrightMissingRoot/AiNameSafety`). At `ai.create_blackboard_asset` that makes
+  `CreatePackage` strictly UNREACHABLE on a reverted build: the pre-fix path ran
+  `SanitizeAIAssetPath` on the folder first and its `IsValidMountPoint` refuses an unmounted root,
+  so the call answers `CREATION_FAILED` ABOVE the concatenation and the `INVALID_ARGUMENT`
+  assertion goes red with the process alive — which is why the fix's compose must stay above that
+  helper, and the handler carries a comment saying so. At the other three there is nothing
+  argument-driven above the concatenation, so a reverted build DOES reach `CreatePackage` —
+  deliberately, with an argument that cannot enter either Fatal branch: every candidate is
+  `<unmounted folder>/<bad name>`, none contains `//` (`PathAppend` does not double, and no name
+  carries one), none is empty, and the four shared names are dot-free so `ResolveName2`'s splitting
+  loop returns on its first iteration (`:1236-1240`) and cannot shorten one to empty. The single
+  dotted case (`../Escape`) is driven ONLY at the blackboard verb, where `CreatePackage` is never
+  called at all. The unmounted root also makes the follow-up save a no-op, so a reverted build
+  leaves nothing on disk; it answers success or a downstream failure, never `INVALID_ARGUMENT`.
+  A `//`-bearing name is therefore covered by no test at any of the four verbs — only by the
+  `FName::IsValidXName` call that also rejects the slash cases that ARE asserted. Each verb ends
+  with a valid-input control (bare name + real mounted folder) so a fix that refused everything
+  fails; the control runs FIRST because it doubles as the host probe — `PLUGIN_DISABLED`
+  (SmartObjects / MassGameplay) and the state-tree `headersUnavailable` fake-success are both
+  skipped through `PinWrightTestSkip::SkipAssertions`, not passed. The reflection-only `ai.*`
+  SmartObject/Mass paths were not touched.
+  **Checks re-run on the shared tree:** `check_test_ids.py` CLEAN (4850 ids, no dot-prefix
+  collisions, no duplicates); `check_test_skips.py` CLEAN. **Doc:** one new `##` section in
+  `docs/wiki-src/ai.md` ("Asset names are bare names, not paths"), placed above the first `###`
+  so it renders. Not compiled and not run per instruction; the orchestrator builds after the wave.
+  **Observed while here, deliberately left alone:** `ai.create_state_tree`'s
+  `#if MCP_STATE_TREE_HEADERS_AVAILABLE` `#else` branch fake-succeeds with `headersUnavailable:true`
+  instead of erroring — an honesty defect unrelated to this ticket and out of its scope.
