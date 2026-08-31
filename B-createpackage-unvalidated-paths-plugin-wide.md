@@ -2007,3 +2007,283 @@ verdict on each. No site below was driven — confirming one costs an editor.
   concurrently by the retype agents; every edit here was re-read immediately beforehand, lands on
   prepend lines rather than `RPC_PARAM` declarations, and nothing of theirs was reverted (verified
   against the working tree).
+- `#21-classutils-assetutils-resolvers-and-the-rerooting-fallback` `OPEN` developer — Layer-2
+  SHARED RESOLVERS in `Utils/`: guarded the four `Utils/ClassUtils.cpp` resolvers and the two
+  `Utils/AssetUtils.cpp` ones with `CanReachCreatePackageFatal`, deleted `NormalizeAssetPath`'s
+  re-rooting fallback, and fixed one `+`-concatenation prepend. **~145 call sites, and
+  `ResolveUClass` alone is 56 across >=45 verbs — the widest single guard in the wave.**
+  **All four engine facts the placement rests on were READ, not carried over from the ticket.**
+  `CreatePackage`'s `//` Fatal is `UObjectGlobals.cpp:1094-1096` (`UE_LOGF(..., Fatal, "Attempted
+  to create a package with name containing double slashes")`) — confirmed verbatim.
+  `StaticFindObject` resolves with `Create=false` (`:620`), so every `FindObject` sitting above a
+  guard is safe and nothing above the guard could have loaded. `StaticLoadObjectInternal` calls
+  `ResolveName2(..., Create=true)` at `:1427` and re-enters itself with `InName + "." +
+  GetShortName(InName)` at `:1474-1482`, so a dot-free string reaches `CreatePackage` on the second
+  pass. `FPackageName::IsValidTextForLongPackageName` rejects `//` outright
+  (`PackageName.cpp:1701-1705`, `LongPackageNames_PathWithDoubleSlash`) — which is what makes the
+  fallback deletion a refusal rather than a silent change.
+  **GUARD PLACEMENT, and what sits above each.** `ResolveUClass` (`:102` at filing, now `:122`):
+  folded into the existing empty check, above the step-1 `FindObject`; seven lethal loads below it,
+  including the `Input + "_C"` retry which PRESERVES a `//` from the input. `ResolveUEnum` (`:276`)
+  and `ResolveUScriptStruct` (`:306`) were **not in the original ticket** and were re-derived before
+  fixing: both have the identical shape — a `Contains(".")` gate, then `FindObject` (safe), then
+  `LoadObject` on the RAW input (lethal). **The `Contains(".")` gate is not a guard, it is the
+  door:** `/Script/Foo//Bar.EBaz` satisfies it and still carries the `//` through. Tiers 2-4 in both
+  only walk already-loaded objects. `ResolveClassByName` (`:18`) has **no lethal load today** and
+  the guard is still there: `UEditorAssetLibrary::LoadAsset` collapses `//` via
+  `FPaths::RemoveDuplicateSlashes` (`EditorScriptingHelpers.cpp:71`) before resolving, and the one
+  raw `LoadObject` is gated on the input containing no `/`. That safety is an engine-internal
+  routing detail of a third-party helper, not a property of the function; two lines make it one.
+  `LoadBlueprintAsset` (`:1302`) is guarded on `Req`, the RAW argument, **not** the post-prepend
+  `Path`: the `/Game/` prepend fires only when `Req` lacks a leading slash, so it can neither
+  introduce a `//` nor hide one, and quoting `Req` keeps the message showing what the caller sent.
+  `ResolveUObjectByPath` (`:2068`) sits above `StaticLoadObject`, with the safe `StaticFindObject`
+  below it.
+  **`UEditorAssetLibrary::DoesAssetExist` at `AssetUtils.cpp:1382` IS AN ANTI-GUARD AND MAKES THE
+  FATAL MORE LIKELY, NOT LESS — traced end to end.** `DoesAssetExist` →
+  `UEditorAssetSubsystem::DoesAssetExist` (`EditorAssetSubsystem.cpp:508`) →
+  `ConvertAnyPathToSubObjectPath` → `ConvertAnyPathToObjectPathInternal`, which calls
+  `FPaths::RemoveDuplicateSlashes` at `EditorScriptingHelpers.cpp:71` and then queries the registry
+  with the COLLAPSED path. So for `/Game/A/BP_X.BP_X` spelled with a doubled slash it finds the
+  perfectly healthy clean row, answers **true**, and the next line hands `LoadObject` the RAW
+  uncollapsed string. It reads like "we only load what exists" and it is the opposite: a malformed
+  path naming NOTHING would have been turned away, while a malformed path naming something REAL is
+  waved through to the kill. It cannot be strengthened into the guard, because by construction it
+  answers about a different string — the guard has to be above the whole method chain, and the site
+  now carries a comment saying exactly that so the next reader does not try.
+  **`NormalizeAssetPath`'s fallback (`:93-120`) DELETED, and every claim about it verified in the
+  code first.** It discarded the caller's entire folder chain, kept only the leaf, retried it under
+  `/Game/`, `/Engine/`, `/Script/`, and returned `bIsValid=true` naming a DIFFERENT package with no
+  flag anywhere in `FNormalizedAssetPath` recording the substitution. Three findings, all
+  confirmed: (a) it is a live data-loss path — `SequencerBakeHandler.cpp:638-657` reads `overwrite`
+  and rewrites whatever `PackageName` names, so the substitute was reachable for clobbering; (b) the
+  fallback's own `DoesPackageExist` test made this WORSE, not safer — it returned a path only when
+  the substitute genuinely existed, i.e. only when there was something real to destroy; (c) it
+  laundered a lethal input into a valid one: `/Game//A/B` fails the check above, but leaf `B`
+  retried as `/Game/B` passes, so a `//` argument came back `bIsValid=true` pointing elsewhere.
+  `SequencerBakeHandler.cpp:553-563` re-checks the OUTPUT with `IsValidLongPackageName` and that
+  does **not** help, because the fallback only ever emitted paths valid by construction (`:110`).
+  **WHAT MUST KEEP WORKING, CONFIRMED: a bare name is unaffected.** `"MyMesh"` is prepended to
+  `/Game/MyMesh` at `:79-82`, BEFORE the `IsValidLongPackageName` decision at `:86-91`, so it never
+  reached the fallback at all. The object-path strip (`:70-76`) and trailing-slash trim (`:64-68`)
+  are likewise above the decision. **Only re-rooting of an ALREADY-ROOTED path dies**, which is
+  precisely the data-loss shape. Two stale in-tree comments corrected to match: the
+  `ResolveAssetPathToPackage` guard at `:152-155` justified itself by "when NormalizeAssetPath had
+  to rewrite the package half to find a root" (the guard is still needed — for the `/Game/`
+  prepend), and `AssetUtils.h`'s declaration now states the postcondition that makes the guard
+  unnecessary elsewhere: a `bIsValid=true` result names the CALLER'S package.
+  **`AssetUtils.cpp:961` (`McpSafeLevelSave`) changed from `TEXT("/Game/") + P` to
+  `TEXT("/Game") / P`.** `PathAppend` was read to confirm the direction (`String.cpp.inl:855-885`):
+  with `*Str == '/'` it pops the null terminator and appends, so both `"Maps/L_X"` and
+  `"/Maps/L_X"` compose to `"/Game/Maps/L_X"` — it ABSORBS the duplicate rather than doubling. The
+  `+` form manufactures a `//` from a `P` that already starts with `/`. This was latent while
+  `IsValidMountPoint`'s `StartsWith` short-circuits let such a path through; the same wave is making
+  that function stricter, which is exactly when the old spelling would have started firing.
+  **REFUSAL SEMANTICS.** The four ClassUtils resolvers have NO error channel across 56/12/9/19 call
+  sites, so each logs `UE_LOG(LogPinWrightSubsystem, Warning, ...)` naming the refused input and the
+  rule — **Warning, never Error**, because `bElevateLogWarningsToErrors` turns an Error into a test
+  failure. No out-error parameter was added; that is the follow-up ticket the plan names. The two
+  AssetUtils functions have `OutError` and got messages that name `//` explicitly so support can
+  grep them apart from `"Blueprint asset not found"` (`:1419`) and `"Object not found"`, and the
+  tests pin that separation in both directions. `ClassUtils.h` carries the shared refusal contract
+  once, above all four declarations, because a caller cannot tell "refused" from "not found" by the
+  return value.
+  **ERROR-CODE TRAP: not applicable, and checked rather than assumed.** `TestErrorCodeRegistry`
+  scans `Handlers/` only; `Utils/` is outside it. No new codes emitted, and the two `OutError`
+  channels take plain strings as they already did.
+  **TESTS: +7 cases, one new file `Tests/Core/TestResolverPathSafety.cpp`,** one direct-call test
+  per chokepoint plus one for the fallback removal. `check_test_ids.py` re-run: CLEAN, no dot-prefix
+  collisions, no duplicates. **Every case is a DIRECT CALL, never a verb drive** — a `//` payload
+  through a verb would reach the Fatal on a build with the guard reverted and take the suite host
+  down mid-queue, which is an ABSENCE of a signal rather than a red.
+  **THE FILE HEADER STATES A LIMIT THE PRECEDENT DOES NOT HAVE, rather than implying parity with
+  it.** `Tests/Media/TestAudioCreatePackagePathSafety.cpp` could pair its bad name with a second bad
+  argument the handler validated FIRST, so a reverted build took a harmless path. That is impossible
+  here: the guard IS the first statement of each function and there is nothing above it to bail on.
+  These tests therefore LOCK the post-fix contract; they do not discriminate a reverted build
+  without cost, and the header says so in those words. The one mitigation available IS applied — a
+  shared `PredicateIsSound` pre-flight asserts `CanReachCreatePackageFatal` itself first and refuses
+  to make any lethal call if the predicate has been broken, failing loudly instead of running a
+  suicide pass.
+  **CONTROLS ARE THE LOAD-BEARING HALF**, since a guard that refused everything would break >=45
+  verbs while looking green: `StaticMeshComponent` and `/Script/Engine.CameraActor` for the class
+  resolvers (both already proven by `Tests/Core/TestClassUtils.cpp`, so a red here is this guard and
+  not a host difference); `/Script/Engine.ECollisionChannel` plus the bare short name for the enum;
+  `Vector` and `FVector` for the struct; and for the two `OutError` functions a well-formed absent
+  path asserted to answer "not found" AND asserted NOT to carry the `//` wording. The four log-based
+  refusals use `AddExpectedMessagePlain(..., Warning, Contains, 1)` with an EXACT count, which makes
+  the suppression an assertion in both directions — the refusal must log, and no control may.
+  `StaticFindFirstObjectSafe`'s ambiguity warning (`UObjectGlobals.cpp:863`, Warning by default) is
+  declared with a NEGATIVE count on the two short-name tests: tolerated on a host whose loaded set
+  makes a name ambiguous, never required.
+  **STALE COMMENTS IN THREE TEST FILES CORRECTED (prose only, no assertion touched).** Each said its
+  fresh-GUID leaves were load-bearing *specifically* because `NormalizeAssetPath`'s fallback could
+  rescue a fixed leaf by finding an existing package of that name. That fallback is gone, so the
+  stated reason is now false in `Tests/Sequencer/TestSequencerExportAnimSequencePathSafety.cpp`
+  (~`:144`), `Tests/Blueprint/TestBlueprintCreateTypePathSafety.cpp` (~`:29`) and
+  `Source/PinWrightPoseSearch/Private/Tests/Gameplay/TestPoseSearchCreateAssetPathSafety.cpp`
+  (~`:86`). Each now records what changed and why the GUID is kept anyway (collision with real host
+  content), so a reader is not sent looking for code that no longer exists.
+  **FOUND AND NOT FIXED, deliberately, all outside this agent's file ownership:** the
+  `if (!IsValidMountPoint(P)) P = TEXT("/Game/") + P;` idiom that `AssetUtils.cpp:961` was fixed for
+  appears at ~14 other sites (`WidgetCreateHandler`, `UtilityWidgetHandler`, `GASHandler`,
+  `AIHandler`, `ChaosVehicleHandler`, `BlueprintInfoHandler`, `LevelStructureHandler`,
+  `SessionsHandler`) and each needs individual reading once `IsValidMountPoint` tightens.
+  `ResolveUClass` step 2's `LoadObject<UClass>(nullptr, *Input)` on a BARE short name creates an
+  empty in-memory package as a side effect of failing (`ResolveName2` with `Create=true`) —
+  harmless, pre-existing, and the reason one probe in the new test file uses a fixed reserved leaf
+  instead of a GUID; noted here rather than changed, because altering the resolver's fallthrough
+  order is a behaviour change 56 call sites depend on.
+  Scope for the commit: `-- Plugins/PinWright/Source/PinWright/Private/Utils/ClassUtils.cpp
+  Plugins/PinWright/Source/PinWright/Private/Utils/ClassUtils.h
+  Plugins/PinWright/Source/PinWright/Private/Utils/AssetUtils.cpp
+  Plugins/PinWright/Source/PinWright/Private/Utils/AssetUtils.h
+  Plugins/PinWright/Source/PinWright/Private/Tests/Core/TestResolverPathSafety.cpp
+  Plugins/PinWright/Source/PinWright/Private/Tests/Sequencer/TestSequencerExportAnimSequencePathSafety.cpp
+  Plugins/PinWright/Source/PinWright/Private/Tests/Blueprint/TestBlueprintCreateTypePathSafety.cpp
+  Plugins/PinWright/Source/PinWrightPoseSearch/Private/Tests/Gameplay/TestPoseSearchCreateAssetPathSafety.cpp`.
+  Not compiled and not run per instruction; the orchestrator builds after the wave.
+- `#20-path-utils-foundation-predicate-and-debloat` `OPEN` developer — Landed the wave's shared
+  predicate and normalizer definition in `Utils/PathUtils.{h,cpp}`, deleted the three helpers that
+  existed only to compensate for one composition bug, and reconciled three cross-cluster findings
+  the orchestrator routed here mid-wave. Nothing compiled and nothing run per the brief.
+  **The predicate, final text** (`PathUtils.cpp`, out of line so a debugger has one breakpoint):
+  `bool CanReachCreatePackageFatal(const FString& InPath) { return InPath.Contains(TEXT("//")); }`,
+  `PINWRIGHT_API` in `PathUtils.h` beside `IsValidMountPoint`. The ~40-line doc comment is the
+  deliverable as much as the body; every engine fact in it was re-read in `C:/UE_5.8/Engine/Source/`
+  rather than assumed: the Fatal at `UObjectGlobals.cpp:1094-1096` is not compiled out in any
+  configuration and ends the PROCESS; loads reach it because `StaticLoadObjectInternal` calls
+  `ResolveName2(Create=true)` (`:1427`) which calls `CreatePackage` on the partial name (`:1310`);
+  a dot-free string still gets there because `ResolveName2` returns at `:1241` with no delimiter and
+  `StaticLoadObjectInternal` re-enters itself with `InName + "." + GetShortName(InName)`
+  (`:1474-1482`), so `LoadObject(nullptr, TEXT("A//B"))` is a kill; `//` is the ONLY lethal property
+  because the empty-name Fatal (`:1117-1119`) is unreachable through `ResolveName2:1310`; it is safe
+  on EVERY input shape, which is what lets one guard sit above a resolver accepting several shapes
+  at once; and `IsValidLongPackageName` is NOT the guard for a class or object reference, because
+  `.` is in `INVALID_LONGPACKAGE_CHARACTERS` (`NameTypes.h:197`, confirmed) and a short name has no
+  leading slash. No backslash handling, deliberately.
+  **`NormalizeContentAssetPath` definition added** (`PathUtils.{h,cpp}`, `PINWRIGHT_API`), body from
+  `AudioAuthoringHandler.cpp`'s file-local `NormalizeAudioPath:167-198`. Definition only; the
+  cluster agents own the deletions and call-site renames (`#13`, `#15`, `#16`).
+  **`PackagePathCompose.h:52` now joins with `FolderPath / AssetName`, not `Printf("%s/%s")`.**
+  Strictly widening, verified against `PathAppend` (`String.cpp.inl:855-885`, read): it absorbs
+  exactly ONE separator, so `"/Game/X/" / "Y"` is `"/Game/X/Y"` (previously refused for a `//` the
+  caller never wrote) while `"/Game/X//" / "Y"` is still `"/Game/X//Y"` and still refused. A `//` in
+  the leaf is refused one step earlier by `IsValidXName`. The guard is unchanged.
+  **Three trailing-slash compensations deleted, −41 lines.**
+  `MaterialCreatePathParamUtils::TrimTrailingFolderSeparator` + its 13-line comment (`:170-194`) and
+  its call at `:230`; the trim loop + its 13-line comment in `AudioPackagePathGuard.h` (`:49-71`).
+  **The audio function, name and namespace are KEPT** — its remaining job is `Ctx.SendError` for 15
+  sites, and `Tests/Media/TestAudioCreatePackagePathSafety.cpp:292` scans source for
+  `CountOccurrences("ComposeAudioAssetPackagePathOrRefuse(") == CountOccurrences("CreatePackage(")`
+  per file, so a rename would redden `audio.authoring.package_path_guard.EveryCreatePackageIsGuarded`
+  (that scan reads only the two audio handler `.cpp` files, so none of these edits move its counts).
+  Two 2-line call-site edits in other agents' files, inside the regions the brief named and re-read
+  immediately before each: `MaterialAuthoringHandler.cpp:3179-3186`,
+  `MaterialParameterCollectionHandler.cpp:224-233`.
+  **`SanitizeAssetName` gained `/` and `.` in `InvalidChars`.** The name was a lie:
+  `SanitizeAssetName("Foo/Bar")` returned it unchanged. Both are in the engine's own
+  `INVALID_OBJECTNAME_CHARACTERS` (`NameTypes.h:191`), so no `UObject` could ever have carried
+  either. **Compat, audited across all 14 call sites, and it splits two ways.** Five callers compare
+  the sanitized value against the input and REFUSE on a difference (`AudioMusicHandler.cpp:1288`,
+  `:1639`, `AudioSynthGenerateHandler.cpp:1910`, `SoundWavePcmHandler.cpp:141`, and
+  `MaterialAuthoringHandler.cpp:640` via its underscore-normalized comparison): `name: "My.Asset"`
+  moves from silently accepted to a typed `INVALID_PATH`/`INVALID_NAME` naming the valid form. Nine
+  rewrite instead (`TextureHandler.cpp` x7, `GASHandler.cpp:759`, `PerformanceHandler.cpp:761`):
+  `"My.Asset"` becomes `"My_Asset"`. Both directions convert a silently-broken create — the old path
+  composed a package literally named `/Game/X/My.Asset` — into a correct one or an honest refusal.
+  `PerformanceHandler.cpp:761` is a straight bug fix: its own comment says actor labels "routinely
+  carry spaces/dots/slashes that are illegal in a long package name" while relying on a sanitizer
+  that stripped none of them. No test feeds a dotted or slashed asset name to any of the 14 (checked;
+  the four dotted `name` literals in `Tests/` are Niagara *parameter* names).
+  **`ValidateAssetCreationPath`'s `/Game` prepend deleted (`:341-344`).** Dead:
+  `SanitizeProjectRelativePath` returns empty for exactly the inputs `IsValidMountPoint` rejects, so
+  the early return above it had already fired. It was also a `//` factory — `SanitizedFolder` always
+  starts with `/` by then — the same shape `#2` found in `LevelStructureHandler`. Its tail check was
+  deliberately NOT swapped to `IsValidLongPackageName`: that narrows folder names, out of scope.
+  **Two `while (Contains("//")) Replace(...)` loops replaced with `FPaths::RemoveDuplicateSlashes`**
+  (`:58-61`, `:116-119`) — the engine's single in-place pass (`Paths.cpp:1374`, read; handles runs
+  of three or more) against one full-string reallocation per pass.
+  **Folder slot of all eight `material.authoring.create_*` verbs retyped to `path`**
+  (`MaterialCreatePathParamUtils::MaterialCreateFolderParamOpt`), routed here because the material
+  agent left that header alone. The alias `folder` inherits the type
+  (`RpcDispatcher::CollectDeclaredTypesByWireName:97-122`) and therefore the rule. **The leaf-name
+  slot stays `string`, and that is a contract decision:** `name`/`assetName` are object names, the
+  type field renders into every wiki page as the caller-facing contract, and declaring `path` there
+  would advertise the opposite of what the slot is. Nothing is left unguarded by that choice —
+  `IsValidXName` refuses `//` in the leaf, the combined-`assetPath` branch is split and then
+  validated whole by `IsValidLongPackageName`, and `ResolveCreateAssetPackagePath` runs above every
+  other asset resolution in these verbs. **`ExpectInstanceFolderRefused`
+  (`Tests/Material/TestMaterialCreateNamePathSafety.cpp:161-185`, driven at `:244`) does NOT go
+  red** — re-derived and traced: the gate sends the same `ErrorCodes::ERR_INVALID_ARGUMENT`
+  (`RpcDispatcher.cpp:323`) and `PinWrightMakePathSeparatorFault` quotes the offending value
+  verbatim, so all three of its assertions (`!bSuccess`, code, `Message.Contains(BadFolder)`) hold.
+  **What it DOES lose is discriminating power**, which matters more than a red would: it can no
+  longer tell a composer that validates the COMPOSED path from one that filters only the leaf,
+  because the gate now answers that payload first. That property is re-pinned directly by the new
+  `core.path.compose_asset_package_path.*` test rather than being quietly dropped.
+  **Tests: +5 in `Tests/Core/TestPathUtils.cpp`, all pure-function** (no verb, no dispatcher, no
+  Fatal reachable on either build — the limitation `TestSequencerExportAnimSequencePathSafety.cpp`
+  states). `can_reach_create_package_fatal.AcceptsEveryLegitimateShape` pins 17 shapes the predicate
+  must NOT call lethal — the half that matters, since a predicate refusing too much would break ~45
+  verbs and no reject-side test would notice; `.RefusesEveryDoubleSlashShape` pins 12 `//` shapes
+  including the dot-free `a//b` and a run of three. `sanitize_asset_name.RemovesSlashAndDot` adds the
+  two characters the existing four cases never used. `normalize_content_asset_path
+  .ObjectPathsUnderEveryMountSurvive` is the regression guard described below.
+  `compose_asset_package_path.ComposedPathIsCheckedNotJustTheLeaf` restores what the material test
+  stopped discriminating and additionally pins the one-separator absorption, so a revert to
+  `Printf("%s/%s")` reddens. `check_test_ids.py` re-run over `Source/`: **4873 ids, 4873 unique,
+  CLEAN**. Expect **+5** on the suite total from this agent.
+  **THE `/MyPlugin/.../AS_X.AS_X` REGRESSION: verified real, and ALREADY CLOSED IN-TREE by the
+  `IsValidMountPoint` rewrite — do not fix it twice.** Traced the exact call. The reported mechanism
+  (`SanitizeProjectRelativePath` falling through to `FPackageName::IsValidLongPackageName`, which
+  rejects `.`) describes the PREVIOUS body of `IsValidMountPoint`; the current body is
+  `!FPackageName::GetPackageMountPoint(Path).IsNone()`, and `GetPackageMountPoint`
+  (`PackageName.cpp:1941-1963`) skips the package-name text pass entirely and answers only the mount
+  question, so `/MyPlugin/Anims/AS_X.AS_X` now resolves `/MyPlugin/` and survives. Step by step it
+  clears the drive-letter check ('M'), `NormalizeFilename`, `RemoveDuplicateSlashes`, the `..` check
+  (one dot between two different characters is not traversal) and the mount check, and is returned
+  unchanged. The report was correct that this was a live break — it was a genuine narrowing for the
+  ~93 anim sites, whose local normalizer never called `SanitizeProjectRelativePath` at all, and it
+  did not show on `/Game/...` because those short-circuited before the text pass. Since the fix
+  belongs to `IsValidMountPoint`'s owner, this agent added the durable guard instead:
+  `normalize_content_asset_path.ObjectPathsUnderEveryMountSurvive` asserts package, object,
+  generated-class and subobject shapes under `/Game`, `/Engine`, `/Script` **and a real plugin
+  mount** — `/PinWright/`, which is host-independent because the descriptor declares
+  `"CanContainContent": true`, so it is mounted wherever the test can run. It is written against
+  paths, not against `IsValidMountPoint`, so it still fails if the narrowing returns by another
+  route, and it carries the refusals (traversal, unmounted root, drive letter, empty) so the accept
+  rows cannot be satisfied by a function that returns its input.
+  **`/Content` -> `/Game` branch removed from `NormalizeContentAssetPath` after confirming
+  reachability, per the orchestrator's instruction to verify first.** It ran only on a string that
+  had already passed the mount check, and `/Content` is not a mount point: the engine registers
+  `/Config/`, `/Engine/`, `/Game/`, `/Script/`, `/Memory/`, `/Temp/` (`PackageName.cpp:803-808`)
+  plus one root per plugin NAMED AFTER THE PLUGIN — a plugin's `Content` directory is mounted AS
+  `/PluginName/`, never as `/Content/`. Dead before the fold and dead after, under both the old and
+  the new `IsValidMountPoint`, so removal is behaviour-preserving; `/Content/Audio/SC_X` returned
+  empty then and returns empty now, and a test row pins that so a re-add is a red rather than a
+  silent re-rooting. Had a plugin literally been named `Content`, the branch would have CORRUPTED
+  its valid paths into `/Game/...`, so deleting is strictly safer than keeping. Confirms `#13`'s
+  corollary from the other side. `SoundCueDumpBuilder::NormalizeSoundCuePath` genuinely cannot fold
+  in, for the same reason stated in `#13`: it rewrites BEFORE sanitizing.
+  **`FAudioPackagePathGuardTrailingSlashFolderComposesTest` re-derived and reconciled — it does not
+  go red either.** It is in `Tests/Media/TestAudioCreatePackagePathSafety.cpp:334-391`, not in
+  `AudioAuthoringHandler.cpp` as relayed. Traced all three of its blocks against `PathAppend`:
+  `"/Game/Audio/Cues/" / "SC_Probe"` pops the terminator and yields `/Game/Audio/Cues/SC_Probe`,
+  identical to the bare-folder case, and the control's `"Bus//Master"` name is still refused by
+  `IsValidXName` with `OutPackagePath` reset. **Every assertion is unchanged and still passes** —
+  which is the payoff of its having been written against the composed OUTPUT rather than against the
+  trim. What was stale was its reasoning: three comment blocks and one assertion message attributed
+  the behaviour to a trim in the guard. Updated to cite `PathAppend` in the composer, and its header
+  block corrected where it still named the deleted `NormalizeAudioPath` /
+  `MetaSound::NormalizeAudioAssetPath`. No assertion was weakened, added to, or removed.
+  **Found, not fixed.** (a) `MaterialParameterCollectionHandler.cpp:24-26` now carries an orphan
+  `#include "Handlers/Material/MaterialCreatePathParamUtils.h"` whose comment reads "For
+  TrimTrailingFolderSeparator only"; nothing else in that TU uses the header. Harmless to the build;
+  left because the brief scoped this agent to two edits in that file. (b)
+  `Tests/Material/TestMaterialCreateNamePathSafety.cpp:355` still says
+  `TrimTrailingFolderSeparator` "could be deleted and every other assertion in this file would still
+  pass" — it HAS been deleted, and that file's header block (`:42-48`) also still credits the
+  composer for the folder refusal that the dispatch gate now answers first. Both are comment-only
+  and the file is not this agent's; the substance is recorded above so the owner can reword.
+  Not compiled and not run per instruction; the orchestrator builds after the wave.
