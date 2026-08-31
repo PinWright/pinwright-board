@@ -170,3 +170,39 @@ verdict on each. No site below was driven — confirming one costs an editor.
   path and compose from the raw one anyway, and five that guard the folder while leaving the
   caller's name unchecked. Dedup: the two fixed instances are cross-linked above and are excluded
   from the 61; no other board ticket covers `CreatePackage` path composition.
+- `#2-level-structure-handler-three-sites` `OPEN` developer — Closed the three
+  `Handlers/Level/LevelStructureHandler.cpp` sites (`create_level`, `create_data_layer`,
+  `configure_hlod_layer`). **The "worse than unguarded" classification above is wrong and should
+  not be carried into the remaining files:** all three assign the sanitizer's result back over the
+  raw variable (`LevelPath = SafeLevelPath` at `:191`, `DataLayerAssetPath = SafeAssetPath` at
+  `:1153`, `HlodLayerPath = SafePath` at `:1441` — all present at the filing commit, this is a
+  mis-read of the reporter's, not a concurrent edit), so the FOLDER half was already guarded and
+  the sanitized value was the right thing to compose from. These three belong in the "folder
+  guarded, caller's NAME unchecked" bucket instead. Two real holes were found and closed: (a) the
+  bare name is concatenated raw — `dataLayerName`/`hlodLayerName` had only an emptiness check, and
+  `levelName`'s hand-rolled filter covers `/` and `\` but not `.`, so `".."` composes
+  `"/Game/Maps/.."`, which CreatePackage trims to `"/Game/Maps/."` and `ResolveName2`
+  (`UObjectGlobals.cpp:1219`) then empties, hitting the **second** Fatal at `:1118` from one
+  argument; (b) the `if (!IsValidMountPoint(FullPath)) FullPath = TEXT("/Game/") + FullPath;`
+  fallback below each composition prepends onto a path that already starts with `/` and so
+  manufactures `"//"` itself — reachable for a folder on a mounted root other than
+  `/Game|/Engine|/Script` plus a name carrying `\ * ? < >`, which are legal object-name characters.
+  The shared `PinWrightComposeAssetPackagePath` was deliberately **not** used: it composes with
+  `Printf("%s/%s")`, which doubles the separator when the folder ends in `/`, and
+  `SanitizeProjectRelativePath` does not strip a trailing slash — so routing a routine
+  `levelPath: "/Game/Maps/"` (which `FString::operator/` handles correctly) through it would start
+  refusing valid input; and it never sees the string hole (b) produces. Its two engine rules are
+  applied instead by two file-local statics, split across the points where each is meaningful:
+  `PinWrightLevelStructureValidateBareName` (`FName::IsValidXName` + `INVALID_OBJECTNAME_CHARACTERS`,
+  placed ABOVE each folder sanitizer) and `PinWrightLevelStructureValidatePackagePath`
+  (`FPackageName::IsValidLongPackageName(..., bIncludeReadOnlyRoots=true)`, placed AFTER the
+  mount-point fallback on the exact string handed to `CreatePackage`). Both surface the engine's
+  reason text verbatim; refusals are `INVALID_ARGUMENT` (file uses raw literals, no `ErrorCodes::`
+  adoption). Regression coverage: `Tests/World/TestLevelStructureNameSafety.cpp`, three new leaf
+  ids `PinWright.level.structure.{create_level,create_data_layer,configure_hlod_layer}.NameCarryingAPathIsRefused`
+  (`check_test_ids.py` CLEAN, 4833 ids). Fatal-unreachability: every bad name is paired with a
+  `<verb>Path` of `"/Game/../../Engine/Content"`, which `SanitizeProjectRelativePath` rejects above
+  every composition, so a build with the fix reverted answers `SECURITY_VIOLATION` (or, on
+  `create_data_layer`, an even earlier world/WP/subsystem gate) and the test goes red on the wrong
+  code while the process lives — no host-dependent fixture involved. A bare-name control asserts
+  the refusal is not blanket. Not compiled and not run: the orchestrator builds after the wave.
