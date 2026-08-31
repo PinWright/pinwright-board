@@ -869,6 +869,36 @@ verdict on each. No site below was driven — confirming one costs an editor.
   **On the `..` correction:** covered at all three sites without a special case, because `.` is in
   both `INVALID_OBJECTNAME_CHARACTERS` and `INVALID_LONGPACKAGE_CHARACTERS`, so the engine calls
   used here reject `..` before it can reach the second Fatal at `UObjectGlobals.cpp:1118`.
+  **On the folder-half correction (an interior `//` in the FOLDER is its own one-argument kill):**
+  all three guards run `FPackageName::IsValidLongPackageName` over the FINAL string handed to
+  `CreatePackage`, never over a bare name, so a folder-side `//` is refused at every one of them,
+  and no hand-rolled character filter was introduced anywhere in this change. `gas.create_ability_set`
+  validates the whole `setPath` and nothing mutates it between the check and
+  `CreatePackage(*PackageName)`; `CreateGameFrameworkBlueprint` validates the COMPOSED
+  `<FullPath>/<Name>` through `PinWrightComposeAssetPackagePath` — which is exactly why the guard
+  was NOT put in `FCommonParams::ExtractSavePath`, a function that never sees the name half (its
+  `SanitizeProjectRelativePath` does collapse `//` in a loop, but the create helper's own
+  `/Content/`->`/Game/` normalization does not, so only the composed check is a guarantee);
+  `CreateAssetPackage` validates the finished `NormalizedPath` at the `CreatePackage` line itself.
+  **On the LoadObject-placement correction: re-checked at all three, and one of them needed it.**
+  `gas.create_ability_set` is that one and it was already handled — its `already_exists`
+  `LoadObject` sits between the guard and `CreatePackage`, so the guard was deliberately placed
+  above BOTH (`IsValidLongPackageName` at `:2448`, `LoadObject` at `:2469`, `CreatePackage` at
+  `:2479`), with a code comment forbidding the move back down. `CreateGameFrameworkBlueprint`
+  performs no load of the composed path at all. `blueprint.create_enum` / `create_struct` probe
+  existence with `UEditorAssetLibrary::DoesAssetExist`, which reads the asset registry and does not
+  load; their only `LoadAsset` (`LoadAssetByRequestPath`) belongs to the EDIT verbs and runs after
+  `ParseAssetPath` has already validated the path.
+  **Adjacent Critical finding, NOT fixed here and NOT part of this ticket's enumeration — it wants
+  its own ticket.** The same `Create=true` door exists in `GameFrameworkHandler.cpp` on a path that
+  is not a `CreatePackage` site and so was never swept: `game_framework.configure_spectating` reads
+  `spectatorClass` with a bare `Ctx.GetString` (`:794`) and hands it straight to
+  `GameFrameworkHelpers::LoadClassFromPath` (`:149`), which calls `LoadClass<UObject>` and
+  `StaticLoadObject` — `ResolveName2(..., Create=true)` -> `CreatePackage(*PartialName)`. A
+  `//`-bearing `spectatorClass` therefore kills the editor from a LIVE verb without any direct
+  `CreatePackage` in the plugin being involved. Left alone because it is outside the three assigned
+  sites and outside this ticket's direct-call enumeration; the enumeration itself is what needs
+  widening, since every unvalidated caller path reaching a LOAD is the same Critical.
   **Doc:** one `### gas.create_ability_set` section appended to `Docs/wiki-src/gas.md` — placed
   after `## See also` because it introduces that file's FIRST `###` and every `##` below one stops
   rendering. No doc change for the other two: `blueprint.create_*` behaviour is unchanged, and the
