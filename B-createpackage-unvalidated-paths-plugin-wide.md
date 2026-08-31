@@ -1019,3 +1019,132 @@ verdict on each. No site below was driven — confirming one costs an editor.
   `Docs/wiki-src/texture.md`, which also records the `SanitizeAssetName` gap and the split between
   the wire-visible `INVALID_ARGUMENT` refusals and the log-only one. Not compiled and not run per
   instruction; the orchestrator builds after the wave.
+- `#12-niagara-render-sequencer-four-sites` `OPEN` developer — Closed the four sites in
+  `Handlers/Niagara/NiagaraHandler.cpp`, `Handlers/Render/RenderHandler.cpp` and
+  `Handlers/Sequencer/SequencerBakeHandler.cpp`, plus one door the ticket does not enumerate
+  (below). Line numbers re-derived and unchanged from the ticket (571, 638, 281, 620); none of the
+  three files was touched by another agent while the work ran.
+  **`NiagaraHandler.cpp:571` (`niagara.create_system`) and `:638` (`niagara.create_emitter`) —
+  classification CONFIRMED ("no guard at all").** Both read `name` and `savePath` raw off the wire,
+  appended a `/` if absent, concatenated, and ran the result through
+  `FPackageName::ObjectPathToPackageName` — which trims at a `.`/`:` and validates nothing — before
+  `CreatePackage`. Guard: `PinWrightComposeAssetPackagePath` (folder+name shape), with
+  `PackagePath.RemoveFromEnd(TEXT("/"))` FIRST so the trailing slash the old `EndsWith` branch
+  tolerated is not newly over-refused by the helper's `Printf("%s/%s")`. The now-inert
+  `ObjectPathToPackageName` call was dropped rather than kept, and the comment says why: `.` and `:`
+  are refused outright by `INVALID_OBJECTNAME_CHARACTERS`.
+  **`RenderHandler.cpp:281` (`render.create_render_target`) — classification CONFIRMED.**
+  `packagePath / name`, both optional and both raw, straight into `CreatePackage` with no post-call
+  null check at all. Same guard, same `RemoveFromEnd` first — `operator/` absorbed a trailing slash
+  here, so without the trim the helper would have started refusing `packagePath: "/Game/RT/"`.
+  Edit confined to the `CreatePackage` path; nothing in the capture / exposure / subject-region /
+  view-distance work in that file was touched.
+  **`SequencerBakeHandler.cpp:620` (`sequencer.export_anim_sequence`) — classification DISPUTED.
+  The Fatal was already unreachable there.** `outAssetPath` went through `NormalizeAssetPath`
+  (`Utils/AssetUtils.cpp:51`), which sets `bIsValid` only after its own
+  `FPackageName::IsValidLongPackageName` call — on BOTH of its success branches, read line by line —
+  and the handler returned `INVALID_PATH` on `!bIsValid` above the composition. So this site was
+  guarded transitively, not "no guard at all"; the sweep counted `NormalizeAssetPath` as
+  not-a-guard. Two things WERE genuinely wrong and are fixed: the invariant was an undocumented
+  postcondition of a shared exported Utils helper with several callers and a fallback branch that
+  substitutes a DIFFERENT path than the caller named, and the check sat BELOW the sequence and
+  binding resolution where no regression test could reach it without a live sequence fixture. The
+  whole `outAssetPath` block is now the first thing the handler does, and the refusal is one `if`
+  with two clauses — `!Normalized.bIsValid || !IsValidLongPackageName(Normalized.Path,
+  readOnlyRoots=true, &Reason)` — so the precondition `CreatePackage` needs is asserted in the file
+  that makes the call without an adjacent duplicate check. Wire text for the pre-existing failure
+  mode is unchanged.
+  **NOT ON THE TICKET, FOUND WHILE RE-CHECKING GUARD PLACEMENT AND FIXED IN THE SAME FILE:
+  `BakeResolveSequence` (`SequencerBakeHandler.cpp:114`) is a second door to the same Fatal.**
+  `StaticLoadObjectInternal` calls `ResolveName2(..., Create=true)` (`UObjectGlobals.cpp:1427`) and
+  `ResolveName2` calls `CreatePackage` on the partial name (`:1310`), so its `LoadObject` on the
+  RAW caller `sequence`/`path` argument was a one-argument kill reachable from BOTH
+  `sequencer.export_anim_sequence` and `sequencer.bake_to_controlrig` — a verb whose enumerated
+  `CreatePackage` guard would have been worthless, because the process is gone before the guard
+  runs. It now checks `IsValidLongPackageName(ObjectPathToPackageName(Path), readOnlyRoots=true)`
+  before the load. Nothing that worked is newly refused: a path this rejects could not have named a
+  loadable sequence, and the answer is the `SEQUENCE_NOT_FOUND` an unresolvable path already gave.
+  `FindObject` is safe here (`Create=false`, `:620`) and was not touched. The three enumerated
+  sites were re-checked against this: neither niagara verb nor `render.create_render_target` does
+  any load on the composed path, and `export_anim_sequence`'s `DoesAssetExist` / `LoadAsset`
+  overwrite probe sits BELOW the hoisted guard.
+  **Error-code adoption checked per file.** `NiagaraHandler.cpp` cites `ErrorCodes::` ZERO times and
+  carries 30 raw `SendError(TEXT(...))`, so both niagara refusals use raw `TEXT("INVALID_ARGUMENT")`
+  and the file stays non-adopting (adding one constant there would fail
+  `RegistryAdoptingFilesUseConstantsOnly`). `RenderHandler.cpp` (42 `ErrorCodes::`, 0 raw) and
+  `SequencerBakeHandler.cpp` (23, 0) are adopted, so they use `ErrorCodes::ERR_INVALID_ARGUMENT` /
+  `ERR_INVALID_PATH`. No new codes; both were already registered (`ErrorCodes.h:538`, `:614`).
+  Refusals send only — no `UE_LOG`, matching the shipped Foliage/Landscape sites.
+  **Regression coverage — three new files, four new leaf ids.**
+  `Tests/Niagara/TestNiagaraCreatePathSafety.cpp`
+  (`PinWright.niagara.create_system.PathIsGuardedBeforeCreatePackage`,
+  `PinWright.niagara.create_emitter.PathIsGuardedBeforeCreatePackage`),
+  `Tests/Render/TestRenderTargetCreatePathSafety.cpp`
+  (`PinWright.render.create_render_target.PathIsGuardedBeforeCreatePackage`),
+  `Tests/Sequencer/TestSequencerExportAnimSequencePathSafety.cpp`
+  (`PinWright.Sequencer.ExportAnimSequence.OutAssetPathIsGuardedBeforeCreatePackage`).
+  `check_test_ids.py` CLEAN (4855 ids, no dot-prefix collisions, no duplicates);
+  `check_test_skips.py` CLEAN.
+  **THE FOLDER IS COVERED AS A KILL IN ITS OWN RIGHT, not just the name.** The composer assertions
+  drive six bad FOLDERS against a perfectly bare leaf (`/Game//FX`, `//Game/FX`, `/Game/FX//Sub`,
+  `/Game/../Escape`, empty, unmounted root) precisely because a folder normalizer that trims
+  trailing slashes and maps aliases does NOT collapse an interior `//`, so a name-only character
+  check passes every one of them through to the Fatal. The sequencer wire test drives the folder
+  shape too, both at the folder/leaf boundary (`/Game/PinWrightTests//<leaf>`) and buried inside the
+  folder (`/Game//PinWrightTests/<leaf>`). Both guards check the COMPOSED path, so both halves are
+  refused.
+  **Fatal-unreachability, and it needed TWO different constructions.** The sequencer verb takes the
+  foliage/landscape construction unchanged: every bad `outAssetPath` is paired with a `sequence`
+  that is a well-formed long package name naming NO asset (fresh GUID under
+  `/Game/PinWrightMissing/`), so a fixed build answers `INVALID_PATH` from the hoisted block while a
+  reverted build (block deleted, or moved back below `BakeResolveSequence` where it used to sit)
+  answers `SEQUENCE_NOT_FOUND` — above the `CreatePackage` — and the `TestEqual` goes red with the
+  process alive. That absent path is itself `//`-free, so it is safe through the new
+  `BakeResolveSequence` check on a build without it. The control drives a well-formed path with the
+  same absent sequence and requires `SEQUENCE_NOT_FOUND`, which proves the guard is not blanket AND
+  that it sits above the sequence resolution.
+  **The three niagara/render sites CANNOT take that construction, and no payload pretends
+  otherwise.** Between `savePath`/`packagePath` and `CreatePackage` a reverted build passes nothing
+  but `IsModuleLoaded("Niagara")` (true on every host where the file compiles) or nothing at all —
+  there is no second argument to bail on, so there is NO wire payload carrying a `//` that a
+  reverted build survives, and none is sent. Coverage is split instead: the whole fatal class (bad
+  NAMES — rooted path, embedded `a//b`, interior slash, backslash, `../Escape`, trailing slash,
+  empty — and the six bad FOLDERS above) is asserted against `PinWrightComposeAssetPackagePath`
+  DIRECTLY, as a pure function whose call graph contains no `CreatePackage` on any build; and the
+  wire assertion proves the handler routes through that guard using the one refusal class whose
+  reverted-build behaviour is provably harmless — an UNMOUNTED package root, which composes a path
+  with no `//` and no invalid characters, so a reverted build hands `CreatePackage` a string it
+  accepts, builds under a clean `FName`, and answers success (red on `INVALID_ARGUMENT`, process
+  alive). Routing is pinned on the composer's own message shape (the composed candidate plus the
+  engine's verbatim "not a valid package path" reason), which nothing else in either handler can
+  emit. Each file carries a header paragraph saying do NOT strengthen this by putting a
+  slash-bearing name on the wire. Valid-input controls at the wire assert
+  `errorCode != INVALID_ARGUMENT` on a bare name under a mounted folder, so they measure the guard
+  rather than the Niagara factory / render-target construction, and both clean up.
+  **The `BakeResolveSequence` guard ships WITHOUT a discriminating test, deliberately, and the test
+  file records why.** No wire payload separates a build carrying it from one without it: the shapes
+  that would discriminate (a `//` in `sequence`) end the process on the build without it, and the
+  shapes that are safe to send (an unmounted root) answer `SEQUENCE_NOT_FOUND` on both. A test that
+  cannot fail is worse than none and a test that can kill the host is worse than both, so the guard
+  carries its reasoning at the call site instead. Same shape as `#8`'s `skeleton.create_skeleton`.
+  **Confirmed in engine source rather than assumed** (`C:/UE_5.8/Engine/Source/`):
+  `IsValidTextForLongPackageName` rejects `//`, a trailing slash, a missing leading slash, len<4 and
+  `INVALID_LONGPACKAGE_CHARACTERS` (`PackageName.cpp:1681-1712`); `INVALID_LONGPACKAGE_CHARACTERS`
+  contains `.` and `\` while `INVALID_OBJECTNAME_CHARACTERS` contains `/`, `.`, `:` and space but
+  NOT `\` (`NameTypes.h:191-197`), so both halves of the composer are load-bearing; and
+  `FName::IsValidXName` returns TRUE for an empty string (`UnrealNames.cpp:3932`), so the empty-name
+  Fatal is caught by the composed path's trailing-slash rule, not by the name rule. That fact is
+  stated at the assertion in the test rather than left implied.
+  **Doc:** `### niagara.create_system` + `### niagara.create_emitter` appended to
+  `Docs/wiki-src/niagara.md`, `### render.create_render_target` appended to
+  `Docs/wiki-src/render.md` (both files already carried `###` sections, so no `##` is newly
+  swallowed), and one paragraph added inside the existing `### sequencer.export_anim_sequence` body
+  in `Docs/wiki-src/sequencer.md`. All three name the two spellings that used to be quietly repaired
+  and are now refused (`.`/`:` truncation, interior `/` nesting) so the behaviour change is
+  discoverable.
+  **Noted, not touched:** `NormalizeAssetPath`'s fallback returns a DIFFERENT package path than the
+  caller asked for whenever the bare leaf name exists under `/Game`, `/Engine` or `/Script` — with
+  `overwrite:true` on `sequencer.export_anim_sequence` that is a silent rewrite of an unrelated
+  asset. Separate defect, separate ticket, and `Utils/AssetUtils.cpp` was under another agent's edit
+  at the time.
+  Not compiled and not run per instruction; the orchestrator builds after the wave.
