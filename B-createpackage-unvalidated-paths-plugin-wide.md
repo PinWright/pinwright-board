@@ -2518,9 +2518,23 @@ verdict on each. No site below was driven — confirming one costs an editor.
   factory-helper calls structurally invisible; each is liveness-asserted separately, since a union
   stays non-empty as long as one regex still works. Baseline entries are COUNTED
   (`file|param|count`) so a NEW mis-typed `assetPath` in a file that already has one is caught —
-  pair-level granularity would have missed the likeliest regrowth. **Seeded from a measurement
-  taken at land time: 116 file/param pairs, 225 declarations** (down from 784 path-suffixed
-  declarations in the tree, i.e. the clusters had already converted ~71% by then). Carve-outs:
+  pair-level granularity would have missed the likeliest regrowth. **Measured twice, and the second is what
+  shipped.** First seeding, taken mid-wave: 116 file/param pairs over 225 declarations (down
+  from 784 path-suffixed declarations, i.e. the clusters had converted ~71% by then).
+  Re-measured after every cluster reported done, and TIGHTENED to it: **17 pairs over 26
+  declarations**, out of 923 path-shaped declarations scanned. The 99 pairs that dropped out
+  were deleted rather than left warning, because a stale COUNTED entry is a hole and not just
+  noise — `NiagaraEditHandler.cpp|assetPath` baselined at 20 would have let twenty new
+  mis-typed declarations land in that file before its ceiling was exceeded. Verified against
+  the final tree: 0 unlisted, 0 regrown, 0 stale. The 17 that remain are deferred judgement
+  calls, mostly disk paths and array-of-paths slots where `filepath`-versus-`path`, or
+  widening an `array` to `path|array`, needs the verb read rather than the name matched:
+  `AssetWorkflowHandler assetPaths` (5), `SplineHandler meshPath` (3), `SourceControlHandler
+  assetPaths` (3), `SkeletonCompileHandler filePath` (2), plus single declarations in
+  `StateTreeAuthoringHandler` (sourcePath, targetPath), `ActorFolderHandler`,
+  `SpawnMaterialUtils.h`, `AssetQueryHandler`, `AudioHandler`, `CRIRDecompileHandler`,
+  `PerformanceHandler`, `TraceAnalysisHandler`, `LandscapeHandler`, `SplineHandler
+  materialPath`, `SkeletonCompileHandler outputPath` and `EffectHandler`. Carve-outs:
   a declaration whose every atom is number/integer/boolean/bool is skipped (it cannot carry a
   string, so `recursivePaths`, `useAccelerationForPaths`, `includeNodeTypePath` are not asked to
   retype), and `propertyPath` is exempt by name (a reflection property chain, never a package load).
