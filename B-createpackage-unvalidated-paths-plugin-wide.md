@@ -1,7 +1,7 @@
 ---
 id: B-createpackage-unvalidated-paths-plugin-wide
 title: "61 direct CreatePackage call sites still compose their package path from caller-supplied text with no engine validation, so the double-slash Fatal that has already killed one editor is reachable from each of them"
-status: OPEN
+status: IN-REVIEW
 severity: Critical
 category: bug
 tags: [crash, editor-process-death, unvalidated-input, package-path, double-slash, createpackage, sweep, data-loss]
@@ -2596,3 +2596,44 @@ verdict on each. No site below was driven — confirming one costs an editor.
   did not know the new tokens. Adding a type name is therefore a two-file change, and getting only
   the first half done is silent in both directions.
   Not compiled and not run per instruction.
+
+- `#27-wave-landed-built-and-suite-green` `IN-REVIEW` developer -- Orchestrator. The whole wave is
+  implemented, compiled and verified; plugin commit `347826a6` (224 files, +4801/-1751), pushed.
+  **Mechanism.** Three declared param types (`path`, `classref`, `filepath`) with one `//` rule at
+  the existing dispatch type gate, reusing INVALID_ARGUMENT and quoting the offending value. The
+  rule applies to `path`/`classref` only -- `filepath` is exempt because a UNC path normalises to
+  //server/share. 1075 declarations retyped across every namespace and all five gated sub-modules,
+  each read at its call site. Defence in depth at ten shared resolvers. Lint ratchet over
+  `FParamSpec` construction generally (17 waivers / 26 declarations, 0 stale).
+  **Verification.** `Build.bat PDSEditor Win64 Development` clean. FULL suite (not scoped):
+  4875 tests, 4875 succeeded, 0 failed, 74 pre-existing skips, drainMarker=True, 0 non-ensure
+  crash reports; verdict via `check_suite_log.py`, COMPLETED_WITH_SKIPS. Reconciles as
+  4851 baseline - 1 (deleted zero-caller widget test) + 25 new = 4875.
+  **Four tests needed updating**, all one cause: the refusal moved UP to the gate. Each now asserts
+  the exact code per input shape rather than "any path error", so removing either layer goes red --
+  `//` answers INVALID_ARGUMENT from the gate, backslash/unmounted still answer the handler's
+  INVALID_ASSET_PATH / INVALID_PATH. The fourth, `widget.create_widget_blueprint`, was a genuine
+  contract narrowing: it PINNED a `//` folder as accepted because the normalizer collapsed it. That
+  pin is inverted, with a readback asserting nothing was created under the collapsed spelling.
+  **Corrections to this ticket's own analysis**, each re-derived: `IsValidMountPoint` does NOT
+  refuse `/Game//X` before or after the rewrite (`GetPackageMountPoint` never calls
+  `IsValidTextForLongPackageName`, and `TryMakeChildPathRelativeTo` strips duplicate separators and
+  returns true) -- so the predicate plus the gate are the ONLY `//` defence;
+  `GetPackageMountPoint(TEXT("/Game"))` returns `Game`, not NAME_None; `FoliageHandler.cpp`'s
+  `IsValidLongPackageName` check sits BELOW a load, so `foliage.add_type` was unguarded, not
+  guarded; the audio cluster was NOT already safe (four sites, `audio.synth.audition` among them,
+  were process death); `outputPath` is not a disk path in the animation or sequencer clusters.
+  **Behaviour changes:** a `//` in a folder or path is refused rather than silently collapsed;
+  `/Content/...` is no longer rewritten to `/Game/...` on the texture path (19 sites, the other 18
+  in that file already refused it); `gas.create_ability_set` with an unmounted root now creates
+  under `/Game/` instead of refusing.
+  **Not closed, filed separately and blocked on this ticket:**
+  `B-nested-path-values-reach-createpackage-fatal` (nested array elements and map values are
+  invisible to a top-level gate; the untyped `NestedKeys` allow-list cannot express "this key is a
+  path", and adopting it would narrow `foliage.create_procedural`, which documents an open key set)
+  and `B-ir-source-class-refs-reach-createpackage-fatal` (class refs are substrings of the `text`
+  param, which must stay typed `string`; the tokenizers cut only at an unquoted `#`, so `//`
+  survives to seven raw `LoadObject` sites).
+  Needs a tester: the live spot-check `actor.find_by_class {className: "/Game//X"}` must refuse
+  against a running editor -- covered by declaration (`FindClassNameParamReq` is `classref`) and by
+  suite coverage, but not yet driven against a live instance.
