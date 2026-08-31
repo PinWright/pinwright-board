@@ -2143,7 +2143,7 @@ verdict on each. No site below was driven — confirming one costs an editor.
   Plugins/PinWright/Source/PinWright/Private/Tests/Blueprint/TestBlueprintCreateTypePathSafety.cpp
   Plugins/PinWright/Source/PinWrightPoseSearch/Private/Tests/Gameplay/TestPoseSearchCreateAssetPathSafety.cpp`.
   Not compiled and not run per instruction; the orchestrator builds after the wave.
-- `#20-path-utils-foundation-predicate-and-debloat` `OPEN` developer — Landed the wave's shared
+- `#22-path-utils-foundation-predicate-and-debloat` `OPEN` developer — Landed the wave's shared
   predicate and normalizer definition in `Utils/PathUtils.{h,cpp}`, deleted the three helpers that
   existed only to compensate for one composition bug, and reconciled three cross-cluster findings
   the orchestrator routed here mid-wave. Nothing compiled and nothing run per the brief.
@@ -2287,3 +2287,103 @@ verdict on each. No site below was driven — confirming one costs an editor.
   composer for the folder refusal that the dispatch gate now answers first. Both are comment-only
   and the file is not this agent's; the substance is recorded above so the owner can reword.
   Not compiled and not run per instruction; the orchestrator builds after the wave.
+- `#22-sequencer-render-mrq-image-insights-retype` `OPEN` developer — Layer-1 DECLARATION RETYPE for
+  the SEQUENCER / RENDER / MRQ / IMAGE / INSIGHTS cluster. **97 declarations retyped: 76 `path`, 17
+  `filepath`, 4 `classref`.** No guards added, no error-code reference introduced, one comment
+  corrected (below). Files: `Handlers/Sequencer/` (`SequenceHandler.cpp` 35, `SequencerHandler.cpp`
+  14, `ControlRigSequencerHandler.cpp` 9, `SequencerBakeHandler.cpp` 7, `SequencerFbxHandler.cpp` 4,
+  `SequencerMotionMeasureHandler.cpp` 1), `Handlers/Render/` (`RenderHandler.cpp` 8,
+  `AnimationPreviewCaptureHandler.cpp` 2, `AnimationShotsHandler.cpp` 1,
+  `AnnotatedCaptureHandler.cpp` 1, `OrthoTileCaptureHandler.cpp` 1, `ZFightingHandler.cpp` 1),
+  `Handlers/MRQ/MRQHandler.cpp` 4, `Handlers/Image/` (`ImageTileHandler.cpp` 3,
+  `ImageCompareHandler.cpp` 3, `ImageAnnotateHandler.cpp` 3),
+  `Handlers/Debug/InsightsHandler.cpp` 1.
+  **THE 17 `filepath` ASSIGNMENTS, EACH READ RATHER THAN PATTERN-MATCHED**, because a disk path
+  typed `path` starts refusing the UNC forms that work today. `image.tile` / `image.annotate`
+  `image` and `georeferenceFrom`, `image.compare` `imageA` / `imageB` — all documented "Absolute, or
+  relative to the project directory", decoded by `FImageUtils` off disk, never through the asset
+  registry. `outputDir` on all three `image.*` verbs plus `render.capture_ortho_tiles` — documented
+  destinations under `<ProjectSaved>/PinWright/…`. `filename` on `render.capture_asset_preview`,
+  `render.capture_open_level`, `render.capture_annotated` and `render.zfighting_analyze` — PNG
+  destinations under `Saved/Screenshots/<verb>`; not `path`, because they are disk names, and the
+  handler runs `FPaths::GetBaseFilename` on them. `sequencer.export_fbx` / `import_fbx` `filePath` —
+  ".fbx file path (relative paths resolve against the project dir)". `insights.snapshot` `filePath`
+  — the `.utrace` destination handed to `FTraceAuxiliary::WriteSnapshot`.
+  **THE `*Path`-MEANS-DISK HEURISTIC WOULD HAVE BEEN WRONG HERE TOO, in the direction the audio
+  cluster warned about.** `sequencer.export_anim_sequence`'s `outAssetPath` is a CONTENT path
+  (`/Game/Anims/A_Baked`) that reaches `CreatePackage`; MRQ's `sequencePath` / `levelPath` /
+  `presetPath` are content paths; `render.attach_render_target_to_volume`'s `targetPath` /
+  `materialPath` / `volumePath` are object paths under `LoadObject` / `FindObject`. All six are
+  `path`. Conversely `outputDir` and `namePrefix` sit adjacent in the same `RPC_PARAMS` block on two
+  verbs and split — `outputDir` is `filepath`, `namePrefix` stayed `string` because it is a filename
+  STEM with no separator, as is `image.annotate`'s `outputName` and `image.compare`'s
+  `outputPrefix`.
+  **`classref` — 4, each verified to reach a class loader.** `MRQHandler.cpp` `executorClass`
+  (`LoadClass<UMoviePipelineExecutorBase>` → `StaticLoadClass` → `StaticLoadObject`);
+  `SequenceHandler.cpp` `className` on `sequencer.add_spawnable_from_class` (bare short name OR
+  asset path, resolved by `UEditorAssetLibrary::LoadAsset` then `ResolveClassByName` — exactly the
+  union shape `classref` exists for); `rigClass` on `sequencer.bake_to_control_rig` and
+  `sequencer.control_rig.*` (`ResolveUClass`, the `ClassUtils.cpp:102` chokepoint).
+  **CAPTURE-SUBJECT TRACE — the enumeration inferred "caller text" from field names and was HALF
+  right; the other half is a residual the dispatch gate cannot reach.** `FCaptureSubjectRequest`'s
+  fields are filled in exactly two places (`CaptureSubject.cpp:558-563`, `:617-619`): `AssetPath`
+  from nested `subject.path` when parsing inside a `subject` object, else from TOP-LEVEL
+  `assetPath`; `AnimationPath` ONLY from nested `subject.animation` / `subject.animationPath` —
+  never from the top level. So of the 7 load sites, `CaptureSubject.cpp:433`/`:441`
+  (`LoadSubjectAsset`), `Providers_Animation.cpp:219`/`:230`, `Providers_Mesh.cpp:261`/`:325` and
+  `Providers_Niagara.cpp:44` are all raw `LoadObject` on that struct. The top-level half is NOW
+  covered: `assetPath` is retyped `path` on `render.capture_asset_preview` and
+  `render.capture_animation_preview`, and the latter's separate top-level `animation` param
+  (`AnimationPreviewCaptureHandler.cpp:511`, its own `LoadObject`) is retyped `path` too. **The
+  nested half is NOT and cannot be by retyping.** `subject` is declared `RPC_PARAM_OPT("subject",
+  "object", …)` on all seven consumers (`render.capture_asset_preview`, `capture_open_level`,
+  `capture_animation_preview`, `capture_annotated`, `capture_animation_shots`, `camera.frame_actor`,
+  `camera.orbit_shots`) with NO `NestedKeys`, so it is outside `NestedParamKeyCheck.h`; and
+  converting it to `RPC_PARAM_OPT_NESTED` would NOT close this, because that macro declares an
+  allow-list of key NAMES and carries no per-key type — it would narrow the contract without adding
+  the `//` rule. **`{"subject": {"path": "/Game//X"}}` therefore still reaches `LoadObject` on all
+  seven verbs.** Left for the nested-gate owner rather than papered over here; the honest fix is a
+  per-key type in the nested surface, or a guard inside `LoadSubjectAsset`. Not in this agent's
+  brief and no guard was added.
+  **`Providers_Level.cpp:256` is the one CaptureSubject load that is already safe** —
+  `UEditorAssetLibrary::LoadAsset(TimePlan.SequencePath)`, and `TimePlan.SequencePath` traces to
+  `AnimationShotsHandler.cpp:636` ← the declared `sequencePath` param, retyped `path` here.
+  **SKIPPED, each verified rather than inherited.** (1) `SequencerBakeHandler.cpp`'s
+  `BakeResolveSequence` — the previous wave's guard is present and correct at `:112-126`
+  (`ObjectPathToPackageName` + `IsValidLongPackageName(bIncludeReadOnlyRoots=true)`, ABOVE the
+  `LoadObject` at `:129`); left untouched. (2) 27 `UEditorAssetLibrary::LoadAsset` sites across the
+  cluster (`SequenceHandler.cpp` 20, `SequencerBakeHandler.cpp` 2, and one each in
+  `ControlRigSequencerHandler.cpp`, `SequencerFbxHandler.cpp`, `SequencerMotionMeasureHandler.cpp`,
+  `AnimationShotsHandler.cpp`, `CaptureSubjectProviders_Level.cpp`, `RenderHandler.cpp`) — `//`-safe
+  per the plan; typed anyway, since the type field states what the parameter IS, not whether its
+  loader is lethal. (3) 3 `Ctx.RequireAssetPath` sites (`SequencerMotionMeasureHandler.cpp` 1,
+  `AnimationPreviewCaptureHandler.cpp` 2) — already sanitized and re-validated. (4) **`actorName`
+  (3 sites: `CameraFrameHandler.cpp:241`/`:681`, `AnimationShotsHandler.cpp:138`) left `string`
+  deliberately.** Its documented contract is "display label, internal object name, OR object path",
+  it resolves by actor scan rather than a load, and it is declared through the shared
+  `ParamAliasUtils::MakeAliasParamSpec` + `ActorNameParamUtils::ActorNameKeys()` idiom used in
+  dozens of files owned by other agents — narrowing it in three files only would split one wire
+  shape across two types. Flagged for a cluster-wide decision, not taken here. (5) `namePrefix` /
+  `outputName` / `outputPrefix` / `jobName` / `trackName` / `trackType` / `bindingGuid` — names, not
+  paths.
+  **TASK-2 CHECK, `sequencer.export_anim_sequence` docs: NOTHING PROMISED THE RE-ROOTING, and the
+  wiki was already written against the post-fix behaviour.** `docs/wiki-src/sequencer.md:246` reads
+  "A relative path is resolved under `/Game/`; … an unmounted root is refused with the engine's own
+  `FPackageName::IsValidLongPackageName` reason quoted" — the `/Game/` clause is the `:79-82` bare-
+  name prepend, which survives; the "unmounted root is refused" clause is what the fallback used to
+  contradict and now does not. `:244` says the asset is "created when absent", never "re-rooted".
+  The handler summary and the `outAssetPath` description likewise promise creation AT the named
+  path. No doc edit needed. **One stale CODE comment was corrected**: `SequencerBakeHandler.cpp`'s
+  justification for its second guard clause still described `NormalizeAssetPath` as having "a
+  fallback branch that substitutes a different path entirely"; `AssetUtils.cpp:93` shows agent A2's
+  removal already landed, so that clause was deleted. The comment's conclusion — assert
+  `CreatePackage`'s actual precondition in the file that makes the call — is unchanged and still
+  correct.
+  **Traps checked.** No `ErrorCodes::` reference added anywhere, so neither `SequenceHandler.cpp`
+  nor `CameraFrameHandler.cpp` (both on `PartiallyConvertedHandlerFiles`) was converted, and
+  `SequencerBakeHandler.cpp`'s full adoption is untouched. No tests added, so `check_test_ids.py`
+  was not re-run. No new helpers, so no Unity-build name collision. The whole diff is 97 type-token
+  substitutions plus the 2-line comment correction — verified by filtering the diff for anything
+  that is not a type field. `CameraFrameHandler.cpp`, `RenderingProjectSettingsHandler.cpp` and
+  `CaptureSubject*.cpp` declare no path-shaped parameter and were not edited. Not compiled and not
+  run per instruction.
