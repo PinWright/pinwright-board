@@ -904,3 +904,118 @@ verdict on each. No site below was driven — confirming one costs an editor.
   rendering. No doc change for the other two: `blueprint.create_*` behaviour is unchanged, and the
   game-framework site has no verb to document. Not compiled and not run per instruction; the
   orchestrator builds after the wave.
+- `#11-material-texture-cluster-twelve-sites` `OPEN` developer — Closed the MATERIAL / TEXTURE
+  cluster: twelve sites, all in the "no guard at all" class, verdict re-verified in source rather
+  than trusted. Line numbers re-derived on the shared tree and every one matched the ticket exactly
+  at pick time (they moved during the edits). By verb:
+  `Handlers/Material/MaterialAuthoringHandler.cpp` `:1797` `create_material_function`, `:2057`
+  `create_material_instance`, `:3048` `create_landscape_material`, `:3087` `create_decal_material`,
+  `:3126` `create_post_process_material`, `:3168` `add_landscape_layer`, `:4036`
+  `create_material_layer`, `:4094` `create_material_layer_blend`;
+  `Handlers/Material/MaterialParameterCollectionHandler.cpp` `:217` `create_parameter_collection`;
+  `Handlers/Material/TextureHandler.cpp` `:104` the shared `CreateEmptyTexture` helper (12 callers),
+  `:2475` `channel_extract`, `:2666` `create_render_target`.
+  **Yes, a shared guard covered seven of the eight in MaterialAuthoringHandler.cpp.** Seven ran one
+  idiom — `MaterialCreatePathParamUtils::ResolveCreateNameAndFolder(...)` then `Path / Name`
+  composed inline at the `CreatePackage` line — and every one of them wants the same rule, so a new
+  `ResolveCreateAssetPackagePath` in that same header does the resolve AND the compose and is the
+  single edit point for all seven. The eighth, `add_landscape_layer`, genuinely differs: its slots
+  are `layerName` + `path` read straight off `Ctx`, it never touches
+  `MaterialCreatePathParamUtils`, and routing it through a resolver built around the
+  `name`/`assetName`/`assetPath` alias set would have changed its wire contract — it calls
+  `PinWrightComposeAssetPackagePath` directly instead, as do the MPC and the three texture sites.
+  **`create_material` (`:698`) was left alone and re-verified as genuinely guarded** — it runs
+  `ValidateAssetCreationPath` plus an explicit `FPackageName::IsValidLongPackageName(..., true)`
+  immediately above its `CreatePackage`; it is in the ticket's 19, correctly.
+  **Trailing-slash over-refusal, from the sibling correction, handled per site rather than
+  assumed.** `PinWrightComposeAssetPackagePath` joins with `Printf("%s/%s")`, which does not pop a
+  terminator the way `FString::operator/` (PathAppend) does, so `path: "/Game/Materials/"` — which
+  works today at all nine folder+name sites — would have started composing `//` and being refused.
+  A new `MaterialCreatePathParamUtils::TrimTrailingFolderSeparator` is applied inside
+  `ResolveCreateAssetPackagePath` (covering the seven) and at `add_landscape_layer` and
+  `create_parameter_collection`. The three TextureHandler sites need no trim and that was checked,
+  not reasoned around: `CreateEmptyTexture` is handed `NormalizeTexturePath(PackagePath)`, whose
+  `while (EndsWith("/")) LeftChopInline(1)` provably strips them; `channel_extract`'s `outputPath`
+  and `create_render_target`'s `path` are both `NormalizeTexturePath`-ed at read time, and the
+  `renderTargetPath` split cuts at the last `/` so it never leaves one.
+  **The FOLDER half is live here too, and nothing in this cluster collapses an interior `//`.** The
+  material verbs run no folder sanitiser at all; `NormalizeTexturePath` maps `/Content` to `/Game`,
+  flips backslashes and trims TRAILING slashes only. All twelve guards therefore validate the
+  COMPOSED path (`FPackageName::IsValidLongPackageName`) and not merely the bare name, which is
+  what covers `path: "/Game//Materials"` with a perfectly bare `name`; a hand-rolled name-only
+  character filter would not have. The regression test drives that case explicitly.
+  **`SanitizeAssetName` is NOT a guard, which is why `texture.create_noise_texture` was reachable
+  despite having one.** Its invalid-character list (`Utils/PathUtils.cpp:261`) contains no `/`, so
+  `name: "a//b"` passed it unchanged into `CreateEmptyTexture`. That helper also carries a SECOND
+  Fatal above `CreatePackage`: `FPackageName::LongPackageNameToFilename`
+  (`PackageName.cpp:1437-1445`) logs Fatal on a path that maps to no mount root, and its result
+  (`PackageFileName`) is dead. The guard sits above both; the dead local was left in place rather
+  than swept.
+  **Guard PLACEMENT re-checked against the `LoadObject` -> `ResolveName2(Create=true)` ->
+  `CreatePackage` door (`UObjectGlobals.cpp:1427` / `:1310`), and no site needed moving.** The
+  seven resolver sites have the guard as the handler's FIRST statement, so nothing precedes it at
+  all. `add_landscape_layer` and `create_parameter_collection` read their two params and guard
+  immediately. `CreateEmptyTexture` guards on its first line, and its twelve callers load only the
+  SOURCE texture (`texturePath`/`assetPath`) beforehand, never the composed OUTPUT path — verified
+  at each caller. `create_render_target`'s guard was deliberately placed ABOVE its
+  `UEditorAssetLibrary::DoesAssetExist` existence probe (registry-only, so safe either way).
+  **Two out-of-scope Fatal doors found in these files and deliberately NOT closed, because they are
+  the `LoadObject` class rather than this ticket's direct-`CreatePackage` enumeration:**
+  `create_material_instance`'s `LoadObject<UMaterial>(nullptr, *ParentMaterial)` on raw caller text
+  (`MaterialAuthoringHandler.cpp`, immediately below the new guard), `add_landscape_layer`'s
+  `LoadObject<UPhysicalMaterial>(physicalMaterialPath)`, and every `StaticLoadObject(..., *SourcePath)`
+  in `TextureHandler.cpp`'s processing verbs. Each is a one-argument kill on a `//`-bearing or
+  `..`-bearing path. That class is plugin-wide and wants its own ticket; flagged here rather than
+  swept unilaterally mid-wave.
+  **Error-code adoption checked per file and it differs.** `MaterialAuthoringHandler.cpp`,
+  `MaterialParameterCollectionHandler.cpp` and `TextureHandler.cpp` reference `ErrorCodes::` zero
+  times, carry 76 / 11 / 5 raw literals and are in no `PartiallyConvertedHandlerFiles` baseline, so
+  they use the raw `TEXT("INVALID_ARGUMENT")` and stay non-adopting.
+  `Handlers/Material/MaterialCreatePathParamUtils.h` is the opposite case — it already cites
+  `ErrorCodes::ERR_MISSING_REQUIRED_PARAM` and is NOT baselined, so the new refusal there uses
+  `ErrorCodes::ERR_INVALID_ARGUMENT` or `RegistryAdoptingFilesUseConstantsOnly` would have failed.
+  No new code: `INVALID_ARGUMENT` was already registered (`ErrorCodes.h:538`), `Handlers/ErrorCodes.h`
+  untouched. The two texture subaction sites reach the wire through
+  `Response->SetStringField("errorCode", ...)`, a field `RunTextureAction` already reads
+  (`TextureHandler.cpp:2719`) and nothing had ever written; `CreateEmptyTexture` cannot answer a
+  request at all (it returns `UTexture2D*` to 12 callers), so its refusal logs the engine reason at
+  **Warning** — never Error — and the caller's existing "Failed to create texture" is what the wire
+  sees. Threading an `OutError` through all 12 callers was considered and rejected as churn beyond
+  the guard.
+  **Regression test** `Tests/Material/TestMaterialCreateNamePathSafety.cpp`, two new leaf ids
+  `PinWright.material.authoring.create_material_instance.{NameCarryingAPathIsRefused,ValidNameStillCreates}`
+  (`check_test_ids.py` re-run on the shared tree: CLEAN, 4855 ids).
+  **Fatal-unreachability.** `create_material_instance` is the ONLY verb in this cluster with a
+  second required argument resolved above the concatenation, so it is the only one whose reverted
+  build can be shown not to reach the Fatal — every bad name (and the bad-folder case) is paired
+  with a well-formed `parentMaterial` naming no asset (fresh GUID under `/Game/PinWrightMissing/`).
+  Fixed build: the compose check is the handler's first statement and answers `INVALID_ARGUMENT`.
+  Reverted build: `LoadObject<UMaterial>` sits above `Path / Name` and answers `ASSET_NOT_FOUND`,
+  so the test goes red on the wrong code with the process alive. `CreatePackage` is unreachable on
+  both, and both the handler and the shared resolver carry comments forbidding the reordering that
+  would break it. That fixture path is itself constrained and the header says so: the `LoadObject`
+  it relies on reaches `CreatePackage` through `ResolveName2`, so it must stay mounted,
+  single-slashed and dot-free (`EGuidFormats::Digits` is hex only). Six bad names (`MI_a//b`,
+  rooted path, interior slash, backslash, `../Escape`, trailing slash) plus one bad FOLDER
+  (`/Game//Materials` with a bare name); `..` is present because of the second Fatal, and the
+  shared helper covers it because `INVALID_OBJECTNAME_CHARACTERS`
+  (`Core/Public/UObject/NameTypes.h:191`) contains `.` and `:` as well as `/`. Two controls: a bare
+  name + absent parent asserting `ASSET_NOT_FOUND` (proof the refusal is not blanket), and a full
+  valid-input create read back from the engine, which also pins that a folder ending in `/` is
+  still ACCEPTED — without that case `TrimTrailingFolderSeparator` could be deleted and everything
+  else here would still pass.
+  **The other eleven sites are deliberately NOT driven and that is stated rather than implied:**
+  their only meaningful input IS the path (a name and a folder, nothing else), so nothing bails
+  above the concatenation and a bad name on a reverted build would reach the Fatal and take the
+  suite host with it. They are covered structurally — the seven other `create_*` verbs run the
+  exact code path this test asserts, and the four direct callers use
+  `PinWrightComposeAssetPackagePath`, whose two engine rules are already asserted by
+  `TestFoliageAddTypeNamePathSafety` / `TestLandscapeCreateGrassTypeNamePathSafety`. Covering them
+  behaviourally would need a second pre-concatenation bail added to each verb, which is a bigger
+  change than the guard.
+  **Docs:** one `##` section above the first `###` in `Docs/wiki-src/material.authoring.md`
+  (listing all ten affected verbs, including `create_parameter_collection` and
+  `add_landscape_layer`, which register into `material.authoring` from other files) and one in
+  `Docs/wiki-src/texture.md`, which also records the `SanitizeAssetName` gap and the split between
+  the wire-visible `INVALID_ARGUMENT` refusals and the log-only one. Not compiled and not run per
+  instruction; the orchestrator builds after the wave.
