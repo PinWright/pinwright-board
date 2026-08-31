@@ -407,3 +407,274 @@ verdict on each. No site below was driven — confirming one costs an editor.
   **Observed while here, deliberately left alone:** `ai.create_state_tree`'s
   `#if MCP_STATE_TREE_HEADERS_AVAILABLE` `#else` branch fake-succeeds with `headersUnavailable:true`
   instead of erroring — an honesty defect unrelated to this ticket and out of its scope.
+- `#6-audio-cluster-fifteen-sites-one-shared-guard` `OPEN` developer — Closed the AUDIO cluster:
+  the thirteen `Handlers/Audio/AudioAuthoringHandler.cpp` sites and the two
+  `Handlers/Audio/MetaSound/MetaSoundPatchPresetHandler.cpp` sites. Status left `OPEN` — the rest
+  of the sweep is in flight. **Line numbers re-derived at working-tree HEAD and matched the ticket
+  exactly** (`AudioAuthoringHandler.cpp` 354/443/857/919/954/1545/1771/2043/2270/2327/2523/2582/2778,
+  `MetaSoundPatchPresetHandler.cpp` 78/218). The "no guard at all" verdict is **re-verified, not
+  carried over**: all fifteen are the identical two-line idiom `FString PackagePath = Path / Name;`
+  then `CreatePackage(*PackagePath)`, with `Name` straight from `Ctx.RequireString(TEXT("name"))` —
+  which does an emptiness check and no character validation whatsoever
+  (`HandlerContext.cpp:93-111`) — and `Path` from a folder-only normalizer. By verb:
+  `create_sound_cue`, `create_sound_concurrency`, `create_metasound` (both the factory and the
+  `#elif MCP_HAS_METASOUND` no-factory branch), `create_sound_class`, `create_sound_mix`,
+  `create_attenuation_settings`, `create_dialogue_voice`, `create_dialogue_wave`,
+  `create_reverb_effect`, `create_source_effect_chain`, `create_source_effect_preset`, the
+  `CreateSoundSubmixAsset` static behind `create_sound_submix`, plus `create_metasound_patch` and
+  `create_metasound_preset`.
+  **ONE SHARED GUARD, and the judgement is affirmative because the rule is genuinely identical at
+  all fifteen** — every site reads the same two arguments (`name`, `path`), composes them the same
+  way, and hands `Name` to `FName(*Name)` as the UObject name, so a path-shaped name is wrong at
+  every one of them for the same reason. New named-namespace header
+  `Handlers/Audio/AudioPackagePathGuard.h`
+  (`PinWrightAudioPackagePath::ComposeAudioAssetPackagePathOrRefuse`, grep-verified unique
+  plugin-wide; named namespace plus `inline` per the audio cluster's existing Unity-ODR convention)
+  wraps the plugin-wide `PinWrightComposeAssetPackagePath` and sends the `INVALID_ARGUMENT` refusal
+  itself, so each site is two lines and there is one place to fix. The only per-site variation is
+  the return statement (`return nullptr` in the submix static, `return true` in the twelve
+  handlers), which is the caller's business, not the rule's.
+  **The `Printf`-doubling trap `#2` flagged is handled INSIDE the wrapper, not assumed away.**
+  `PinWrightComposeAssetPackagePath` composes with `Printf("%s/%s")` and so doubles a folder that
+  already ends in `/`, which `IsValidLongPackageName` then rejects — whereas `FString::operator/`
+  (`PathAppend`, `String.cpp.inl:855-885`, re-read: it POPS the terminator on that branch) does
+  not. Routing thirteen verbs through an over-strict guard would break thirteen at once, so the
+  wrapper trims trailing `/` before composing. Both current normalizers (`NormalizeAudioPath`,
+  `MetaSound::NormalizeAudioAssetPath`) already strip trailing slashes in a loop, so the divergence
+  is unreachable through a live verb today — the trim exists so this helper's contract stops
+  depending on two other functions continuing to do that. A trailing BACKSLASH is deliberately not
+  trimmed: `INVALID_LONGPACKAGE_CHARACTERS` refuses it either way, with a truer reason.
+  **Placement:** replaced in place at fourteen sites (the composition was already the first thing
+  after the parameter reads). Moved ABOVE the pre-existing `resolutionRule` resolution at
+  `create_sound_concurrency` only, because that ordering is what makes the regression test safe;
+  the handler carries a comment saying not to move it back. `create_source_effect_preset` and
+  `create_metasound_preset` keep their existing `effectClass` / `referencedSource` checks above the
+  guard — minimal diff, and the guard is still above every composition.
+  **Error-code adoption checked per file, independently:** both files already cite `ErrorCodes::`
+  AND carry many raw literals, and both are in `PartiallyConvertedHandlerFiles`
+  (`TestErrorCodeRegistry.cpp:391-392`), so neither is held to the no-hand-spelling rule and
+  neither is flipped by this change. The new refusals use `ErrorCodes::ERR_INVALID_ARGUMENT`
+  regardless; it was already registered (`ErrorCodes.h:538`), so `Handlers/ErrorCodes.h` is
+  untouched. The new header is NOT baselined and is clean: it cites the registry and spells no code
+  by hand. No `UE_LOG` added — refusals travel through `Ctx.SendError` only, so nothing logs at
+  `Error`.
+  **Regression coverage:** `Tests/Media/TestAudioCreatePackagePathSafety.cpp`, three new leaf ids —
+  `PinWright.audio.authoring.create_sound_concurrency.NameCarryingAPathIsRefused`,
+  `PinWright.audio.authoring.package_path_guard.EveryCreatePackageIsGuarded`,
+  `PinWright.audio.authoring.package_path_guard.TrailingSlashFolderComposesWithoutDoubling`.
+  `check_test_ids.py` CLEAN (4855 ids on the shared tree, no dot-prefix collisions, no duplicates);
+  `check_test_skips.py` CLEAN.
+  **Fatal-unreachability, on both a fixed and a reverted build.** The driven verb is
+  `create_sound_concurrency`, chosen because it is host-independent (core-engine
+  `USoundConcurrency`, no feature `#if`, no plugin/asset/registry fixture) — so this file has NO
+  conditional-skip path and emits no `PINWRIGHT_ASSERTIONS_SKIPPED`. Every bad `name` is paired
+  with `resolutionRule: "PinWrightNotAResolutionRule"`, well-formed text naming no rule in the
+  verb's closed vocabulary. On the FIXED build the guard sits above the rule check and answers
+  `INVALID_ARGUMENT`. On a REVERTED build the pre-existing "resolve resolutionRule up front" check
+  — which is itself above the concatenation — answers `INVALID_RESOLUTION_RULE`, so the `TestEqual`
+  goes red on the wrong code with the process alive and `CreatePackage` is never reached on either
+  build. Seven bad names: `Bus//Master` (the one-argument kill at `:1094-1096`), a rooted path, an
+  interior slash, a backslash (caught by the composed-path half, not the name half), `../Escape`,
+  `Trailing/`, and bare `".."` — the input that reaches the **second** Fatal at `:1118` via
+  `ResolveName2`, caught here because `INVALID_OBJECTNAME_CHARACTERS` contains `.`. Plus a
+  bare-name control that must still reach `INVALID_RESOLUTION_RULE`, proving the refusal is not
+  blanket. The `FindObject` "creates no object" assertions cannot themselves fatal:
+  `StaticFindObject` calls `ResolveName2` with `Create=false` and `CreatePackage` sits strictly
+  inside the `Create==true` branch (`UObjectGlobals.cpp:1278-1310`), and `StaticFindFirstObject`
+  logs only on ambiguity, not on a miss (`:811`) — both read in source, not assumed.
+  **The other fourteen sites are covered structurally, not by driving them:** the
+  `EveryCreatePackageIsGuarded` source scan asserts, per file, that the code-line count of
+  `CreatePackage(` equals that of `ComposeAudioAssetPackagePathOrRefuse(` (13/13 and 2/2 measured),
+  that the old `PackagePath = Path / Name` idiom is gone, and that the scan still reaches at least
+  15 sites in total — so a sixteenth verb added with the old idiom goes red.
+  `TrailingSlashFolderComposesWithoutDoubling` exercises the wrapper directly, because a guard
+  stricter than the composition it replaced is invisible to every end-to-end test on this cluster
+  while the normalizers keep stripping.
+  **Not driven deliberately:** the two MetaSound verbs, whose earlier gates need a MetaSound
+  registry this host reports as `metasound-registry-uninitialized`; they are fixed identically and
+  covered by the scan, which reads files from disk and needs no registry — rather than by a live
+  test that would skip.
+  Doc: one `##` section (above the first `###`) in `Docs/wiki-src/audio.authoring.md`, stating the
+  bare-name/folder split once for the whole namespace; a verb enumeration was trimmed back out
+  because it duplicated the auto-generated `## Methods` index. That page is now 20.1 KB, marginally
+  over the ~20 KB soft guideline — noted, not acted on, and the RENDERED namespace page is far
+  smaller since `###` sections do not render there. Not compiled and not run per instruction; the
+  orchestrator builds after the wave.
+- `#7-gated-sub-module-three-sites-were-already-guarded` `OPEN` developer — Closed the three gated
+  sub-module sites. **The headline is a correction: all three were listed under "no guard at all"
+  and none of them was unguarded.** Both files route every `CreatePackage` through a file-local
+  `BuildCreatePaths` whose last act before publishing the path is
+  `FPackageName::IsValidLongPackageName(OutPackagePath, /*bIncludeReadOnlyRoots=*/false, &Reason)`,
+  which `IsValidTextForLongPackageName` (`PackageName.cpp:1682-1714`, read in source) makes reject
+  `//`, the too-short/empty name, a missing leading slash, a trailing slash and
+  `INVALID_LONGPACKAGE_CHARACTERS`. Both Fatals were therefore already unreachable at all three
+  sites. This is not a concurrent agent's fix arriving first: `git diff` on both files was empty at
+  pick time, so the guard is present at the filing commit and the reporter's verdict is a mis-read —
+  the third one this ticket has produced, after `#2`'s and `#4`'s. Sites re-derived (the ticket's
+  numbers were stale and the directory stems elided):
+  `PinWrightChooser/Private/Handlers/Chooser/ChooserAuthoringHandler.cpp:962` (`chooser.create`, now
+  `:989`) and `PinWrightPoseSearch/Private/Handlers/PoseSearch/PoseSearchHandler.cpp:452` / `:575`
+  (`pose_search.create_schema` / `create_database`, now `:459` / `:586`).
+  **Shared header reachability, verified rather than assumed:** both `Build.cs` files carry
+  `PrivateIncludePaths.Add(Path.Combine(ModuleDirectory, "..", "PinWright", "Private"))`, so
+  `#include "Handlers/PackagePathCompose.h"` resolves from either sub-module exactly as the
+  `Handlers/HandlerContext.h` include already sitting in both files does. Host gating verified too:
+  this editor's startup line reads `loaded=[geometry,model,pcg,chooser,pose_search,ui] skipped=[]`
+  (`Saved/Logs/PDS.log`, 2026-08-30 20:17), so both sub-modules' tests actually run here.
+  **PoseSearch (2 sites): no functional change.** Both take ONE whole caller-supplied `assetPath`,
+  which is precisely the shape the ticket says wants `IsValidLongPackageName` or
+  `SanitizeProjectRelativePath` rather than the compose helper — and `BuildCreatePaths` already
+  stacks three independent checks (`NormalizeAssetPath`, `SanitizeProjectRelativePath`,
+  `IsValidLongPackageName`), all above the `CreatePackage` call. Adding a fourth would be dead code.
+  Both sites got a comment naming the guard and forbidding the call being moved above it, so the
+  next sweep does not re-flag them.
+  **Chooser (1 site): one real hole, in the "folder guarded, caller's NAME unchecked" bucket, not
+  the bucket it was filed in.** `BuildCreatePaths`' name branch sanitizes the FOLDER
+  (`SanitizeProjectRelativePath`) and concatenated the caller's `name` onto it raw, so
+  `name: "Sub/Leaf"` or `"/Game/X"` composed a package the caller never named and wrote the chooser
+  there silently. Not fatal — the downstream `IsValidLongPackageName` caught `//` — but the same
+  argument confusion one step short of it. Routed through the shared
+  `PinWrightComposeAssetPackagePath`, refusing `INVALID_ARGUMENT` with the engine reason verbatim.
+  **The `Printf("%s/%s")` doubling hazard `#2` and `#4` both flagged does not apply here, and the
+  reason is structural rather than lucky:** `NormalizePackagePath` runs `SanitizeProjectRelativePath`
+  (collapses `//` in a loop) and a pre-existing `while (Folder.EndsWith("/")) LeftChopInline(1)`
+  loop sits directly above the call, so the folder can carry neither an interior `//` nor a trailing
+  slash. Both are load-bearing, both are now commented as such, and a dedicated control case
+  (`TrailingSlashFolder`) asserts a folder spelled `"/Game/X/"` still composes and is NOT refused —
+  the regression `#2` correctly predicted a blind reuse would cause. The refusal is also not a dead
+  end: `chooser.create`'s `path` is REQUIRED and is the whole package path when `name` is omitted,
+  so a nested destination is still nameable.
+  **Error-code adoption checked per file, independently:** `grep -c "ErrorCodes::"` is **0** in both
+  sub-modules entirely, so both are raw-literal-only and stay that way — raw
+  `TEXT("INVALID_ARGUMENT")`, no `ErrorCodes::` reference introduced, no file flipped into the
+  registry test's scope. `INVALID_ARGUMENT` was already registered (`ErrorCodes.h:538`);
+  `Handlers/ErrorCodes.h` is untouched and needed no new code.
+  **Regression coverage, one file per sub-module so each compiles into the right DLL:**
+  `PinWrightChooser/Private/Tests/Assets/TestChooserCreateNamePathSafety.cpp` (id
+  `PinWright.chooser.CreateNameCarryingAPathIsRefused`) and
+  `PinWrightPoseSearch/Private/Tests/Gameplay/TestPoseSearchCreateAssetPathSafety.cpp` (ids
+  `PinWright.pose_search.CreateSchemaMalformedAssetPathIsRefused`,
+  `...CreateDatabaseMalformedAssetPathIsRefused`). Flat leaf names matching each sub-module's
+  existing convention. `check_test_ids.py` re-run on the shared tree after the edits: CLEAN, 4855
+  ids, no dot-prefix collisions, no duplicates; `check_test_skips.py` CLEAN.
+  **Fatal-unreachability.** Chooser: on the FIXED build nothing is ever composed —
+  `INVALID_OBJECTNAME_CHARACTERS` (`NameTypes.h:191`) contains `/`, so `IsValidXName` refuses every
+  path-shaped name before the join, and the join cannot double because the folder is chopped. On a
+  REVERTED build the old `Folder / Name` runs, `PathAppend` does not double a leading slash, and the
+  untouched `IsValidLongPackageName` below still refuses `a//b`, `..`, `Trailing/` and the backslash
+  case as `INVALID_PATH`. For the residual cases a reverted build composes into a VALID path
+  (`Sub/Leaf`, `/Game/X/Y`), every refusal case pairs its bad name with
+  `contextObjectType: "/Script/Engine.DoesNotExist"` — a well-formed path in an ALREADY-LOADED
+  script package naming no class — which `HandleCreate` resolves ABOVE `CreatePackage`, so the
+  reverted build answers `CLASS_NOT_FOUND` and the test goes red on the wrong code with the process
+  alive. PoseSearch: the three stacked checks mean removing any one leaves two, and every bad
+  `assetPath` carries `//`, `..`, a drive letter or a bare mount root, which no single check owns
+  alone; on top of that every case pairs its bad path with a well-formed companion (`skeleton` /
+  `schema`) naming no asset (fresh GUID under `/Game/PinWrightMissing/`), resolved above
+  `CreatePackage`, so even a fully gutted `BuildCreatePaths` answers `SKELETON_NOT_FOUND` /
+  `SCHEMA_NOT_FOUND`. **Both Fatals are covered, not just the famous one:** `a//b` and the `//`
+  paths aim at `:1094-1096`, while a bare `".."` name and a bare `/Game` mount root aim at `:1118`
+  (empty after `ResolveName2`) — `INVALID_OBJECTNAME_CHARACTERS` covers `.` and `:` as well as `/`,
+  and `INVALID_LONGPACKAGE_CHARACTERS` covers `.` too, so one guard turns away both classes. Every
+  bad path is also given a GUID leaf so `NormalizeAssetPath`'s "retry the leaf under
+  /Game|/Engine|/Script if that package EXISTS" rescue can never fire and make a refusal
+  host-dependent. Each test ends with a valid-input control asserting the refusal is not blanket.
+  **Finding the rest of the sweep should have: `CreatePackage` is not the only door.**
+  `StaticLoadObjectInternal` calls `ResolveName2(..., Create=true, ...)` (`UObjectGlobals.cpp:1427`),
+  which itself calls `CreatePackage(*PartialName)` on the raw package name at `:1310` when the
+  package is not already loaded. So **every `LoadObject` on an unvalidated composed object path is
+  the same Fatal**, and in both files here it sits on the `ALREADY_EXISTS` check one line ABOVE the
+  `CreatePackage` the ticket enumerated — i.e. a guard "moved down to just before `CreatePackage`"
+  would not actually be a guard. `FindObject` is safe: `StaticFindObject` resolves with
+  `Create=false` (`:620`), which is why the tests' existence assertions can be driven with a
+  `//`-bearing path. The ticket enumerates direct `CreatePackage` calls only; whoever scopes the
+  follow-up should decide whether `LoadObject`-on-caller-text is a second sweep.
+  **Doc:** one paragraph in `Docs/wiki-src/chooser.md` under the existing `### chooser.create` H3
+  (a bare dotted method name), stating that `name` is a bare leaf and that a nested destination goes
+  in `path`. No pose_search doc change — nothing about that verb's behaviour changed. Not compiled
+  and not run per instruction; the orchestrator builds after the wave.
+- `#8-skeleton-physics-three-sites-guarded` `OPEN` developer — Closed the three skeleton/physics
+  sites. Status left `OPEN`; the rest of the sweep is in flight.
+  **Files:** `Handlers/Animation/SkeletonHandler.cpp`, `Handlers/Physics/PhysicsHandler.cpp`,
+  `Handlers/Animation/PhysicsAssetHandler.cpp`, plus new
+  `Tests/Gameplay/TestSkeletonPhysicsPackagePathSafety.cpp` and `Docs/wiki-src/{physics,skeleton}.md`.
+  **Sites re-derived at working-tree HEAD; all three line numbers were still exact**
+  (`SkeletonHandler.cpp:654` `skeleton.create_skeleton`, `PhysicsHandler.cpp:212`
+  `physics.setup_physics_simulation`, `PhysicsAssetHandler.cpp:331`
+  `skeleton.create_physics_asset`) — but **one of the two classifications was wrong and is
+  corrected here.**
+  **`PhysicsHandler.cpp:212` — classification CONFIRMED, and it is the most reachable of the
+  three.** `SavePath` went through `IsValidLongPackageName` + a `TryConvertFilenameToLongPackageName`
+  fallback; `physicsAssetName` had no validation of any kind; the two met at
+  `FString::Printf(TEXT("%s/%s"), *SavePath, *PhysicsAssetName)`. Because Printf doubles the
+  separator unconditionally, this site was reachable by a **rooted** name (`"/Game/X"` →
+  `/Game/Physics//Game/X`) as well as by the `//`-bearing name every unguarded site shares, and by
+  `".."`, which reaches the *second* Fatal (`UObjectGlobals.cpp:1118`, empty after `ResolveName2`)
+  rather than the double-slash one. Guard: `PinWrightComposeAssetPackagePath`, which also replaces
+  the Printf composition. `SavePath` is trimmed of a trailing slash immediately before the helper —
+  the helper itself joins with Printf, so an untrimmed folder would compose the very `//` it exists
+  to refuse; the trim is placed AFTER the pre-existing savePath validation so the accepted set is
+  unchanged.
+  **`SkeletonHandler.cpp:654` — classification WRONG. It is not "folder guarded, name unchecked",
+  and no input reaches the Fatal today.** The verb takes no name argument: `path`/`skeletonPath` is
+  ONE whole caller path, already rejected pre-ticket for `..`, `//`, `\`, a non-mount root and
+  anything failing `IsValidLongPackageName(path, /*readOnlyRoots=*/false)`. Because a surviving path
+  can contain no `//`, no trailing slash and no `.` (which is in `INVALID_LONGPACKAGE_CHARACTERS`),
+  the `GetPath() / GetBaseFilename()` recomposition handed to `CreatePackage` is provably the
+  identity. The real defect is narrower: the validated string and the passed string are different
+  strings, and the identity is a property of the three lines above the call rather than of the call.
+  Guard: `FPackageName::IsValidLongPackageName(FullPackagePath, bIncludeReadOnlyRoots=true)` on the
+  composed string itself, which by construction can refuse nothing the stricter check above already
+  accepted — zero behaviour change, structural guarantee only.
+  **`PhysicsAssetHandler.cpp:331` — classification CONFIRMED ("no guard at all").** `outputPath` was
+  read raw and split/rejoined into `CreatePackage`. One-argument kills: `"//Game/X"` survives the
+  split-and-rejoin as `//Game/X`; `"/"` splits into two empty halves and composes to `""`; `".."`
+  composes to `"."`. Guard: `IsValidLongPackageName` on the composed string, **hoisted above the
+  source-asset resolution** for the caller-supplied path, with the same check on the derived
+  `<SourcePath>_PhysicsAsset` default at the point it is derived (deliberately not hoisted — a
+  malformed `skeletalMeshPath` is better reported as the source-asset error).
+  **Why not the shared helper on the two `operator/` sites:** `PinWrightComposeAssetPackagePath`
+  joins with Printf, so routing an `operator/` site through it would newly *over-refuse* a
+  trailing-slash folder that composes correctly today (`PathAppend`, `String.cpp.inl:855-885`, pops
+  the separator instead of doubling). Both are whole-path sites, which the ticket already directs at
+  `IsValidLongPackageName` directly.
+  **Error-code adoption checked per file: all three cite `ErrorCodes::` ZERO times** and carry many
+  raw literals, so all three use raw `TEXT("INVALID_ARGUMENT")` and stay non-adopting. No new code;
+  `INVALID_ARGUMENT` was already registered (`ErrorCodes.h:538`). Refusals send only — no `UE_LOG`,
+  matching the shipped Foliage/Landscape sites.
+  **Regression coverage:** three new leaf ids —
+  `PinWright.physics.setup_physics_simulation.NameCarryingAPathIsRefused` (7 bad names: rooted path,
+  `Sub//Leaf`, interior slash, backslash, `../Escape`, `..`, trailing slash),
+  `PinWright.skeleton.create_physics_asset.OutputPathIsValidated` (7 bad paths incl. `//Game/…`,
+  `/`, `..`, `/Game/..`, rootless, unmounted root), and
+  `PinWright.skeleton.create_skeleton.HazardousPathsAreRefused`. `check_test_ids.py` CLEAN (4855
+  ids, no dot-prefix collisions, no duplicates); `check_test_skips.py` CLEAN.
+  **Fatal-unreachability, on both a fixed and a reverted build:** every bad value is paired with a
+  well-formed long package name naming NO asset (fresh GUID under `/Game/PinWrightMissing/`) in the
+  argument each verb resolves FIRST — `meshPath` for the physics verb, `skeletalMeshPath` for
+  `create_physics_asset`. Both fixes are hoisted ABOVE that resolution, so a fixed build answers
+  `INVALID_ARGUMENT` while a reverted build answers `ASSET_NOT_FOUND` / `MESH_NOT_FOUND` from the
+  load — which sits above the concatenation — and the `TestEqual` on `INVALID_ARGUMENT` goes red
+  with the process alive. Both handlers carry a comment saying the placement is load-bearing. A
+  bare-name / well-formed-path control asserts the refusal is not blanket by requiring the
+  source-asset error, so it too reaches no creation code. `skeleton.create_skeleton` is the
+  exception and its test says so in a header note: no input discriminates a fixed from a reverted
+  build there, because the pre-existing checks refuse every hazardous path on both; the test pins
+  those refusals so a future weakening of any of them turns red instead of turning an editor off.
+  **Modal-hang argument (`B-physics-asset-factory-modal-hang`):** no case in the new file reaches
+  physics-asset creation at all — every case is a refusal or a source-asset miss, so neither
+  `UPhysicsAssetFactory` nor the headless replacement is entered, and no `PINWRIGHT_ASSERTIONS_SKIPPED`
+  is needed (there is no fixture dependency). No valid-input control that creates a physics asset was
+  added: `Tests/Gameplay/TestPhysicsAssetFactoryModalHang.cpp` already owns that coverage for both
+  verbs through the factory-free path. `skeleton.create_skeleton`'s positive path is likewise already
+  driven by `TestAnimationHandlers.cpp` as a fixture, so no package-writing control was duplicated here.
+  **Doc:** `### physics.setup_physics_simulation` added to `Docs/wiki-src/physics.md` (which had no
+  `###` before, so no `##` is swallowed) and `### skeleton.create_skeleton` +
+  `### skeleton.create_physics_asset` appended to `Docs/wiki-src/skeleton.md`, all below the
+  existing `##` sections.
+  **Noted, not touched (another agent's file):** `Handlers/Environment/LandscapeHandler.cpp` cites
+  `ErrorCodes::` 32 times yet emits a raw `TEXT("INVALID_ARGUMENT")` at the `meshPath` check two
+  lines below its compose refusal — that shape is what
+  `PinWright.core.error_codes.RegistryAdoptingFilesUseConstantsOnly` fails on. Not reverted, not
+  edited; flagged for whoever owns that file.
+  Not compiled and not run per instruction; the orchestrator builds after the wave.
