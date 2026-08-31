@@ -2463,3 +2463,122 @@ verdict on each. No site below was driven — confirming one costs an editor.
   are intact. Every edit in this entry is a byte-exact in-place type-literal swap, so CRLF endings are
   unchanged. No test added, `check_test_ids.py` not re-run (no new ids). Not compiled and not run per
   instruction.
+- `#26-dispatch-boundary-path-types-and-the-lint-ratchet` `OPEN` developer — Landed the wave's
+  primary mechanism: three declared types and one rule at the single choke point every verb already
+  passes through, so the ~385 unguarded loads are closed as a class rather than site by site.
+  **The vocabulary.** `path` (asset/package/object path), `classref` (a class reference — a bare
+  short name, `/Script/UMG.UserWidget`, a BP asset path or its `_C` form, a plugin mount) and
+  `filepath` (a path on DISK). All three accept exactly the JSON shapes `string` accepts, so the
+  ~780-declaration retype sweep changes no shape verdict — they differ from `string` only in the
+  rule column, and from each other only there. `filepath` carries **no** doubled-slash rule because
+  a UNC path normalises to `//server/share`; that is the whole reason it is a separate token rather
+  than a synonym.
+  **The rule.** `Handlers/ParamTypeCheck.h` gains `PinWrightTypeExprCarriesPathSeparatorRule` (true
+  when ANY union member is `path`/`classref`, so `path|array` carries it) and
+  `PinWrightCollectPathSeparatorFaultsOfValue`, which checks a string value and the string ELEMENTS
+  of an array — without element checking the `path|array` spelling the brief asked for would be
+  decoration, since a string-level rule never looks inside an array. `Contains("//")` is the entire
+  predicate: `IsValidLongPackageName` would refuse `PointLight`, `/Script/UMG.UserWidget` and
+  `/Game/BP/BP_X.BP_X_C` (`.` is in `INVALID_LONGPACKAGE_CHARACTERS`, `NameTypes.h:197`), i.e. half
+  the shapes `ResolveUClass` documents. Reuses `INVALID_ARGUMENT`; no new code registered.
+  **Where it sits, and why.** A separate FOURTH pass in `ValidateHandlerParams`, between the
+  declared-type pass and the nested-key pass. BELOW the shape pass because the rule is about the
+  *content* of a value that is already the right shape — "'assetPath' contains //" is not an answer
+  about a value the caller sent as an object, which is the same reasoning the nested pass already
+  states for itself. ABOVE the nested-key pass because it is the only refusal in the chain that
+  prevents PROCESS DEATH rather than a wrong answer: an unknown-key list is advice about a request
+  that would have ended the editor. Not a fourth `EDeclaredTypeVerdict`, because it is a different
+  code with a different remedy and the shape pass's "is declared X and was sent as Y" vocabulary
+  cannot carry it. Faults are collected across every slot, as the three passes around it do.
+  **The message shape is load-bearing.** It names the slot AND quotes the received value:
+  `'assetPath' contains a doubled slash: "/Game//Props/SM_Wall". ...`.
+  `Tests/Gameplay/TestAnimationAuthoringNamePathSafety.cpp:222` asserts
+  `Message.Contains("/Game//Animations")`, and that test only stays green because the refusal moved
+  here — the normalizer rename alone would collapse the `//`, let composition succeed and answer
+  `SKELETON_NOT_FOUND`. Its sibling `ExpectTrailingSlashFolderStillAccepted` (single trailing slash
+  must still reach the handler) is pinned in the new accept-half test.
+  **`ValidTypeNames` was the plugin-wide blocker and is fixed.**
+  `Tests/Infra/TestContractConsistency.cpp` `ParamTypes.ValidTypeNames` listed only the original
+  eight atoms, so every cluster's retyped declaration would have hard-failed it. Added the three,
+  with a comment tying the list to `PinWrightIsKnownTypeAtom` — that gate FAILS OPEN on an unknown
+  token, so this list is the only thing that catches a mis-declared type at all. **Also extended it
+  to `FParamAliasSpec::Type`**, which was uncovered: `CollectDeclaredTypesByWireName`
+  (`RpcDispatcher.cpp`) resolves a typed alias against its OWN type, so a typo there failed the
+  shape gate open for that wire name while the canonical stayed enforced — the hardest version of
+  this defect to notice. An empty alias type is legal (it inherits) and is accepted. Measured: all
+  typed aliases in the tree are `array`, so the new assertion is green today.
+  **The lint ratchet.** New `Tests/Infra/TestPathParamTypeLint.cpp`
+  (`PinWright.infra.contract.PathParamTypes.PathShapedParamsDeclareAPathType`), modelled on
+  `TestErrorCodeRegistry.cpp`: listed = warn, unlisted = hard error, stale/shrunk = warn, so a
+  concurrent conversion can never redden the suite. Source scan over every
+  `Source/PinWright*/Private/Handlers` tree (not a registry walk — that would miss the five gated
+  sub-modules on a host with their engine plugins off), input through `NeutralizeSourceText` so a
+  comment quoting a call shape cannot flip a verdict. Three patterns, because matching only
+  `RPC_PARAM_*` would leave the 58 hand-written `FParamSpec{...}` aggregates and the ~1,900
+  factory-helper calls structurally invisible; each is liveness-asserted separately, since a union
+  stays non-empty as long as one regex still works. Baseline entries are COUNTED
+  (`file|param|count`) so a NEW mis-typed `assetPath` in a file that already has one is caught —
+  pair-level granularity would have missed the likeliest regrowth. **Seeded from a measurement
+  taken at land time: 116 file/param pairs, 225 declarations** (down from 784 path-suffixed
+  declarations in the tree, i.e. the clusters had already converted ~71% by then). Carve-outs:
+  a declaration whose every atom is number/integer/boolean/bool is skipped (it cannot carry a
+  string, so `recursivePaths`, `useAccelerationForPaths`, `includeNodeTypePath` are not asked to
+  retype), and `propertyPath` is exempt by name (a reflection property chain, never a package load).
+  Class references are deliberately NOT linted — `className`/`parentClass`/`actorClass`/`class`
+  share no name shape, so a name rule would both miss most and misfire.
+  **Behavioural tests.** New `Tests/Infra/TestPathParamSeparatorGate.cpp`, five cases through
+  `DispatcherTestHelpers::MakeDispatcher` + `Dispatch` (NOT `InvokeHandlerWithCapture`, which skips
+  `ValidateHandlerParams` entirely). This is the one part of the wave that is fully testable, because
+  the refusal happens before any handler runs so a `//` payload never reaches a loader on either
+  build. Refuse half: `path`, `classref`, a bare `A//B` with no leading slash and no dot (lethal via
+  the `StaticLoadObjectInternal:1474-1482` self-recursion), a triple slash, an array element
+  (message names `assetPaths[1]`), and every fault collected in one refusal. **Accept half, asserted
+  as hard as the refusal because refusing too much is what breaks working callers:** bare short class
+  name, `/Script/UMG.UserWidget`, `/Game/BP/BP_Door`, `/Game/BP/BP_Door.BP_Door_C`, a plugin mount,
+  `/Game/A/B.B`, a subobject path `/Game/A/B.B:Component`, a single trailing slash, a UNC value in a
+  `filepath` slot, and a `//` in a plain `string` slot. Plus ordering: missing-required,
+  unknown-name and shape faults each win over a path fault. `check_test_ids.py` re-run: 4879 ids,
+  clean.
+  **Nested keys: dropped on the coordinator's instruction, and the mechanism removed rather than
+  left inert.** I had built `FParamSpec::NestedPathKeys` plus `RPC_PARAM_{REQ,OPT}_NESTED_PATHS` —
+  deliberately independent of `NestedKeys`, so it added the `//` rule without closing a slot's key
+  set (which would have broken `foliage.create_procedural`'s documented `ignoredFields` tolerance)
+  and supplied the missing REQUIRED nested macro and element-level array checking. Four verbs were
+  adopted and then **fully reverted**; `NestedParamKeyCheck.h` is byte-identical to HEAD and no
+  production verb's accepted key set changed. It is removed rather than shipped unadopted because it
+  is only a partial answer: it cannot reach a path held in a map VALUE
+  (`create_material_instance`'s `texture: {ParamName: AssetPath}`), which is 1 of the 5 confirmed
+  reachers. **Design input for the follow-up ticket**, all four reachers verified by reading the
+  load: `FoliageHandler.cpp:2419` `foliageTypes[].meshPath` → raw `LoadObject<UStaticMesh>`, zero
+  sanitization; `MaterialGraphHandler.cpp:587` `nodes[].texturePath` → raw `LoadObject<UTexture>`;
+  `AudioMusicHandler.cpp:1744` (`audio.music.build_interactive`) `stems[].assetPath` → raw
+  `LoadObject<USoundWave>`; `GASHandler.cpp:3049` `captures[].attribute` →
+  `ResolveGameplayAttributeFromSpec` → raw `LoadObject<UClass>` on the pre-last-dot half. A nested
+  gate needs three things this one does not have: (1) a TYPE on a nested key —
+  `FParamSpec::NestedKeys` is an untyped allow-list and cannot express "this key is a path";
+  (2) a rule that reads map VALUES as well as keys, or the material case is unreachable; (3)
+  element-level descent for arrays, plus a required-nested macro (`RPC_PARAM_OPT_NESTED` hardcodes
+  `bRequired=false` and both real cases, `foliageTypes` and `nodes`, are required). Do NOT
+  approximate it with a name heuristic: a nested `url` legitimately contains `//` and a nested disk
+  path may be UNC.
+  **Measured and NOT adopted, with the reason** (these are already safe, so the follow-up ticket can
+  skip them): `actor.spawn_batch` `transforms[].materialPath` / `materialPaths` resolve through
+  `SanitizeProjectRelativePath`, which calls `FPaths::RemoveDuplicateSlashes`; the audio-authoring
+  `classAdjusters[].soundClass` and `targetVoices[]` resolve through `NormalizeContentAssetPath`,
+  which delegates to the same sanitizer — confirming the plan's "the audio cluster is already safe"
+  for the nested surface too. `audio.music.export_stems`'s `stems[]` is `{candidateId, name}` with
+  no path at all. Sequencer batch keyframes carry no nested path (they are numeric), so adopting
+  there would have been exactly the contract narrowing the plan warns against.
+  **Two hazards for whoever reconciles this wave, neither in my scope to fix.** (1)
+  `Handlers/Material/MaterialCreatePathParamUtils.h:195` hardcodes the string
+  `"Missing required parameter 'name' (type: string). ..."`; the dispatcher builds that message from
+  `FParamSpec::Type`, so retyping `name` drifts the two. (2)
+  `Tests/Gameplay/TestAnimationHandlers.cpp:375/497/669` guard on
+  `Param.Type == TEXT("string")` for `assetPath` — those `if`s stop matching once the animation
+  cluster retypes, and whatever they were proving stops being proved silently.
+  **Surprise worth recording about the existing gate:** it FAILS OPEN on an unrecognized type atom
+  by design (a mis-declared parameter must never become a live rejection), which means the whole
+  enforcement of the vocabulary rests on one registry-wide test that did not cover typed aliases and
+  did not know the new tokens. Adding a type name is therefore a two-file change, and getting only
+  the first half done is silent in both directions.
+  Not compiled and not run per instruction.
