@@ -1529,3 +1529,196 @@ verdict on each. No site below was driven — confirming one costs an editor.
   `path: "/Game//Materials"`) starts being refused at the dispatch gate instead of at the composer,
   and its asserted refusal shape must be re-checked.
   Not compiled and not run per instruction; the orchestrator builds after the wave.
+- `#16-animation-cluster-retyped-and-normalizer-folded` `OPEN` developer — Layer-1 DECLARATION
+  retype for the ANIMATION cluster (`Source/PinWright/Private/Handlers/Animation/**`, all 21 `.cpp`
+  in the directory, not only the eleven named in the brief) plus the `NormalizeAnimPath` fold from
+  Layer 3. **163 declarations retyped: 155 to `path` (149 `RPC_PARAM_*` + 6
+  `ParamAliasUtils::MakeAliasParamSpec`), 6 to `classref`, 2 to `filepath`.** No guard was added and
+  no line of executable code was written for the retype, so no `ErrorCodes::` reference entered a
+  file that did not already have one and no file was newly converted under
+  `RegistryAdoptingFilesUseConstantsOnly`.
+  **`path` (155):** `assetPath` 33, `skeletonPath` 27, `skeletalMeshPath` 27+3 alias,
+  `blueprintPath` 21, `path` 11+1 alias, `physicsAssetPath` 8, `savePath` 4, `animationPath` 4+1
+  alias, `outputPath` 2, and one each of `meshPath`, `targetMeshPath`, `sourceMeshPath`,
+  `targetIKRigPath`, `sourceIKRigPath`, `blendMaskPath`, `blendCurvePath`, `targetSkeleton`,
+  `sourceSkeleton`, `basePoseAnimation`, `bindAsset`, `context`, `montagePath` (alias).
+  **`classref` (6):** `parentClass` 2 (`animation.create_animation_blueprint`,
+  `animation.authoring.create_animation_blueprint` — both document "Path or short name of an
+  AnimInstance subclass", exactly the shape `IsValidLongPackageName` would have refused),
+  `notifyClass` 3, `nodeClass` 1 ("AnimGraphNode_* class short name or full path").
+  **`filepath` (2), and this is the pair the sweep could have broken:** `anim.compile`'s and
+  `anim.validate`'s `filePath` are DISK paths — "Filesystem path to the .pwanim source; a relative
+  path resolves against the project directory" — so typing them `path` would have started refusing a
+  UNC source. **Their neighbour `outputPath` is NOT a disk path** despite the `*Path` name and
+  despite the plan listing `outputPath` among the disk-path names: `anim.compile`'s reads
+  "Destination /Game/... asset path", and `skeleton.create_physics_asset`'s (`PhysicsAssetHandler`
+  `:278`) reads "Asset path for the new PhysicsAsset". Both are `path`. The name is not the
+  discriminator; the description and the read path are.
+  **Two names outside the plan's list of path-shaped spellings, which a name-driven lint will not
+  find:** `anim.compile_agir`'s `context` ("Target Anim BP asset path", goes to
+  `FAGIRCompileOptions::Context`) and `animation.setup_retargeting`'s `sourceSkeleton` /
+  `targetSkeleton` (both `LoadObject<USkeleton>` on the raw string at `AnimationHandler.cpp:993-996`).
+  Retyped here; flagged so the ratchet's waiver list is not mistaken for the full set.
+  **`NormalizeAnimPath` deleted and folded into `NormalizeContentAssetPath`.** Definition
+  (`AnimationAuthoringHelpers.cpp:65-78`) and declaration (`.h:57`) removed; **67 qualified call
+  sites renamed** (`_AnimBlueprint.cpp` 30, `_Sequence.cpp` 29, `_BlendSpace.cpp` 8 — the brief's
+  "roughly 30/29/8" was exact) plus the 4 unqualified uses in the loader quartet
+  (`LoadSkeletonFromPathAnim`, `LoadSkeletalMeshFromPathAnim`, `LoadAnimSequenceFromPath`,
+  `LoadAnimSequenceBaseFromPath`) and the 4 doc references in the header. The
+  `AnimationAuthoringHelpers::` qualifier is dropped — the replacement is a free `PINWRIGHT_API`
+  function. Reachability was VERIFIED, not assumed: the three authoring `.cpp` include
+  `PinWrightHelpers.h` (which includes `Utils/PathUtils.h`); `AnimationAuthoringHelpers.cpp` reached
+  it only transitively through `Utils/AssetUtils.h:8`, so an explicit `#include "Utils/PathUtils.h"`
+  was added there rather than leaning on another header's include list.
+  **Behaviour changes, stated rather than assumed.** (a) An interior `//` now COLLAPSES inside the
+  normalizer instead of reaching `StaticLoadObject` -> `ResolveName2(Create=true)` -> `CreatePackage`
+  and ending the process. From the wire it never gets that far: the retyped `path`/`classref` gate
+  refuses it at dispatch. (b) `..` and unmounted roots now return EMPTY, so the loader hands
+  `StaticLoadObject` an empty name and returns nullptr -> the verb answers its own NOT_FOUND, which
+  is the verdict a pre-fix build reached one step later anyway. **Checked in engine source that
+  empty is not itself a Fatal:** `StaticLoadObjectInternal` re-enters with
+  `"" + "." + GetShortName("")` = `"."`, `ResolveName2` splits an EMPTY `PartialName`, and the
+  `CreatePackage` branch is guarded by `!FPackageName::IsShortPackageName(PartialName)`
+  (`UObjectGlobals.cpp:1297`) which is FALSE for an empty string — so the branch is skipped and
+  `:1117-1119` is never reached. (c) A `Content` folder under a plugin stops being corrupted: the
+  old `ReplaceInline("/Content","/Game")` was unanchored, so `/MyPlugin/Content/X` became
+  `/MyPlugin/Game/X` and `/Game/Content/X` became `/Game/Game/X`.
+  **A REGRESSION the fold introduces, and it is not this cluster's to fix.**
+  `NormalizeContentAssetPath` front-loads `SanitizeProjectRelativePath`, whose mount check
+  short-circuits only on `/Game`, `/Engine`, `/Script` and otherwise falls through to
+  `FPackageName::IsValidLongPackageName`, which rejects `.` (`INVALID_LONGPACKAGE_CHARACTERS`).
+  So a PLUGIN-mounted OBJECT path — `/MyPlugin/Anims/AS_X.AS_X` — now normalizes to empty and the
+  four anim loaders answer NOT_FOUND for an asset that loaded before. `/Game/...` object paths are
+  unaffected (they short-circuit above the check). This is inherited from `NormalizeAudioPath`, is
+  live in the audio cluster today, and is a property of `IsValidMountPoint`, which the foundation
+  agent owns — recorded here rather than worked around locally.
+  **The downstream test needed its reasoning corrected, and one assertion now depends on the
+  dispatch gate's message.** `Tests/Gameplay/TestAnimationAuthoringNamePathSafety.cpp` referenced
+  `NormalizeAnimPath` in four comments (comments only — no code call, so the deletion does not break
+  its compile) and asserted as fact that the transform "does not collapse an interior `//`", which is
+  no longer true. Comments rewritten to name where the refusal comes from now.
+  **`ExpectDoubleSlashFolderRefused` drives `path: "/Game//Animations"` and asserts refusal +
+  `INVALID_ARGUMENT` + `Sink->Message.Contains("/Game//Animations")`. With the rename alone that case
+  would go RED — the normalizer collapses the `//`, the composition succeeds and the verb answers
+  `SKELETON_NOT_FOUND`. The retype is what keeps it green: `path` is now declared `path`, so the
+  dispatcher gate refuses it above the handler. That makes the third assertion a hard requirement on
+  the gate: ITS `INVALID_ARGUMENT` MESSAGE MUST QUOTE THE RECEIVED VALUE, not only name the parameter
+  and the rule.** If the dispatch-gate agent's message does not, this test fails and the fix is one
+  line in that message, not in this test. Assertions were deliberately left strict rather than
+  relaxed to accept either layer.
+  **Array-of-path slots NOT retyped, deliberately, against the brief's default.** `animation.cleanup`'s
+  `artifacts` and `animation.setup_retargeting`'s `assets` are arrays of asset paths, and both are read
+  with `Ctx.GetArray` only — no single-string form. The type gate is a union with OR semantics over
+  top-level values and cannot see array ELEMENTS, so `path|array` would buy no `//` protection and
+  would WIDEN each slot to accept a scalar string that `GetArray` then drops. The registry's
+  `array|string` precedent is used where both shapes are genuinely accepted, which is not the case
+  here. Left as `array`; the honest fix is element-level checking in the nested gate.
+  **Skipped, with grounds.** (a) FOUR verbs read their path through `Ctx.RequireAssetPath` —
+  `anim.decompile_agir`, the `AnimSequenceDescribeHandler` describe verb, `MotionMeasureHandler`'s
+  measure verb and one in `AnimCompileHandler` — already `SanitizeProjectRelativePath` +
+  `IsValidAssetPath`, so no guard was added (they WERE still retyped: the declaration is
+  documentation and lint input, independent of the runtime guard). (b) ZERO
+  `UEditorAssetLibrary::LoadAsset` sites in this cluster, so that exemption did not apply here.
+  (c) The loader quartet in `AnimationAuthoringHelpers.cpp` — covered by the fold above.
+  (d) `propertyPath` (`animation.authoring.set_notify_state_property`) is a PROPERTY path on a
+  notify-state instance, not an asset path — left `string`. (e) `requiresAsset` (`anim.search_nodes`)
+  is a case-insensitive SUBSTRING filter over class names, never loaded — left `string`.
+  (f) `clothAssetName` x3 and `profileName` x5 are names, not paths.
+  **Residual, measured not guessed:** 61 `StaticLoadObject` + 14 `LoadObject<` sites remain in the
+  cluster. Every one takes its string from a parameter retyped above (`BlueprintPath` 21,
+  `AssetPath` 23, `MeshPath` 5, the normalizer's output 4, and singles for the IK-rig, skeleton,
+  physics, blend-mask/curve and bind-asset paths) — which is the whole point of closing this at the
+  dispatch boundary rather than at 75 call sites. Nested surfaces were checked too:
+  `animation.create_state_machine`'s `states[]` documents an `animation` key but the handler reads
+  only `name` from each entry (`AnimationHandler.cpp:703`), so no nested path load exists here for
+  the nested-key gate to adopt.
+  Scope for the commit: `-- Plugins/PinWright/Source/PinWright/Private/Handlers/Animation
+  Plugins/PinWright/Source/PinWright/Private/Tests/Gameplay/TestAnimationAuthoringNamePathSafety.cpp`.
+  Not compiled and not run per instruction; the orchestrator builds after the wave.
+- `#17-environment-physics-spatial-level-world-actor-volume-retype` `OPEN` developer — Layer-1
+  DECLARATION RETYPE for the ENVIRONMENT / PHYSICS / SPATIAL / LEVEL / WORLD / ACTOR / VOLUME
+  cluster. **83 declarations retyped: 67 `path`, 15 `classref`, 1 `filepath`.** No guards, no
+  helpers, no error codes, no tests — every edit is the type token of an existing `FParamSpec`, so
+  `Content/Python/check_test_ids.py` needs no re-run. Files: `Environment/{EnvironmentHandler,
+  FoliageHandler, LandscapeHandler, LandscapeGrassFlushHandler, LightingHandler}.cpp`,
+  `Physics/{ChaosVehicleHandler, PhysicsHandler}.cpp`, `Spatial/MeasureHandler.cpp`,
+  `Level/{LevelHandler, LevelStructureHandler}.cpp` + `Level/LevelNameParamUtils.h`,
+  `World/WorldPartitionHandler.cpp`, `Volume/VolumeHandler.cpp`, `Actor/{ComponentHandler,
+  DescribeHandler, SpawnBatchHandler, SpawnHandler}.cpp` + `Actor/{SpawnParamUtils,
+  SpawnMaterialUtils, ActorQueryParamUtils}.h`.
+  **The `filepath` case is real and there is exactly one of it.** `level.export`'s `exportPath`
+  (`LevelHandler.cpp:869`) is documented "Filesystem path (project-relative or absolute) to write
+  the .t3d file" and never becomes a package name — typing it `path` would start refusing a UNC
+  destination. Its `destinationPath` ALIAS is the same slot and inherits the type; note that
+  `level.move` / `level.duplicate` spell a *package* path `destinationPath` (`:1108`, `:1157`) and
+  those two are `path`. One wire name, two meanings, two types — the lint test cannot see this,
+  only the description can.
+  **Three shared spec helpers carry the type for many verbs, so they are the highest-leverage edits
+  in the cluster.** `SpawnParamUtils::SpawnClassPathParamOpt` → `classref` (covers the
+  `classPath` / `assetPath` / `class_name` / `className` alias set on `actor.spawn`),
+  `SpawnParamUtils::SpawnMeshPathParamOpt` → `path`, `SpawnMaterialUtils::MaterialPathParam` →
+  `path` (3 verbs), `ActorQueryParamUtils::FindClassNameParamReq` → `classref` — that last one is
+  the plan's own live spot-check, `actor.find_by_class {className: "/Game//X"}`. Its body-side
+  filter (`QueryHandler.cpp:427-442`) checks `..`, `\\` and a list of unix/Windows filesystem
+  prefixes and **still does not check `//`**, confirmed by reading it; the declaration is now what
+  refuses it. `LevelNameParamUtils::CreateNameParam` → `path` covers `level.create` +
+  `level.structure.create_level`: nominally a leaf name, but `LevelHandler.cpp:519-524` uses a
+  value starting with `/` **verbatim as the package path**, so the slot really is a path slot.
+  **Two classifications in the brief are wrong; both were re-derived, not assumed.** (1)
+  **`FoliageHandler.cpp:1756` is NOT already guarded by `IsValidLongPackageName`.** The guard at
+  `:1755` sits *below* a load — `:1752` already ran `LoadObject<UStaticMesh>(nullptr, *MeshPath)`
+  on the raw string, so the `:1756` re-load inside the guard is dead as a first touch. This is the
+  plan's own "a guard below a load is not a guard", and it means `foliage.add_type`'s `meshPath`
+  was an unguarded editor kill until this retype — the same verb the plan lists for the live
+  spot-check. Two further loads below it (`:1763`, `:1768`) compose `/Game/` + raw text and are
+  equally unchecked. **No code was emitted**; `path` on the declaration closes all four at the
+  boundary. (2) `foliage.create_procedural`'s nested path key is **`meshPath`, not `mesh`** (read
+  at `FoliageHandler.cpp:2411`).
+  **Nested path keys: nothing declared, and the reason is a mechanism gap agent B must close, not a
+  judgement call.** The one genuinely open nested path value in this cluster is
+  `foliage.create_procedural` → `foliageTypes[].meshPath` → `LoadObject<UStaticMesh>`
+  (`FoliageHandler.cpp:2419`) with zero sanitization on the way. Three facts block declaring it
+  today. (a) `foliageTypes` is `RPC_PARAM_REQ`; `RPC_PARAM_OPT_NESTED` (`ParamSpec.h:55`) hardcodes
+  `bRequired=false` and there is no required-nested macro. (b) `FParamSpec::NestedKeys` is an
+  **untyped** allow-list — nothing in the struct can say *which* nested key is a path, so a `//`
+  rule on nested keys needs a field that does not exist yet, and guessing its macro spelling would
+  break the orchestrator's build rather than this agent's. (c) Adopting the existing allow-list
+  would be a contract narrowing that breaks a **documented** behaviour: this verb deliberately
+  tolerates unread per-type keys and echoes them (`UnreadPerTypeFields`, `:2382-2384`; the
+  parameter description ends "Unread keys you pass are echoed in `ignoredFields`"), and
+  `NestedParamKeyCheck.h` refuses `UNKNOWN_NESTED_PARAMS` for every key not listed. **What B needs:
+  a path-key declaration that does NOT imply a closed key set** (a separate `NestedPathKeys`, or a
+  typed nested entry), plus a required-param nested macro. Same shape as the `#11` residual from
+  the other end: there the paths were nested VALUES under caller-chosen keys; here the key is fixed
+  and it is the *closedness* that is unaffordable.
+  **Checked and deliberately NOT retyped.** `LandscapeHandler.cpp:956` `path` is a world-space
+  **polyline** `[{x,y,z}, ...]` for the brush stroke, not a path — the single worst find-replace
+  trap in the cluster. `ActorFolderHandler.cpp:43` `folderPath` is a World Outliner folder
+  ("Prototype/Walls"), no package. `landscapeName` (6 sites), `packedLevelName` and
+  `LevelStructureHandler.cpp`'s two `levelName` slots (`:553`, `:682`) are display labels or
+  in-world streaming-level lookups with no load. `actorName` (23 sites via
+  `ActorNameParamUtils::ActorNameParamReq`, which takes its type as an ARGUMENT) is left `string`:
+  it is an identity slot resolved through `McpActorUtils::ResolveActor`, its callers include
+  `PinWrightPCG`, and retyping it is a cross-cluster decision, not this agent's.
+  `SpawnMaterialUtils::MaterialPathsParam` and `onlyClasses` / `ignoreActors` /
+  `excludeComponentClasses` stay `array` — their ELEMENTS are paths or class names, which is the
+  same nested-value gap as above.
+  **Skipped as already guarded (Task 3), each verified by reading the result flow, not the call.**
+  All eight `SanitizeProjectRelativePath` sites in `LandscapeHandler.cpp` (`:983`, `:1553`, `:1659`,
+  `:1694`, `:1872`, `:2085`, `:2817`, `:3725` — the brief's `:1573` no longer exists) and both in
+  `FoliageHandler.cpp` (`:1288`, `:1399`, feeding the loads at `:1328` / `:1427`) assign the
+  sanitized value back over the raw variable, and `SanitizeProjectRelativePath` collapses `//` via
+  `FPaths::RemoveDuplicateSlashes` (`PathUtils.cpp:69`) — compute-then-discard occurs nowhere in
+  this cluster. `actor.spawn_batch`'s `transforms[].materialPath` is guarded the same way inside
+  `SpawnMaterialUtils::ParseAndResolve` (`:245-255`), which is why it is NOT in the nested residual
+  above. `landscape.flush_grass`'s `grassTypePath` reads via `Ctx.RequireAssetPath`
+  (`LandscapeGrassFlushHandler.cpp:61`) — sanitized and re-validated, so the retype there is
+  declaration correctness only. The 11 `UEditorAssetLibrary::LoadAsset` sites in the cluster are
+  `//`-safe per the plan.
+  **Error-code trap: cleared.** `FoliageHandler.cpp` still has **zero** `ErrorCodes::` references
+  after this diff (measured), so it stays non-adopting and its raw literals stay legal;
+  `LandscapeHandler.cpp` (32 refs, on the `PartiallyConvertedHandlerFiles` baseline) and
+  `Spatial/PlacementHandler.cpp` were not touched on that axis. `LevelStructureHandler.cpp` and
+  `ChaosVehicleHandler.cpp` were being edited concurrently by the `IsValidMountPoint` agent; the
+  two diffs land on disjoint lines and neither was reverted (verified against the working tree).
+  Not compiled and not run per instruction; the orchestrator builds after the wave.
