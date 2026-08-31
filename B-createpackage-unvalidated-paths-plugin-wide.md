@@ -2143,7 +2143,7 @@ verdict on each. No site below was driven — confirming one costs an editor.
   Plugins/PinWright/Source/PinWright/Private/Tests/Blueprint/TestBlueprintCreateTypePathSafety.cpp
   Plugins/PinWright/Source/PinWrightPoseSearch/Private/Tests/Gameplay/TestPoseSearchCreateAssetPathSafety.cpp`.
   Not compiled and not run per instruction; the orchestrator builds after the wave.
-- `#22-path-utils-foundation-predicate-and-debloat` `OPEN` developer — Landed the wave's shared
+- `#24-path-utils-foundation-predicate-and-debloat` `OPEN` developer — Landed the wave's shared
   predicate and normalizer definition in `Utils/PathUtils.{h,cpp}`, deleted the three helpers that
   existed only to compensate for one composition bug, and reconciled three cross-cluster findings
   the orchestrator routed here mid-wave. Nothing compiled and nothing run per the brief.
@@ -2287,7 +2287,7 @@ verdict on each. No site below was driven — confirming one costs an editor.
   composer for the folder refusal that the dispatch gate now answers first. Both are comment-only
   and the file is not this agent's; the substance is recorded above so the owner can reword.
   Not compiled and not run per instruction; the orchestrator builds after the wave.
-- `#22-sequencer-render-mrq-image-insights-retype` `OPEN` developer — Layer-1 DECLARATION RETYPE for
+- `#23-sequencer-render-mrq-image-insights-retype` `OPEN` developer — Layer-1 DECLARATION RETYPE for
   the SEQUENCER / RENDER / MRQ / IMAGE / INSIGHTS cluster. **97 declarations retyped: 76 `path`, 17
   `filepath`, 4 `classref`.** No guards added, no error-code reference introduced, one comment
   corrected (below). Files: `Handlers/Sequencer/` (`SequenceHandler.cpp` 35, `SequencerHandler.cpp`
@@ -2387,3 +2387,66 @@ verdict on each. No site below was driven — confirming one costs an editor.
   that is not a type field. `CameraFrameHandler.cpp`, `RenderingProjectSettingsHandler.cpp` and
   `CaptureSubject*.cpp` declare no path-shaped parameter and were not edited. Not compiled and not
   run per instruction.
+- `#24-asset-editor-ui-niagara-system-and-all-five-gated-sub-modules-retyped` `OPEN` developer — Declaration-only
+  retype across `Handlers/Asset|Editor|UI|Niagara|Utility|Reflection|System|SourceControl|Localization|Input`
+  and all five gated sub-modules. **230 declarations: 193 `path`, 19 `classref`, 18 `filepath`.** No guard,
+  no error code, no behaviour change outside the type literal. By module — Asset 40/2/4, Editor 7/1/3,
+  UI 15/5/3 (+2 in the shared helper), Niagara 52/4/0, Utility 23, Input 7, Localization 0/0/2,
+  Reflection/SourceControl/System 3/1/0, PinWrightPCG 16/2/0, PinWrightChooser 7/3/0,
+  PinWrightGeometry 13/0/6, PinWrightPoseSearch 6, PinWrightCommonUI 0/1/0.
+  **Four of the 230 are in shared param helpers and cover 30+ call sites between them**, which is why a
+  macro-shaped grep under-reports this cluster: `UI/WidgetHandlerUtils.h:34,41`
+  (`WidgetAssetPathParamReq/Opt`, brace-initialised `FParamSpec`, 27 widget verbs) and
+  `Asset/AssetPathParamUtils.h:81,132` (`GenerateLodsSingleMeshParamOpt`, `DeleteSinglePathParamOpt`,
+  `MakeAliasParamSpec` with the type baked into the header). Three more non-macro sites were retyped at
+  their call sites, where the type is the second argument: `Editor/EditorCommandHandler.cpp:582` (`levelPath`),
+  `PinWrightGeometry/.../MeshAssetIOHandler.cpp:184` and `SkeletalMeshAssetIOHandler.cpp:449` (both `assetPath`).
+  A `FParamSpec`-construction sweep (not an `RPC_PARAM_*` sweep) over the whole scope is what found them.
+  **The 18 `filepath` assignments, each read individually.** `asset.import sourcePath` — "Absolute or
+  project-relative path to the source file on the local filesystem (e.g. 'C:/Art/foo.fbx')", the one
+  genuinely-disk `sourcePath` of the four in `AssetManageHandler.cpp` (duplicate/rename/move are all
+  content paths and are `path`). `asset.dump outRoot` and `asset.dump_folder outRoot` — "dump root
+  directory; relative paths resolve against the project dir". `asset.generate_thumbnail outputPath` —
+  "File path to save the thumbnail to. The extension selects the format". `editor.screenshot filename`,
+  `editor.screenshot_window filename`, `widget.screenshot_designer filename`, `ui.screenshot path` +
+  `filename`, `editor.start_recording name` (".demo replay") — every one is composed onto a `Saved/`
+  directory on disk. `localization.gather/compile config` — "Project-relative Config/Localization/*.ini
+  path". `model.compile filePath`, `model.validate filePath` — "Filesystem path to the .pwmodel source".
+  `geometry.export_obj/export_stl/import_obj/import_stl filePath` — "Project-relative output path" /
+  "Project-relative path to an OBJ file". Under the UNC rule these are exactly the slots that would start
+  refusing `\server\share\...` had they been typed `path`. Note the split inside one verb:
+  `model.compile filePath` is `filepath` but its `outputPath` is `path` ("Destination /Game/... asset path").
+  **Skipped, with the reason.** (a) Array slots stay `array` — `assetPaths` (5 in `AssetWorkflowHandler`,
+  3 in `SourceControlHandler`), `packagePaths`, `classNames`, `classes`, `assets`, `animations`,
+  `DeleteBatchPathsParamOpt`. The gate reads a top-level scalar; an array of paths needs the element-wise
+  rule, which no declared type expresses today. `pose_search.create_database animations` also carries a
+  nested `sequencePath` key and is the clearest `NestedPathKeys` candidate in this scope — recorded, not
+  adopted, since the brief scoped this agent to declarations. (b) Name slots stay `string` and typing them
+  `path` would not have helped: `editor.create_utility_widget name`, `widget.create_widget_blueprint name`,
+  `niagara.create_system/create_emitter name`, `pcg.create_graph name`, `chooser.create name` are all bare
+  asset names joined onto a folder — the `//` is manufactured by the JOIN, not present in the name, which
+  is the `IsValidMountPoint`-caller work in `#20`/A4's scope, not a declaration's. Likewise every
+  `widgetName`/`widget_name` (25), `emitter`/`emitterName` (24) and `propertyPath` (2, a reflected property
+  chain, not an asset path). (c) Keyword slots that merely LOOK class-shaped stay `string`:
+  `misc.create_camera cameraClass` ("camera" or "cine"), `asset.search classFilterMode`,
+  `geometry.remesh mesh/materialBoundaryConstraint`, `niagara.validate level`. (d)
+  `chooser.add_column enumType` ("Enum path for enum columns") left `string` deliberately: `classref` is
+  documented against `ResolveUClass`'s shapes and a `UEnum` is not a class, and `ResolveUEnum` is guarded
+  at the resolver by `#21`, so the doubled-slash rule already reaches it without misdocumenting the slot.
+  (e) `pcg.generate` reads its actor slot through the cross-cluster `ActorNameParamUtils::ActorNameParamReq`;
+  left alone so the `actorName` convention stays one decision. (f) No guard added anywhere: the decompile /
+  read-back verbs in this scope that read through `Ctx.RequireAssetPath` (including
+  `AssetSaveHandler.cpp`) and the `UEditorAssetLibrary::LoadAsset` sites are already safe, per the plan.
+  **Gated sub-modules: header reachability verified, not assumed.** All five `.Build.cs` files carry
+  `PrivateIncludePaths.Add(Path.Combine(ModuleDirectory, "..", "PinWright", "Private"))` as their first
+  private include path, and each edited translation unit already includes `Handlers/ParamSpec.h` (directly
+  or via `Handlers/HandlerContext.h`) — proven by the fact that every one of them already expands
+  `RPC_PARAM_*` in the current tree. `PoseSearchHandler.cpp` and `ChooserAuthoringHandler.cpp` were
+  confirmed still to carry the `#7` wave's guards (`PoseSearchHandler.cpp:453-454`,
+  `ChooserAuthoringHandler.cpp:83-84`); neither guard was touched.
+  **Concurrency note for whoever reconciles this wave.** Line numbers under `Editor/UtilityWidgetHandler.cpp`
+  and `Editor/EditorCommandHandler.cpp` shifted by +4/+6 mid-run because A4 landed its `IsValidMountPoint`
+  fallback comments in the same files; those three retypes were re-applied by content match and A4's edits
+  are intact. Every edit in this entry is a byte-exact in-place type-literal swap, so CRLF endings are
+  unchanged. No test added, `check_test_ids.py` not re-run (no new ids). Not compiled and not run per
+  instruction.
