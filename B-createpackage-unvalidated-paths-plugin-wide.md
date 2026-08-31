@@ -1430,3 +1430,102 @@ verdict on each. No site below was driven — confirming one costs an editor.
   That file is outside this agent's ownership and was deliberately not edited. Stated here so a
   partial landing is diagnosable as an ordering problem rather than a bad retype.
   Not compiled and not run per instruction; the orchestrator builds after the wave.
+- `#15-material-texture-cluster-retyped-and-normalizer-folded` `OPEN` developer — Layer-1
+  DECLARATION RETYPE plus the Layer-3 normalizer fold for the MATERIAL / TEXTURE cluster
+  (`Handlers/Material/**` less `MaterialCreatePathParamUtils.h`, `MGIR/**`,
+  `Material/MaterialExpressionFactory.cpp`). **115 declarations retyped: 113 `path`, 2 `classref`,
+  ZERO `filepath`** — and the zero is a measurement, not an omission. The wave brief warned that
+  `sourcePath` / `outputPath` are disk paths in texture import/export verbs; **this cluster
+  registers no import or export verb.** `TextureHandler.cpp`'s 26 registrations are enumerated at
+  `:2791-3030` and every one is a create / set / process verb whose paths are package paths. The
+  two names were read individually anyway: `texture.resize_texture`'s `sourcePath` (`:2939`) is
+  fed to `SanitizeProjectRelativePath` and then `StaticLoadObject` at `TextureHandler.cpp:1500`,
+  and `texture.channel_extract`'s `outputPath` (`:3017`) is handed to
+  `PinWrightComposeAssetPackagePath` at `:2491` — both mounted asset paths, both `path`. The file
+  includes `HAL/PlatformFileManager.h` and uses nothing from it; that orphan predates this wave and
+  was left alone.
+  **Where the 115 are.** 56 through `MaterialHandlerUtils::MaterialAssetPathParamReq`'s explicit
+  `Type` argument (48 in `MaterialAuthoringHandler.cpp`, 8 in `MaterialGraphHandler.cpp` — the
+  `assetPath`/`materialPath`/`path` alias slot); 2 through
+  `MaterialExpressionClassParam{Req,Opt}` (`expressionClass`, `nodeType`) → **`classref`**, which
+  is the right token and `path` would have been wrong: `material.graph.add_expression` documents
+  the bare short form `Add` alongside `MaterialExpressionAdd`; 57 direct `RPC_PARAM_*`
+  (`TextureHandler.cpp` 38, `MaterialAuthoringHandler.cpp` 8 — `texturePath`x3, `parentMaterial`x2,
+  `functionPath`, `physicalMaterialPath`, `add_landscape_layer`'s folder `path`;
+  `MaterialParameterCollectionHandler.cpp` 8; `MaterialGraphHandler.cpp` 1;
+  `MGIRCompileHandler.cpp` 1; `MGIRDecompileHandler.cpp` 1).
+  **One retype closes a kill path the brief did not list.** `material.compile_mgir`'s `context`
+  (`MGIRCompileHandler.cpp:40`) is not path-SHAPED by name — it reads as a mode or a scope token —
+  but it is a fallback asset path: `Options.Context` → `NormalizeEntryTarget`
+  (`MGIR/MGIRCompiler.cpp:300-307`) → `GetOrCreateMaterial` → `LoadObject<UMaterial>(nullptr,
+  *AssetPath)` (`:325`). `material.compile_mgir {context: "/Game//X"}` was process death today.
+  A name-driven lint test would never have flagged it; it was found by reading the description.
+  **Normalizer fold.** Deleted the file-static `NormalizeTexturePath` (`TextureHandler.cpp:57-70`)
+  and renamed **19 call sites** to `NormalizeContentAssetPath`, plus 3 comment mentions in the same
+  file and 2 in `Tests/Material/TestMaterialCreateNamePathSafety.cpp` (`:45`, `:154`) whose stated
+  fact — "only maps /Content to /Game, flips backslashes and trims TRAILING slashes" — the deletion
+  falsified. Reachability was verified, not assumed: `TextureHandler.cpp` includes
+  `PinWrightHelpers.h`, which includes `Utils/PathUtils.h` at `:9`. Net −16 lines.
+  **The fold is NOT byte-equivalent here, unlike the audio one, and this is the entry's one real
+  contract change.** `#6`/`#13` record that `NormalizeAudioPath`'s `/Content`→`/Game` branch was
+  already dead because the sanitizer ran first. `NormalizeTexturePath` ran NO sanitizer, so its
+  rewrite was **live**: `path: "/Content/Textures"` composed `/Game/Textures` and worked on those
+  19 sites, and now returns empty and is refused. Three facts bound the blast radius. (a) The other
+  18 path-reading sites in the same file already called `SanitizeProjectRelativePath` directly and
+  already refused `/Content` — the cluster was internally inconsistent and the fold makes it
+  consistent, not uniformly stricter. (b) No test, no wiki page and no param default in the cluster
+  uses the `/Content` spelling; the only `/Content` payload in the suite is
+  `TestAudioHandlers.cpp:1367` against `decompile_sound_cue`, which routes through
+  `SoundCueDumpBuilder::NormalizeSoundCuePath` and is untouched by this. (c) Every one of the 19
+  sites already tests the result for emptiness and answers a refusal (`assetPath is required`,
+  `name is required`, `texturePath is required`, or the composer's `INVALID_ARGUMENT`), so the
+  narrowing is a refusal, never a Fatal and never a silent wrong asset. The 19 sites also **gain**
+  `..`-rejection and interior-`//` collapsing they never had.
+  **SKIPPED, with the ground for each.** (1) **22 `Ctx.RequireAssetPath` sites in
+  `MaterialAuthoringHandler.cpp`** plus `MaterialGraphHandler.cpp:334`,
+  `MaterialParameterCollectionHandler.cpp:113`, `MGIRDecompileHandler.cpp:53`, three in
+  `MaterialFinders.h` and 2 in `TextureHandler.cpp` (`:2878`, `:2910`) — already sanitized AND
+  re-validated (`HandlerContext.cpp:113`/`:133`); no guard added. Their DECLARATIONS were still
+  retyped, because the declaration is the wiki contract and the ratchet reads names, not bodies.
+  (2) **18 `SanitizeProjectRelativePath` sites in `TextureHandler.cpp`** (`:381, 568, 739, 904,
+  962, 1147, 1211, 1275, 1325, 1374, 1423, 1500, 1545, 1642, 1675, 1754, 1788, 1871`) — the brief
+  said 11; there are 18, and **all 18 assign the sanitized value back over the raw variable**
+  (`Path = SanitizedPath` / `AssetPath = SanitizedAssetPath` / `SourceTexture = SanitizedSource`),
+  which is the distinction that made the `LevelStructureHandler` reading wrong in `#2`. Checked
+  one by one; none is the compute-then-discard shape. (3) **`nodeId` / `sourceNodeId` /
+  `targetNodeId` / `expressionId` left `string`** — `MaterialFinders.h:47-74`
+  `FindExpressionInView` is a pure in-memory scan over `GetExpressions()` comparing GUID, name,
+  `GetPathName()` and parameter name. No load, no `CreatePackage`; `path` would be a false
+  contract on a slot that legitimately takes a GUID. (4) **`name` / `layerName` left `string`** —
+  bare leaves, and each is already validated by `PinWrightComposeAssetPackagePath`'s
+  `FName::IsValidXName` half. (5) **`TextureHandler.cpp:2700`'s `DoesAssetExist`** is NOT the
+  `AssetUtils.cpp:1382-1384` anti-pattern: the composer validated `FullPath` at `:2694` and the
+  probe reads that same validated string, i.e. the guard is already above the `if`. Nothing to
+  report there.
+  **Residual, and it needs a nested-VALUE gate, which is not what agent B is building.** Three
+  loads in this cluster take caller text the top-level type gate cannot see. (a)
+  `material.graph.create_nodes` → `nodes[].texturePath` → `LoadObject<UTexture>`
+  (`MaterialGraphHandler.cpp:587`). (b) `material.authoring.set_material_instance_parameters` and
+  `create_material_instance` share one applier: `texture: {ParamName: AssetPath}` →
+  `LoadObject<UTexture>` (`MaterialInstanceOverrides.h:116`). **Note the shape** —
+  `create_material_instance` already declares `NestedKeys` (`scalar`/`vector`/`texture`/
+  `staticSwitch`), so a nested-KEY gate is adopted there and still does not help: the paths are the
+  nested VALUES, under caller-chosen parameter names. (c) `material.compile_mgir`'s entry-block
+  names live inside the `text` document and are split by the compiler, so no declared type on any
+  parameter can reach them; `MGIRCompiler.cpp:325` is the load. No code was emitted for any of the
+  three.
+  **Error-code trap avoided.** `TextureHandler.cpp` is non-adopting with raw literals and is not on
+  the `PartiallyConvertedHandlerFiles` baseline; the diff adds zero `ErrorCodes::` references
+  (verified by grepping the `+` side of the diff). No tests added, so
+  `Content/Python/check_test_ids.py` needs no re-run. `sed -i` normalized CRLF→LF in five edited
+  `.cpp` files; `.gitattributes` `text=auto` normalizes both ways in the index, so the committed
+  diff is the edits alone — checked with `git diff --stat` (122 changed lines in a 4,329-line
+  `MaterialAuthoringHandler.cpp`, not 4,329).
+  **For agent A1 / the orchestrator, not fixed here:** `MaterialCreatePathParamUtils.h`'s two
+  shared specs (`MaterialCreateNameParamReq` → `name`, `MaterialCreateFolderParamOpt` → `path`)
+  still declare `string`, and they cover the destination slot of all eight
+  `material.authoring.create_*` verbs. That file is A1's. If A1 retypes the folder slot to `path`,
+  `ExpectInstanceFolderRefused` (`TestMaterialCreateNamePathSafety.cpp:244`, driving
+  `path: "/Game//Materials"`) starts being refused at the dispatch gate instead of at the composer,
+  and its asserted refusal shape must be re-checked.
+  Not compiled and not run per instruction; the orchestrator builds after the wave.
