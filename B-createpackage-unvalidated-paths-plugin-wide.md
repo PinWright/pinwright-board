@@ -1804,3 +1804,206 @@ verdict on each. No site below was driven — confirming one costs an editor.
   `BlueprintGraphHelpers.cpp` and agent A's new untracked
   `Handlers/Blueprint/BlueprintPathLoad.h` — dropped into this directory — were left untouched.
   Not compiled and not run per instruction; the orchestrator builds after the wave.
+- `#19-blueprint-graph-widget-gameframework-networking-chokepoints` `OPEN` developer — Layer-2
+  CHOKEPOINT GUARDS for the `blueprint.graph.*`, `widget.*` and `game_framework`/`networking`
+  loader clusters, plus two Layer-3 deletions. Five shared resolvers, ~89 call sites, zero call
+  sites edited: every guard is inside the shared body, which is the whole point.
+  **`BlueprintGraphHelpers::ResolveBlueprintAndGraph` — the widest reach in this batch (24 call
+  sites = the entire `blueprint.graph.*` namespace).** The existing `AssetPath.IsEmpty()` condition
+  was WIDENED to `|| CanReachCreatePackageFatal(AssetPath)`, above the `LoadObject<UBlueprint>`.
+  **The trace above the load was re-derived, not taken on trust, and it confirms the ticket:**
+  `BlueprintHandlerUtils::ResolveBlueprintPath` neither loads nor sanitizes. Per alias field it
+  calls `FindBlueprintNormalizedPath` (`Utils/AssetUtils.cpp`), which prepends `/Game` to anything
+  `IsValidMountPoint` rejects — so `Req = "/A//B"` becomes `/Game/A//B` — and then asks
+  `UEditorAssetLibrary::DoesAssetExist` about it. That probe COLLAPSES the duplicate slash
+  internally, so it answers about a different, clean path, misses, and returns false; the visitor
+  lambda then executes `ResolvedPath = Req` — the caller's RAW string, duplicate slash intact — and
+  that is what arrives at the load. The existence probe finding nothing is what LET THE LETHAL
+  STRING THROUGH, not what caught it: `DoesAssetExist` is an anti-guard here exactly as it is at
+  `AssetUtils.cpp:1382-1384`. Refusal reuses the function's OWN existing `INVALID_BLUEPRINT_PATH`
+  literal with a distinct message naming `//`, so support can grep it apart from a not-found.
+  **`WidgetAuthoringUtils::LoadWidgetBlueprint`** (27 call sites / 28 `widget.*` verbs) guarded
+  beside its `_C` rejection, which already established "malformed shape → nullptr" as this
+  function's contract. `FindObject`, `FindPackage`, the `TObjectIterator` walk and
+  `AssetData.GetAsset()` are all safe; a malformed path simply MISSES all of them and falls through
+  to the two `StaticLoadObject` calls at the end, which is why the guard cannot sit lower. No error
+  channel → one `UE_LOG(LogWidgetAuthoringUtils, Warning, ...)` on the category the file already
+  uses.
+  **`GameFrameworkHelpers::LoadClassFromPath` — a live editor kill from a verb with no
+  `CreatePackage` anywhere in it.** `LoadClass<UObject>` routes `LoadClass` → `StaticLoadClass` →
+  `StaticLoadObject`, and `BPPath = ClassPath + "_C"` appends to caller text, preserving any `//`.
+  Reachable today from `game_framework.configure_spectating` (`spectatorClass`, raw `Ctx.GetString`)
+  and from every `CREATE_GF_BP_HANDLER`-generated verb's `parentClass`. Guarded beside the existing
+  `IsEmpty`, above the safe `FindObject`. Warning log; no error channel.
+  **THE TWO DUPLICATE BLUEPRINT LOADERS ARE NOW ONE BODY.**
+  `GameFrameworkHelpers::LoadBlueprintFromPath` and `NetworkingHelpersNew::LoadBlueprintFromPath`
+  were byte-identical (29 call sites between them: 8 + 19, plus the two definitions). Merged into
+  `Handlers/Blueprint/BlueprintPathLoad.h` as `PinWrightBlueprintPathLoad::LoadBlueprintFromPath`,
+  `inline`, with the guard inside. **Placement justified:** what it loads is a Blueprint, so it
+  belongs to the Blueprint handler cluster, and putting it there means neither consumer takes a
+  dependency on the other's domain header — which "pick one of the two files" would have forced.
+  Header-inline rather than a new `.cpp` because the body is fifteen lines and a second translation
+  unit buys nothing. **Both consumers keep their existing spelling through a
+  `using PinWrightBlueprintPathLoad::LoadBlueprintFromPath;` INSIDE their own namespace**, so the
+  name stays a member of `GameFrameworkHelpers` / `NetworkingHelpersNew` and all 29 call sites —
+  which reach it through `using namespace <...>` inside each handler body — are untouched. A guard
+  duplicated across two files is a guard that has to be remembered twice.
+  **DELETED `WidgetAuthoringHelpers::CreateAssetPackage`** (definition plus its `.h` declaration).
+  **The previous wave's zero-caller measurement was RE-VERIFIED before deleting**, grepping all of
+  `Source/` including the gated sub-modules: the only references were its own definition, its
+  declaration and its test. The identically named `CreateAssetPackage` at
+  `BlueprintTypeDefinitionHandler.cpp:505` is a separate file-local `static` and is untouched — a
+  post-deletion grep confirms it and its two calls still resolve to each other. This also removes
+  one `TEXT("/Game/") + P` prepend site, which matters because `IsValidMountPoint` is getting
+  stricter in the same wave.
+  **DELETED the `LeftChop` in `CreateGameFrameworkBlueprint` and its 8-line justification.** Its
+  stated reason was that `PinWrightComposeAssetPackagePath` joined with `Printf("%s/%s")`, which
+  doubles a separator. That helper now joins with `FString::operator/`, and `PathAppend`
+  (`String.cpp.inl:855-885`) was READ to confirm the direction: with a left side ending in `/` it
+  pops the null terminator and appends, so `"/Game/Foo/" + "BP"` is `"/Game/Foo/BP"` — it ABSORBS
+  one separator rather than doubling it. **The deleted comment asserted the opposite ("operator/
+  DOES double on a left side ending in '/'") and was simply wrong.** `"/Game//" + "BP"` still
+  yields `"/Game//BP"` and is still refused, which is correct: that `//` is the caller's.
+  **SUITE TOTAL: −1 from the deletion, +5 new cases → +4 net from this entry.** The deleted
+  `PinWright.widget.authoring_utils.CreateAssetPackageRefusesInvalidPaths` is the −1 the plan
+  predicted. Added: `PinWright.widget.authoring_utils.LoadWidgetBlueprintRefusesDoubleSlash` (same
+  file, so that file is net 0); `PinWright.blueprint.graph.resolve_path.RefusesDoubleSlash` and
+  `PinWright.blueprint.graph.resolve_path.StillAcceptsWellFormedPaths` (new file
+  `Tests/Blueprint/TestBlueprintGraphResolvePathSafety.cpp`);
+  `PinWright.game_framework.load_class_from_path.RefusesDoubleSlash` and
+  `PinWright.blueprint.path_load.RefusesDoubleSlash` (new file
+  `Tests/EditorOps/TestGameFrameworkLoadPathSafety.cpp`). `check_test_ids.py` re-run: CLEAN, 4864
+  ids scanned, no dot-prefix collisions, no duplicates.
+  **Every new test is a DIRECT CALL, never a verb drive, and each says in its own header that it
+  asserts the post-fix CONTRACT rather than reproducing the defect** — these guards are exactly
+  `Contains("//")`, so NO non-lethal input discriminates a build with the guard from one without,
+  and on a reverted build the `//` cases end the process instead of going red. That is the trade
+  `Tests/Sequencer/TestSequencerExportAnimSequencePathSafety.cpp` already documents. Driving them
+  through a verb would add the dispatcher and the verb's other unguarded arguments to the crash
+  surface and add no coverage. **Controls are the load-bearing half**, because refusal and
+  not-found are the same failure shape at four of the five sites: the graph resolver's control
+  asserts that a well-formed absent path is answered `ASSET_NOT_FOUND` — a DIFFERENT code, from
+  BELOW the guard, which a blanket refusal could not produce; `LoadWidgetBlueprint`'s control
+  creates a real asset through `widget.create_widget_blueprint` and loads it back;
+  `LoadClassFromPath`'s control is `/Script/Engine.PointLight` (answered by the `FindObject` below
+  the guard, so it also witnesses insertion-above rather than replacement); the shared loader's
+  control is `/Engine/EditorBlueprintResources/StandardMacros.StandardMacros`, whose absence on a
+  host emits `PinWrightTestSkip::SkipAssertions` rather than a false red. Ordering witnesses were
+  added for the two pre-existing conditions the guards were placed beside (empty path, `_C` path).
+  **ERROR-CODE TRAP RESPECTED.** `BlueprintGraphHelpers.cpp`, `GameFrameworkHandler.cpp` and
+  `NetworkingHandler.cpp` are all NON-adopting and NOT on `PartiallyConvertedHandlerFiles`; a single
+  `ErrorCodes::` reference would convert the file and turn its 3 / 20 / 36 existing raw literals
+  into hard failures of `RegistryAdoptingFilesUseConstantsOnly`. Post-edit grep confirms zero
+  `ErrorCodes::` in all three. `WidgetAuthoringUtils.cpp` still emits no codes at all.
+  **Stale comments in `TestWidgetCreatePackagePathSafety.cpp` corrected**, not the assertions: three
+  passages asserted the checker "joins with `Printf`, which doubles the separator the operator
+  pops". That is now backwards. The over-refusal pins themselves hold either way and are what
+  demonstrate it, so only the prose changed.
+  **Not cleaned up, deliberately:** `#include "Misc/PackageName.h"` in `WidgetAuthoringUtils.cpp` is
+  orphaned by the `CreateAssetPackage` deletion (`FPackageName` has no other use in the file). Left
+  in place because this module builds with Unity on, a sibling translation unit merged into the same
+  blob could rely on it transitively, and this change was not permitted to compile. One-line
+  follow-up once the wave's build is green.
+  Scope for the commit: `-- Plugins/PinWright/Source/PinWright/Private/Handlers/Blueprint/BlueprintGraphHelpers.cpp
+  Plugins/PinWright/Source/PinWright/Private/Handlers/Blueprint/BlueprintPathLoad.h
+  Plugins/PinWright/Source/PinWright/Private/Handlers/UI/WidgetAuthoringUtils.cpp
+  Plugins/PinWright/Source/PinWright/Private/Handlers/UI/WidgetAuthoringUtils.h
+  Plugins/PinWright/Source/PinWright/Private/Handlers/Systems/GameFrameworkHandler.cpp
+  Plugins/PinWright/Source/PinWright/Private/Handlers/Networking/NetworkingHandler.cpp
+  Plugins/PinWright/Source/PinWright/Private/Tests/UI/TestWidgetCreatePackagePathSafety.cpp
+  Plugins/PinWright/Source/PinWright/Private/Tests/Blueprint/TestBlueprintGraphResolvePathSafety.cpp
+  Plugins/PinWright/Source/PinWright/Private/Tests/EditorOps/TestGameFrameworkLoadPathSafety.cpp`.
+  Not compiled and not run per instruction; the orchestrator builds after the wave.
+- `#20-isvalidmountpoint-rewritten-and-its-22-callers-audited` `OPEN` developer — Replaced
+  `IsValidMountPoint`'s body (`Utils/PathUtils.cpp`) with
+  `!FPackageName::GetPackageMountPoint(Path).IsNone()` and audited every live caller for the
+  prepend interaction. Landed as its own revertable unit: the predicate, its characterization
+  test, and the caller compositions, nothing else.
+  **THE BARE-ROOT QUESTION, MEASURED IN ENGINE SOURCE RATHER THAN ASSUMED:
+  `GetPackageMountPoint(TEXT("/Game"))` returns the FName `Game`, NOT `NAME_None`.** Roots are
+  stored WITH a trailing slash (`PackageName.cpp:804-807`, `/Game/`); the tree walk ends at
+  `FPathViews::TryMakeChildPathRelativeTo`, which chops a redundant terminating separator off the
+  PARENT first and then defines an exactly-equal child as a child (`PathViews.cpp:406-437`); and
+  `IsParentPathOf` agrees for the same reason (`PackageName.cpp:1957-1963`). **The
+  `MountPointExists` fallback the brief held in reserve is not needed and was not added.**
+  **THE PLAN'S `/Game//X` CLAIM IS WRONG, AND THE FIX DOES NOT CLOSE THAT CASE.** The plan states
+  the one-liner refuses `/Game//X`, citing the engine comment at `PackageName.cpp:1959-1962`. That
+  comment is about a mount ROOT that itself contains `//` (`d:/Dir//Root`), not about a query that
+  does. Read in source: `GetPackageMountPoint` does **not** call `IsValidTextForLongPackageName`,
+  and that is where the engine's `//` rule lives (`:1702-1706`); `TryMakeChildPathRelativeTo`
+  explicitly STRIPS duplicate separators that follow the parent and returns true
+  (`PathViews.cpp:468-473`, "If there were invalid duplicate slashes after the parent path, remove
+  them"). So `GetPackageMountPoint("/Game//X")` returns `Game` and this predicate answers TRUE for
+  `/Game//X` **both before and after**. That is pinned as a positive assertion in the
+  characterization test with the reason, because refusing it here would be actively harmful: the
+  callers spell their fallback `if (!IsValidMountPoint(P)) P = "/Game" / P;`, so a refusal would
+  only make them compose `/Game/Game//X`. The `//` guard is `CanReachCreatePackageFatal` and the
+  dispatch-boundary type gate; this predicate is a mount-point question and must not be made into
+  a second `//` check.
+  **AN UNANTICIPATED BUG FIX: object paths under NON-CORE mounts.** The old body short-circuited
+  TRUE on `/Game`|`/Engine`|`/Script` only and otherwise fell through to
+  `IsValidLongPackageName`, which rejects `.` — so `/MyPlugin/Anims/AS_X.AS_X` answered FALSE,
+  `SanitizeProjectRelativePath` returned EMPTY on that verdict, and every verb downstream reported
+  NOT_FOUND for an asset that loads fine (reported live from the animation/audio clusters this
+  wave). `GetPackageMountPoint` skips the text pass, so all mounted roots now behave like the three
+  hardcoded ones. **`SanitizeProjectRelativePath` needs no edit for this** — re-read at
+  `PathUtils.cpp:60-116`, `IsValidMountPoint` is its only text/mount gate and nothing else in it
+  rejects a `.`. Flagged to the foundation agent so the shared helper is not double-fixed.
+  **CALLER AUDIT — 24 live sites (the brief's 22 plus the two the deletions in this wave have
+  since removed: `ValidateAssetCreationPath`'s dead branch and `WidgetAuthoringUtils`).** Verdicts,
+  each read rather than inherited: **SAFE, reject-only** — `QueryHandler.cpp:435`,
+  `SkeletonHandler.cpp:630`, `PerformanceHandler.cpp:774`, `AIHandler.cpp:214`,
+  `PathUtils.cpp:107`. **SAFE, already branches on `StartsWith("/")` or composes with `operator/`**
+  — `BlueprintInfoHandler.cpp:34`/`:164`/`:286`, `GameFrameworkHandler.cpp:82`,
+  `SessionsHandler.cpp:181`, `AssetUtils.cpp:1458`, `AssetUtils.cpp:1964`, and `AssetUtils.cpp:956`
+  (verified as the other agent left it). **FIXED, unsafe composition** — 9 sites, every one changed
+  from `TEXT("/Game/") + P` (or `Printf("/Game/%s")`) to `FString(TEXT("/Game")) / P`:
+  `WidgetCreateHandler.cpp:93`, `UtilityWidgetHandler.cpp:66`, `GASHandler.cpp:2430`,
+  `ChaosVehicleHandler.cpp:210`, `EditorCommandHandler.cpp:593`, and `LevelStructureHandler.cpp`
+  `:277`/`:1265`/`:2096`/`:2222` (the fifth, `:1577`, likewise).
+  **THE BRIEF MISCLASSIFIED ONE SITE AND IT WAS THE ONLY UNGUARDED ONE.**
+  `EditorCommandHandler.cpp:593` (`editor.open_level`) is listed as "reject-only, verdicts only
+  tighten". It is not — it is `LevelPath = FString::Printf(TEXT("/Game/%s"), *LevelPath)`, a
+  prepend, and Printf is concatenation by another spelling. With the tightened predicate a rooted
+  unmounted `levelPath` reaches it for the first time. It cannot reach `CreatePackage` (the flow
+  ends at `ResolveLevelPackageToMapFilename` → `FPaths::FileExists` → FILE_NOT_FOUND), so this was
+  a corrupted resolution and a `//` in a user-facing message, not an editor kill. Fixed anyway.
+  **Two sites are dead in practice and were fixed on spelling alone**, which is worth recording so
+  a later reader does not mistake the fix for a behaviour change: `WidgetCreateHandler.cpp:93`,
+  `UtilityWidgetHandler.cpp:66` and `ChaosVehicleHandler.cpp:210` all take their input from
+  `SanitizeProjectRelativePath`, which calls the SAME predicate and returns empty on refusal — so
+  the prepend branch is only ever reached with an empty string, and `"/Game" / ""` is `"/Game/"`,
+  identical to the old result. Tightening the predicate keeps them in sync rather than opening a
+  hole.
+  **WHAT STOPS WORKING — stated plainly, three behaviour changes and one widening.** (1)
+  `/GameFoo/...`, `/Enginexyz/...` and `/Scriptable/...` are now refused wherever the predicate is
+  a reject (`skeleton.*` path validation, `performance` merge output, the `ai.*` sanitizer,
+  `SanitizeProjectRelativePath` and therefore every verb that funnels through it). They named
+  unmounted roots and never resolved; the refusal is now honest instead of deferred. (2) At the
+  PREPEND sites, the same three shapes now get `/Game` prefixed instead of being passed through:
+  `gas.create_ability_set` with `setPath: "/GameFoo/Set"` used to be refused INVALID_ARGUMENT by
+  the `IsValidLongPackageName` check below and will now CREATE the asset at
+  `/Game/GameFoo/Set`. That is the documented intent of the fallback applied to an input it never
+  used to see, and it is the one place the tightening turns an error into a write — flagged rather
+  than special-cased, because suppressing it would mean re-adding a prefix test. (3)
+  `editor.open_level` and `level.structure.create_level_instance` / `create_packed_level_actor`
+  resolve a rooted-unmounted `levelPath` under `/Game/` instead of verbatim; both still end in
+  LEVEL_NOT_FOUND / FILE_NOT_FOUND unless something genuinely exists there. (4) The widening in the
+  other direction is the object-path fix above: paths carrying `.` or `:` under a plugin, DLC or
+  `/Temp` mount now pass where they were refused.
+  **Tests.** `Tests/Core/TestPathUtils.cpp` gains two, written and their verdicts derived BEFORE
+  the body was replaced: `core.path.is_valid_mount_point.MountPointVerdicts` (the full pinned
+  table, each moved row carrying its old verdict inline, plus the non-core object-path rows — a
+  deterministic `/Temp/Anims/AS_X.AS_X` stand-in and a runtime-discovered real plugin mount via
+  `FPackageName::QueryRootContentPaths`, skipped with `AddInfo` when the host mounts none) and
+  `core.path.is_valid_mount_point.PrependIdiomNeverManufacturesDoubleSlash` (the interaction test
+  the brief asked for: inputs that start with `/` AND fail the mount check, asserting the composed
+  result contains no `//`). Both ids are leaves under a new `is_valid_mount_point` segment, checked
+  against every existing `PinWright.core.path.*` id for the dot-prefix trap.
+  **Error-code trap: nothing added.** Every edit is a composition change; no `ErrorCodes::`
+  reference was introduced into any file, so no non-adopting file was converted. `Utils/` is
+  outside the scan. Not compiled and not run per instruction. `LevelStructureHandler.cpp`,
+  `GASHandler.cpp`, `ChaosVehicleHandler.cpp` and `EditorCommandHandler.cpp` were being edited
+  concurrently by the retype agents; every edit here was re-read immediately beforehand, lands on
+  prepend lines rather than `RPC_PARAM` declarations, and nothing of theirs was reverted (verified
+  against the working tree).
