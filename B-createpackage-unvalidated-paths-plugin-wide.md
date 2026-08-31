@@ -247,3 +247,65 @@ verdict on each. No site below was driven — confirming one costs an editor.
   the `create_control_rig` fallback branch is pre-existing dead code, and that overlay page is
   ~25 KB, over the ~20 KB soft guideline (23.6 KB before this edit). Not compiled and not run: the
   orchestrator builds after the wave.
+- `#4-assetutils-two-shared-helpers-guarded` `OPEN` developer — Closed the two
+  `Utils/AssetUtils.cpp` sites only; status left `OPEN` because the rest of the sweep is in flight.
+  **Sites re-derived at working-tree HEAD, both unchanged: `:1502`**
+  (`PrepareBlueprintPackageGuardingNameCollision`, which passes ONLY its `PackagePath` to
+  `CreatePackage` — its `AssetName` feeds the collision probe and is never concatenated) **and
+  `:1878`** (`McpCreateControlRigBlueprint`, which composes `NormalizedPath / AssetName` and passes
+  the result).
+  **Complete caller enumeration** across all of `Source/`, gated sub-modules included
+  (`PinWrightGeometry`, `PinWrightPCG`, `PinWrightChooser`, `PinWrightPoseSearch`,
+  `PinWrightCommonUI`): `PrepareBlueprintPackageGuardingNameCollision` has exactly ONE production
+  caller — `Handlers/Animation/AnimationAuthoringHandler_AnimBlueprint.cpp:603`
+  (`animation.authoring.create_anim_blueprint`), passing `Path / Name` composed from two raw
+  `Ctx.GetString` values, so caller-supplied and unsafe; it is not among the nine sites `#3` closed.
+  `McpCreateControlRigBlueprint` has ZERO production callers today (the `:3114` hit is a comment;
+  that `#elif` branch inlines its own `CreatePackage`, closed by `#3`) plus ~40 test call sites in
+  `Tests/Assets/TestCRIR*.cpp` and `CRIRTestHelpers.h`, all passing internally-composed literals; it
+  is still `Utils/AssetUtils.h`-declared shared surface, so it is guarded on the same terms.
+  **Guard placed INSIDE both helpers, not at the call sites.** Both are shared, so one guard covers
+  every present and future caller including the unsafe one; and neither helper answers a request —
+  both already return `bool`/`nullptr` plus an `OutError` string — so guarding inside changes no
+  caller's error-code style (the anim-blueprint caller keeps its `ASSET_EXISTS`/`PACKAGE_ERROR`
+  split, and `bOutNameCollision` stays `false` for a malformed argument so the two remain
+  distinguishable). Guarding at the call site would have meant editing a file another agent of this
+  wave owns, for one caller, and leaving the exported helper unguarded for the next one.
+  **`PinWrightComposeAssetPackagePath` deliberately NOT reused, for a shape reason rather than the
+  composition reason `#2` gave:** it COMPOSES `<folder>/<name>`, while both sites already hold a
+  finished package path (`:1502` is handed one with the bare name as a separate argument; `:1878`
+  normalizes its folder and composes itself), so the fit is half at best. Its two engine rules are
+  applied directly by one file-local `AssetUtils_ValidatePackageTargetForCreatePackage`
+  (distinctive name — Unity build) used by both sites: `FName::IsValidXName` +
+  `INVALID_OBJECTNAME_CHARACTERS` on the bare name,
+  `FPackageName::IsValidLongPackageName(..., bIncludeReadOnlyRoots=true, &Reason)` on the finished
+  path, both engine reason texts verbatim, one `Warning` log (never `Error`) so a caller that drops
+  `OutError` still leaves a record of which rule broke. Note `Utils/` → `Handlers/` includes already
+  exist here (`AssetUtils.cpp:10`, plus 7 other `Utils/*.cpp`), so pulling the header down would not
+  have been a NEW layering inversion — it was rejected on fit, not on direction.
+  **Regression test** `Tests/Assets/TestAssetUtilsPackageTargetSafety.cpp`, two new leaf ids
+  (`PinWright.Assets.AssetUtils.BlueprintPackageTargetRefusesMalformedPathOrName`,
+  `...ControlRigCreateRefusesMalformedPathOrName`), driving both helpers as PURE FUNCTIONS — no
+  verb, no dispatcher, so there is no handler ordering to preserve and no host fixture involved.
+  **Fatal-unreachability on a REVERTED build** (where `CreatePackage` IS reached) rests on those
+  being the only two Fatal branches — a name containing `//` (`:1094-1096`) and one resolving to
+  empty (`:1118`): no fixture string that reaches `CreatePackage` contains `//`, none composes one
+  (every folder literal is mounted with no trailing slash; no bad name carries a leading slash), and
+  none is empty. The `//`-bearing NAME case IS driven at `:1502` — safely, because that helper never
+  concatenates `AssetName` into the `CreatePackage` argument, verified at the call site — and it is
+  the measured kill shape at the argument that carries it one level up. At `:1878`, which does
+  concatenate, the bad names carry a single `/` or a `\` instead and a `//` case is deliberately
+  absent. A reverted build therefore SUCCEEDS (a stray in-memory package, or a real CR BP the
+  fixture tears down) and the assertions go red with the process alive. Stated rather than implied:
+  the `//` input at `:1878` is covered by no test, only by the single `IsValidLongPackageName` call
+  that also rejects the unmounted-root and `INVALID_LONGPACKAGE_CHARACTERS` cases that ARE asserted.
+  Each test ends with a valid-input control. `check_test_ids.py` re-run on the shared tree: CLEAN,
+  4832 ids, no dot-prefix collisions, no duplicates. No new error code — `AssetUtils.cpp` emits none
+  at all, it returns strings — so `Handlers/ErrorCodes.h` is untouched. No doc change: neither
+  helper is a verb, and the one namespace page affected (`animation.authoring`) was already updated
+  by `#3`. Not compiled and not run per instruction; the orchestrator builds after the wave.
+  **Follow-up for whoever owns `AnimationAuthoringHandler_AnimBlueprint.cpp`:** its `:603` caller
+  discards `GuardError` and answers `PACKAGE_ERROR`/"Failed to create package" for what is now an
+  argument refusal. The crash is closed either way, but the message is misleading and wants
+  `INVALID_ARGUMENT` plus the engine reason. Left alone deliberately — that file is another agent's
+  in this wave.
