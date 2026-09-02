@@ -18,7 +18,8 @@ publishes**, and a track nobody asked for rides out of the tool invisibly.
 
 ## Measured, 2026-09-02
 
-`ffprobe` on the hero render `Saved/MovieRenders/Atlantis_Flythrough/Atlantis_Flythrough.mp4`
+`ffprobe` on the higher-bitrate flythrough re-render
+`Saved/MovieRenders/Atlantis_Flythrough/Atlantis_Flythrough.mp4`
 (produced by `mrq.create_job` + `mrq.run_jobs`, 1920x1080, 60 fps, 20.033317 s, 53,650,824 B):
 
     stream 0  h264  1920x1080  60/1   21,242,124 bps
@@ -37,9 +38,10 @@ The audio track is digitally silent for its whole length:
 
 Every one of 1,923,070 samples sits at the same −91 dB floor — a full-scale-silent stereo track
 spending 192 kbit/s. The comparison that makes it a *property of this render path* rather than of
-this file: an earlier render of the same sequence,
+this file: the earlier render of the same sequence,
 `Saved/MovieRenders/_prev_flythrough_20260828/LS_Atlantis_Flythrough.mp4`, carries **one stream,
-video only**, and the four ffmpeg-assembled clips from the same session
+video only** (independently recorded at `Docs/map/atlantis-video-plan.md:48-50`), and the four
+ffmpeg-assembled clips from the same session
 (`Saved/MovieRenders/Video/{grid/columns,turntable/column,outro/temple_drift}.mp4` and the final
 `Atlantis_HowItWasMade.mp4`) are all video-only too. Two deliverables out of one namespace differ
 in stream count, and nothing in either response says which is which.
@@ -81,7 +83,11 @@ consulted.
 The deliverable's stated requirement was *"Silent cut. No audio stream at all in the deliverable,
 not a silent one"* (`Docs/map/atlantis-video-plan.md` § Production). Because no response field
 could answer "does this render have an audio track", the assembly stage had to defend against it
-blind: two explicit `-an` flags on the encode paths
+blind — and it had to, because the namespace demonstrably produces both kinds and the caller cannot
+tell which they were handed. (The clip that ended up in the cut is the audio-free earlier render;
+the AAC-carrying re-render was set aside for an unrelated reason,
+`Docs/map/atlantis-video-plan.md:42-57`. The guard is not retrospective luck — it is what a caller
+must write when the response will not say.) Two explicit `-an` flags on the encode paths
 (`Docs/scripts/video/build_atlantis_video.py:226`, `:692`) plus a standing `ffprobe` gate on the
 finished file (`:1160-1170`), whose own docstring records the reason —
 
