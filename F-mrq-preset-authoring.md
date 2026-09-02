@@ -49,9 +49,10 @@ verb exposes. A config with no video output setting has no property to set.
 
 ## What that cost, 2026-09-02
 
-The Atlantis hero render is route 3. `Content/Atlantis/Cine/` holds `LS_Atlantis_Flythrough.uasset`
-and no `MPC_*` asset beside it, so the job was queued with no `presetPath` and every setting it
-rendered under was an engine default that no artifact on disk records. Its settings could only be
+Both Atlantis flythrough renders took route 3. `Content/Atlantis/Cine/` holds
+`LS_Atlantis_Flythrough.uasset` and no `MPC_*` asset beside it, so each job was queued with no
+`presetPath` and every setting it rendered under was an engine default that no artifact on disk
+records. Its settings could only be
 *inferred* afterwards, and one of them — `EncodingRateControl = Quality`, CRF 20 — is exactly the
 default that produced the 1.16 Mbps deliverable in `B-mrq-render-result-omits-bitrate-and-size`.
 
@@ -126,4 +127,4 @@ a project that has never made a preset.
   The authoring gap starts here and was never filed as one.
 
 ## History
-- `#1-no-verb-authors-a-config` `OPEN` reporter — "Filed 2026-09-02 from the Atlantis showcase video. The `mrq` namespace registers three verbs (`MRQHandler.cpp:205`, `:344`, `:466`); its only config mutation is `Job->SetConfiguration(Preset)` (`:304`) from a read-only `LoadObject` (`:273`); `mrq.create_job` takes only sequencePath/levelPath/presetPath/jobName (`:219-222`); `mrq.list_presets` enumerates (`:466-497`). Grep of all three files for `SaveAsset|CreateAsset|SavePackage|NewObject|MarkPackageDirty` returns one comment and `SetConfiguration`. No generic create-asset-of-class verb exists anywhere in the plugin (`asset.*` offers `create_folder` only, `AssetManageHandler.cpp:975`), so the routes are the editor UI, `python.execute` (`PythonExecuteHandler.cpp:116`), or engine CDO defaults. The hero render took the third: `Content/Atlantis/Cine/` holds the sequence and no `MPC_*`, so its settings exist nowhere on disk. Distinct from the namespace's deliberate refusal at `wiki/mrq.md:47`, which rejects PinWright applying settings nobody asked for; an explicit authoring verb is the opposite and the same sentence's 'change one property on the preset asset themselves' presupposes an asset that here did not exist."
+- `#1-no-verb-authors-a-config` `OPEN` reporter — "Filed 2026-09-02 from the Atlantis showcase video. The `mrq` namespace registers three verbs (`MRQHandler.cpp:205`, `:344`, `:466`); its only config mutation is `Job->SetConfiguration(Preset)` (`:304`) from a read-only `LoadObject` (`:273`); `mrq.create_job` takes only sequencePath/levelPath/presetPath/jobName (`:219-222`); `mrq.list_presets` enumerates (`:466-497`). Grep of all three files for `SaveAsset|CreateAsset|SavePackage|NewObject|MarkPackageDirty` returns one comment and `SetConfiguration`. No generic create-asset-of-class verb exists anywhere in the plugin (`asset.*` offers `create_folder` only, `AssetManageHandler.cpp:975`), so the routes are the editor UI, `python.execute` (`PythonExecuteHandler.cpp:116`), or engine CDO defaults. Both flythrough renders took the third: `Content/Atlantis/Cine/` holds the sequence and no `MPC_*`, so their settings exist nowhere on disk. Distinct from the namespace's deliberate refusal at `wiki/mrq.md:47`, which rejects PinWright applying settings nobody asked for; an explicit authoring verb is the opposite and the same sentence's 'change one property on the preset asset themselves' presupposes an asset that here did not exist."
