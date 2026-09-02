@@ -5,8 +5,8 @@ status: IN-REVIEW
 severity: Medium
 category: bug
 tags: [bpir, decompiler, asset-dump, entry-signature, composite]
-encounters: 1
-lastSeen: 2026-07-23T00:00:00Z
+encounters: 2
+lastSeen: 2026-09-02T00:00:00Z
 ---
 # BPIR decompiler leaks clone graph name (EdGraph_N) into entry signatures for composite-bearing graphs
 
@@ -45,3 +45,5 @@ keyword — not a broad correctness break — Medium.
 ## History
 - `#1-initial-repro` `OPEN` reporter — Clone graph's auto-suffixed name (`EdGraph_N`) leaks into BPIR entry signatures for composite-bearing graphs: dump-mirror flapping on 6 /App selector widgets (`EdGraph_7` ↔ `EdGraph_9`), override detection keyed off clone name so `entry override` never emitted, UserConstructionScript check misclassifies, macro entries suffixed. Root cause `DecompileGraphInternal` clone (BpirDecompiler.cpp:560,593-613) + name derivation from `EntryNode->GetGraph()->GetName()` (BpirTextEmitter.cpp:1342-1344, 1456-1457).
 - `#2-source-name-threaded-aspect-5` `IN-REVIEW` developer — Fixed in plugin commit `678fb57c`: source graph name threaded from `DecompileGraphInternal` into `EmitEntrySignature` so cloned composite-bearing graphs emit the source graph's name (function and macro branches); `bpir.txt` aspect version bumped 4→5 so cached dumps regenerate. Full automation suite clean on UE 5.8: 4 new regression tests in `Tests\Bpir\TestBpirCompositeEntryName.cpp` pass (function-entry name, determinism under name-counter perturbation, macro entry name, override keyword survival); BpirAspectVersion pin test updated 4→5, re-verified green.
+- `#3-orphan-warning-source-name` `IN-REVIEW` developer — A repeated 8,267-asset `/App` dump found one residual instance of the same bug: `BP_RobotHend` orphan warnings alternated between `EdGraph_14` and `EdGraph_15` because `DecompileGraphInternal` still formatted that diagnostic with `WorkingGraph->GetName()`. Switched the warning to the already-captured `CurrentSourceGraphName` and bumped `bpir.txt` aspect 5→6. Live Coding compiled successfully; two targeted dumps emitted `EventGraph` and the same SHA-256 (`DE440DDB9C378EE5A4D17E15D27CD7384011893CEF8123919D44D8BF041AA364`), then a forced `/App` pass was byte-identical to its 29,619-file pre-pass snapshot. No automation suite was run.
+- `#4-mirror-wide-evidence-no-leak-remains` `IN-REVIEW` reporter — Mirror-wide field evidence, **not a verification**; status and `encounters` deliberately unchanged (corroboration, not a re-hit). After a forced full `/Game` + `/App` sweep of the PDS project (2026-09-02, plugin 0.7.0, UE 5.8.1, 30,807 dump dirs), **0 of 1,701 committed `bpir.txt` files contain the string `EdGraph_`** — including the `BP_RobotHend` orphan-warning case `#3` fixed. The churn this ticket was filed for is likewise no longer dominant in the mirror: `bpir.txt` accounted for 47 of the 40,597 files the refresh modified, and the sampled diffs carried no `EdGraph_` lines. That is not the flap test (a flap needs two sweeps compared; this is one forced sweep against the committed baseline), so it does not close the ticket — it does establish that no residual leak survives anywhere in a 1,701-file corpus that previously flapped on 6 `/App` selector widgets.
