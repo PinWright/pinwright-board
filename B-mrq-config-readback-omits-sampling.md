@@ -69,8 +69,8 @@ Every value in that sentence had to be authored and then re-read outside the `mr
 the eight per-tile presets (`/Game/Atlantis/Cine/Video/MPC_Vid_*`), the only fact `mrq.create_job`
 would disclose is resolution, output directory, filename format and the PNG writer's class path.
 
-The hero render is the sharper case: `Content/Atlantis/Cine/` holds
-`LS_Atlantis_Flythrough.uasset` and **no `MPC_*` asset beside it**, so that job was queued with no
+The two flythrough renders are the sharper case: `Content/Atlantis/Cine/` holds
+`LS_Atlantis_Flythrough.uasset` and **no `MPC_*` asset beside it**, so both were queued with no
 `presetPath` at all and ran on the engine's CDO defaults. `mrq.create_job` now warns about the
 rate control in that situation (`MRQArtifactReport.cpp:356-369`) — correctly, and that is the
 landed half of the sibling ticket — but it says nothing about the sample counts and warm-up the
@@ -112,4 +112,4 @@ disclosure is precisely what is missing.
 - `F-mrq-preset-authoring` — why the values had to be authored out of band in the first place.
 
 ## History
-- `#1-sampling-settings-invisible` `OPEN` reporter — "Filed 2026-09-02 from the Atlantis showcase video. `ReadPreflightContext` (`MRQHandler.cpp:155`) reads exactly `UMoviePipelineOutputSetting` (`:167-181`), the enabled `UMoviePipelineOutputBase` list (`:184-192`) and the first `UMoviePipelineVideoOutputBase` (`:193-198`); the run-time reader does the same two (`:117-136`). Tree-wide grep for `MoviePipelineAntiAliasingSetting|SpatialSampleCount|TemporalSampleCount|EngineWarmUpCount|RenderWarmUpCount` across `Source/` returns zero hits, and the four `mrq` wiki pages never mention sampling or warm-up. So `preflight.outputs` is a file-writer list (`wiki/mrq.md:41`), not a settings inventory, and the sample counts that decide convergence are unreadable. Encountered producing the video: the tiles needed 4 temporal / 1 spatial / engine warm-up 300 (`Docs/map/atlantis-video-plan.md:126-129`), authored and verified entirely outside the namespace, and the hero render had no preset asset at all (`Content/Atlantis/Cine/` holds the sequence and no `MPC_*`), so its sampling could only be inferred."
+- `#1-sampling-settings-invisible` `OPEN` reporter — "Filed 2026-09-02 from the Atlantis showcase video. `ReadPreflightContext` (`MRQHandler.cpp:155`) reads exactly `UMoviePipelineOutputSetting` (`:167-181`), the enabled `UMoviePipelineOutputBase` list (`:184-192`) and the first `UMoviePipelineVideoOutputBase` (`:193-198`); the run-time reader does the same two (`:117-136`). Tree-wide grep for `MoviePipelineAntiAliasingSetting|SpatialSampleCount|TemporalSampleCount|EngineWarmUpCount|RenderWarmUpCount` across `Source/` returns zero hits, and the four `mrq` wiki pages never mention sampling or warm-up. So `preflight.outputs` is a file-writer list (`wiki/mrq.md:41`), not a settings inventory, and the sample counts that decide convergence are unreadable. Encountered producing the video: the tiles needed 4 temporal / 1 spatial / engine warm-up 300 (`Docs/map/atlantis-video-plan.md:126-129`), authored and verified entirely outside the namespace, and neither flythrough render had a preset asset at all (`Content/Atlantis/Cine/` holds the sequence and no `MPC_*`), so their sampling could only be inferred."
