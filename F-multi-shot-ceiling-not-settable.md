@@ -74,6 +74,19 @@ That is the whole basis on record: **24 is what one verb happened to ship with, 
 compatibility.** 8 is derived from what an agent can review; 24 is derived from nothing. The two
 differ by 3× on the same primitive, on the same hardware, for the same per-shot work.
 
+**The one measurement on record proves 24 is safe, never that 25 is not.** The board's own
+`F-animated-capture-verbs` (DONE) carries the only empirical note behind the number:
+
+    - **24 shots = 24 viewport resize cycles is safe.** Two back-to-back 24-shot bursts (48
+      cycles, on top of ~48 earlier in the same session) against the `FViewport::GetHitProxy`
+      assert class that cost 66 creeps: editor alive and responding, **0** log matches for
+      `GetHitProxy|Assertion failed|Fatal error`.
+    -- F-animated-capture-verbs.md:60-63
+
+That is a *lower* bound — the longest burst anybody validated — recorded as a clearance for the
+value already in the code, not as a ceiling anybody found. It is exactly the shape of evidence
+that cannot justify a refusal at 25.
+
 **This is not the refuse-vs-truncate asymmetry**, which *is* argued and is correct as it stands
 (`RenderHandler.cpp:778-782`: a truncated instants x cameras set "reads as a complete set of the
 wrong thing", so a refusal naming both factors is the right answer). This ticket is about the
@@ -148,3 +161,4 @@ equivalent assertion against whatever the new default is.
 
 ## History
 - `#1-ceiling-has-no-derivation` `OPEN` reporter — "Filed 2026-09-02 from the Atlantis showcase video. `GMaxOrbitShots = 24` (`CameraShotPlanUtils.h:60`) binds four verbs (`CameraFrameHandler.cpp:927-931,1141`; `RenderHandler.cpp:786-795,941`; `AnimationShotsHandler.cpp:452-458,598-604,817`; `AnimationPreviewCaptureHandler.cpp:682-688,1014`), shapes two derived frame budgets (`AnimationPreviewCaptureHandler.cpp:591`, `AnimationShotsHandler.cpp:104`), and binds on the instants x cameras PRODUCT (`RenderHandler.cpp:349`). Its only recorded basis is a generic cost sentence (`CameraShotPlanUtils.h:57-59`) plus an explicit grandfather clause (`PoseListCapture.h:151-155`, 'camera.orbit_shots has allowed 24 since it shipped'), against a sibling constant that does state its derivation (`PoseListCapture.h:43-52`). No parameter raises it and no per-shot cost is published (`PoseListCapture.cpp:390-393` reports the bound, not the cost). Measured cost 2026-09-02: a 240-frame turntable took 10 calls and 10 preview-scene rig cycles. Workflow cost owned by F-preview-turntable-capture; this ticket owns the bound itself."
+- `#2-only-evidence-is-a-lower-bound` `OPEN` reporter — "Additional evidence, same day. The sole empirical note behind 24 is `F-animated-capture-verbs.md:60-63`: two back-to-back 24-shot bursts (48 resize cycles) ran clean against the `FViewport::GetHitProxy` assert class. That clears 24; it establishes no upper bound, so it cannot be the basis for refusing 25. Recorded here because a re-derivation (Ask 1) starts from that measurement."
