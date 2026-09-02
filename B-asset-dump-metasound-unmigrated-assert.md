@@ -2,7 +2,7 @@
 id: B-asset-dump-metasound-unmigrated-assert
 title: "asset.dump* on an unmigrated MetaSound kills the editor via FindConstGraphChecked, silently truncating every folder sweep"
 status: OPEN
-severity: High
+severity: Critical
 category: bug
 tags: [asset-dump, metasound, audio, crash, assertion, dump-folder]
 encounters: 1
