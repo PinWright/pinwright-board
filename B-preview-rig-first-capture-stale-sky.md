@@ -1,0 +1,217 @@
+---
+id: B-preview-rig-first-capture-stale-sky
+title: "No preview-scene capture ever runs an editor tick, so the sky-capture update never runs inside a capture call — the rig is reported applied while the pixels are lit by whatever the last editor frame left, and the settle loop certifies it because its pump cannot drive the work it is waiting for"
+status: OPEN
+severity: Medium
+category: bug
+tags: [render, camera, orbit_shots, capture_asset_preview, previewScene, preview-scene, rig, sky-light, skylight-capture, warmup, settle, stale, silent-wrong-data, first-frame, reported-not-reproduced]
+encounters: 1
+lastSeen: 2026-09-02T00:00:00Z
+---
+
+# `applied: true` and `settled: true` over pixels the rig never reached
+
+**Reported by the capture agent on 2026-09-02 and NOT reproduced by me** — no capture was taken
+during this audit (read-only probes only). The mechanism below **is** mine, re-derived from source;
+the observation is relayed and is marked as such throughout.
+
+## Reported observation
+
+    camera.orbit_shots {subject:{kind:"staticMesh", path:"/Game/Atlantis/Meshes/SM_Column_Doric",
+                                 closeAfterCapture:false},
+                        radius:5600, fov:34, width:1120, height:1400,
+                        previewScene:{showEnvironment:true, showFloor:true},
+                        exposure:{mode:"auto"},
+                        angles:[{azimuth:0,elevation:8},{azimuth:90,elevation:8}]}
+
+the first call after flipping the profile's stored `showFloor` from false to true. Response:
+`viewport.previewScene.applied: true`, `showFloor: true`, `showEnvironment: true`, key and sky
+intensity 1, `warmup: {settled: true, settleRounds: 8, meanLuminanceDelta: 0.0027}`. The az-0
+pixels were a near-black silhouette on a near-black floor (`subjectRegion.subject.meanLuminance
+0.607`, `unlitFraction 0.033`, `minLuminance 0`, `subjectRegionWarning` fired). The identical pose
+re-shot one call later, identical rig, same pinned gain (`adapted 4.880198` both times), was
+brightly lit.
+
+## Mechanism: a capture call never runs the tick that updates sky captures
+
+**1. The preview scene's update runs on the editor tick, not on Slate's.**
+
+    class FAdvancedPreviewScene : public FPreviewScene, public FTickableEditorObject
+    -- C:/UE_5.8/Engine/Source/Editor/AdvancedPreviewScene/Public/AdvancedPreviewScene.h:30
+
+with `virtual void Tick(float DeltaTime) override` declared under its `FTickableEditorObject`
+block (`:45-49`). `FTickableEditorObject`s are driven by the editor frame loop, not by
+`FSlateApplication::Tick`.
+
+**2. That tick is the only thing that updates sky captures for a preview world.**
+`FAdvancedPreviewScene::Tick` (`AdvancedPreviewScene.cpp:279`) opens with
+
+    UpdateCaptureContents();
+    -- AdvancedPreviewScene.cpp:282
+
+and closes with the recapture block
+
+    if (bSkyChanged)
+    {
+        SkyLight->SetCaptureIsDirty();
+        SkyLight->MarkRenderStateDirty();
+        SkyLight->UpdateSkyCaptureContents(PreviewWorld);
+        ...
+    }
+    -- AdvancedPreviewScene.cpp:314-323
+
+`FPreviewScene::UpdateCaptureContents` is `USkyLightComponent::UpdateSkyCaptureContents(PreviewWorld)`
+plus the reflection-capture equivalent, and its own comment names its only three callers —
+*"This function is called from FAdvancedPreviewScene::Tick, FBlueprintEditor::Tick, and
+FThumbnailPreviewScene::Tick, so assume we are inside a Tick function"* (`PreviewScene.cpp:245-253`).
+
+This matters because `SetCaptureIsDirty()` does not recapture anything — it queues the component:
+
+    SkyCapturesToUpdate.AddUnique(this);
+    -- Runtime/Engine/Private/Components/SkyLightComponent.cpp:364 (in SetCaptureIsDirty, :354-368)
+
+and `UpdateSkyCaptureContents` is what drains that queue. A dirty sky light stays stale until a
+tick drains it.
+
+**3. A PinWright capture never runs an editor frame.** The whole per-round pump is:
+
+    void PumpViewport(FEditorViewportClient& ViewportClient, const TSharedPtr<FSceneViewport>& SceneViewport)
+    {
+        FSlateApplication& SlateApp = FSlateApplication::Get();
+        SlateApp.PumpMessages();
+        SlateApp.Tick(ESlateTickType::All);
+        ViewportClient.Invalidate();
+        if (SceneViewport.IsValid()) { SceneViewport->Invalidate(); SceneViewport->Draw(); }
+        if (FSlateRenderer* Renderer = SlateApp.GetRenderer()) { Renderer->FlushCommands(); }
+        FlushRenderingCommands();
+    }
+    -- Source/PinWright/Private/Handlers/Render/PreviewViewportCaptureUtils.cpp:107-125
+
+Slate messages, a viewport invalidate, a draw, two flushes. No editor frame, so no
+`FTickableEditorObject::Tick`, so no `FAdvancedPreviewScene::Tick`, so **no sky-capture update at
+any point inside a capture call** — not before the first shot, not between shots, not during the
+settle loop. Whatever the sky light's captured state was when the last real editor frame ended is
+what every shot in the call is lit by.
+
+**4. And the rig never asks for one either — which is stronger than "the recapture is deferred".**
+The rig's two writes that bear on sky lighting both take paths that leave `bSkyChanged` false:
+
+- floor / environment go through the `bDirect=true` branches, whose entire bodies are
+  `FloorMeshComponent->SetVisibility(...)` (`AdvancedPreviewScene.cpp:405-407`) and
+  `SkyComponent->SetVisibility(...)` (`:422-426`). Neither touches `SkyLight` or `bSkyChanged`.
+- sky intensity goes through `FPreviewScene::SetSkyBrightness`, whose whole body is
+  `SkyLight->SetIntensity(SkyBrightness)` (`PreviewScene.cpp:318-324`).
+
+`bSkyChanged` is set at exactly three sites, all inside `FAdvancedPreviewScene::UpdateScene`
+(`:148`, `:167`, `:191`) — reachable only via `UAssetViewerSettings::PostEditChangeProperty`, which
+is the broadcast `FScopedPreviewSceneRig` **deliberately avoids**, on record and for a good reason:
+
+    //  * SetFloorVisibility(bVisible) with bDirect defaulted false calls PostEditChangeProperty on
+    //    the process-wide UAssetViewerSettings (AdvancedPreviewScene.cpp:391-403), which
+    //    broadcasts to every live preview scene in the editor. That IS Defect 1.
+    -- Source/PinWright/Private/Handlers/Render/PreviewSceneRig.cpp:687-689
+
+So the guard's own (correct) fix for the shared-profile leak is what removes the only signal that
+would have marked the sky capture dirty. The rig then calls `Client.Invalidate()` and sets
+`bApplied = true` (`PreviewSceneRig.cpp:736-737`) — an invalidate schedules a **redraw**, which is
+not a tick and updates no captures. `applied: true` is therefore a true statement about the writes
+and not a statement about the pixels, and nothing in the response distinguishes the two.
+
+## Why `warmup.settled` cannot catch this
+
+The settle loop pumps and re-reads until the frame's mean luminance stops moving
+(`PreviewViewportCaptureUtils.cpp:2245-2270`). Its pump is the `PumpViewport` above — so **the loop
+cannot advance the work it would need to detect**. A frame lit by a stale sky capture is not a
+frame in transition; it is a finished frame of the wrong thing, and it converges immediately and
+legitimately. A convergence test whose pump cannot drive the pending work always reports
+convergence. The comment at `:2226-2244` is careful that `settled` is a measurement and not a
+promise, and it is — the measurement is just blind to this class.
+
+The reported numbers contain the one available tell and it is never surfaced.
+`MaxWarmupSettleRounds = 8` (`PreviewViewportCaptureUtils.h:323`), and the loop increments before
+testing, so `settleRounds: 8` with `settled: true` means the frame was still moving through the
+entire budget and stopped on the last round permitted — against a healthy call's 1–2. The response
+publishes `settleRounds` (`:3244`) but the warning is gated on the negative case only:
+
+    if (!Capture.bWarmupSettled) { ... "warmupWarning" ... }
+    -- PreviewViewportCaptureUtils.cpp:3247-3260
+
+so "settled on round 1" and "barely settled at the budget ceiling" are reported identically except
+for one number nobody is told to read. The tolerances make the gap concrete: settled pairs were
+measured at 1.5e-5 and 1.1e-4 against an absolute tolerance of 1e-3
+(`PreviewViewportCaptureUtils.h:306-319`), while the reported `meanLuminanceDelta` was **0.0027** —
+25x the worst measured settled pair and *above* the absolute tolerance, passing only on the
+relative term.
+
+## What I did NOT establish, and how to close it
+
+The reporter's hypothesis is that the sky light's **captured irradiance** still reflects the
+previous rig. The deferral half is confirmed and is worse than reported (never requested at all,
+per 4 above). The **carrier** is not confirmed, and one engine fact argues against the specific
+link to `showFloor`: `FAdvancedPreviewScene` installs the sky light from the profile's cubemap
+asset — `SetSkyCubemap(Profile.EnvironmentCubeMap.Get())` (`AdvancedPreviewScene.cpp:57`), and
+`USkyLightComponent::SetCubemap` sets `Cubemap` + `MarkRenderStateDirty` + `SetCaptureIsDirty`
+(`SkyLightComponent.cpp:1018-1029`) — so on `SLS_SpecifiedCubemap` the irradiance derives from that
+asset, not from the scene, and toggling the floor mesh's visibility cannot change what it would
+capture. Two other candidates fit the same "one tick behind" shape and are not excluded:
+
+- a pending capture queued by something else and drained only on the next tick, since
+  `UpdateSkyCaptureContentsArray` additionally **defers** while textures, meshes or shaders are
+  async-compiling and re-tries an incomplete capture no sooner than 5 s later
+  (`SkyLightComponent.cpp:737-741`, `:757-787`) — which would make the first capture after any
+  asset load stale for reasons the response also never mentions;
+- the newly-visible floor's own render state landing a frame after the draw that read the pixels.
+
+Whoever fixes this should instrument rather than assume: log `SkyCapturesToUpdate.Num()` and the
+component's `CaptureStatus` immediately before the first `ReadPixels` of a rig-changing call, and
+compare against the second call. **The ticket does not depend on which candidate wins** — the
+defect established here is the invariant, not the carrier: no capture call runs the tick that
+completes preview-scene work, and both `applied` and `settled` are reported as though it had.
+
+## Ask
+
+In descending order of value, and none of them requires a reproduction to justify:
+
+1. **Run the tick, or say that it was not run.** Drive one `FAdvancedPreviewScene::Tick` (or the
+   `FPreviewScene::UpdateCaptureContents()` it opens with) after the rig is applied and before the
+   first real shot — the rig already owns the "apply once for the whole set" seam
+   (`CameraFrameHandler.cpp:706`) and the primitive already takes one discarded warm-up frame per
+   call for a neighbouring reason (`PoseListCapture.h:158-169`), so there is a natural place for it.
+   If driving an editor tick from a handler is judged unsafe, publish
+   `previewScene.captureUpdated: false` so `applied` stops implying it.
+2. **Split `applied`.** `applied: true` currently means "the writes were made". A caller reading it
+   next to a picture reads "these pixels are that rig". Report the two separately.
+3. **Warn at the budget ceiling.** Emit a `warmupWarning` (or a distinct `settleWarning`) when
+   `bWarmupSettled` is true but `WarmupSettleRounds == MaxWarmupSettleRounds`, or when
+   `meanLuminanceDelta` passes only on the relative term. Today the whole signal is one unremarked
+   integer; the shape of the existing `hideWarning` / `restoreWarning` pairs is the precedent.
+
+## Related
+
+- `B-capture-asset-preview-renders-foliage-black` (High, IN-REVIEW) — **the ticket a triager is
+  most likely to confuse this with**, and the distinction should be checked before either is
+  worked: that one is foliage-only, reproducible on every call, and has an established cause; this
+  is a static mesh, transient, and clears on the very next call with the same rig and the same
+  pinned gain. Same reported symptom vocabulary, different defect.
+- `B-exposure-pin-black-frame` (High, IN-REVIEW) — the warm-up settle loop and its `warmupWarning`
+  exist because of that ticket's 2.26-stop first frame. This is the same failure shape one layer
+  down: the detector built there is blind to work its own pump cannot drive.
+- `B-capture-open-level-pose-params-photograph-stale-grass` (High, DONE) — the structural twin on
+  the level side: a capture photographs derived state built for a different configuration while
+  every reported field is correct.
+- `B-capture-preview-decoration-not-suppressible` (Medium, OPEN) — the other open defect in the
+  `previewScene` rig's surface; its `#2` records what `showFloor` / `showEnvironment` do and do not
+  reach.
+
+## Severity
+
+**Medium.** Impact class is High by the rubric — silent wrong data on a normal path, and the caller
+is actively told otherwise twice (`applied: true`, `settled: true`) — but the reach modifier takes
+it down one: the trigger is the first capture after a `previewScene` change on an asset-preview
+verb, not an every-session path, and the frame is visibly wrong rather than subtly so, so it fails
+loudly to a human looking at the picture. Held at Medium also because the observation is
+**reported and not reproduced here**; a reproduction showing it survive into a plausible-looking
+frame would argue for High.
+
+## History
+- `#1-no-tick-inside-a-capture` `OPEN` reporter — "Filed 2026-09-02 from the Atlantis showcase video. Observation RELAYED from the capture agent, not reproduced during this audit (read-only probes only): first `camera.orbit_shots` after flipping the profile's stored `showFloor` false->true returned `previewScene.applied:true` + `warmup:{settled:true, settleRounds:8, meanLuminanceDelta:0.0027}` over a near-black frame; identical pose one call later, same rig, same `adapted 4.880198`, brightly lit. Mechanism re-derived from source: `FAdvancedPreviewScene` is an `FTickableEditorObject` (`AdvancedPreviewScene.h:30,45-49`) whose `Tick` (`:279`) opens with `UpdateCaptureContents()` (`:282`) and closes with the `bSkyChanged` recapture (`:314-323`); `FPreviewScene::UpdateCaptureContents` is the only sky-capture drain on this path and documents its three tick-only callers (`PreviewScene.cpp:245-253`); `SetCaptureIsDirty` only queues (`SkyLightComponent.cpp:354-368`). PinWright's `PumpViewport` (`PreviewViewportCaptureUtils.cpp:107-125`) pumps Slate and draws, never running an editor frame, so no capture call ever updates sky captures. The rig also never sets `bSkyChanged`: its floor/env writes use the `bDirect=true` branches (`AdvancedPreviewScene.cpp:405-407,422-426`) and its sky write is `SkyLight->SetIntensity` only (`PreviewScene.cpp:318-324`), because the `PostEditChangeProperty` path that sets `bSkyChanged` (`:148,167,191`) is deliberately avoided as Defect 1 (`PreviewSceneRig.cpp:687-689`). The settle loop's pump is that same `PumpViewport`, so it cannot drive the pending work and converges on a stable wrong frame; `settleRounds:8` equals `MaxWarmupSettleRounds` (`PreviewViewportCaptureUtils.h:323`) and the warning is gated on `!bWarmupSettled` only (`:3247-3260`), so the one tell is never surfaced. NOT established: that the carrier is specifically the sky light's captured irradiance — the preview sky light is a specified cubemap (`AdvancedPreviewScene.cpp:57`, `SkyLightComponent.cpp:1018-1029`), so `showFloor` cannot change what it would capture; two other one-tick-behind candidates are listed in the body with an instrumentation plan. The invariant, not the carrier, is what this ticket asserts."
