@@ -6,7 +6,7 @@ severity: Critical
 category: bug
 tags: [asset-dump, metasound, audio, crash, assertion, dump-folder]
 encounters: 1
-lastSeen: 2026-09-01T00:00:00Z
+lastSeen: 2026-09-02T00:00:00Z
 ---
 
 # asset.dump* on an unmigrated MetaSound kills the editor via FindConstGraphChecked, silently truncating every folder sweep
@@ -24,7 +24,7 @@ Assertion failed: FoundGraph [MetasoundFrontendDocument.cpp:1702]
   PinWright.dll!TickFolderDump()                            [AssetDumpHandler.cpp:1539]
 ```
 
-**Repro** (UE 5.8, host project `X:\src\unreal\unreal-fpv-dev`, 2026-09-01):
+**Repro** (UE 5.8, host project `X:\src\unreal\unreal-fpv-dev`, 2026-09-02):
 
 1. Fresh editor, no MetaSound asset preloaded.
 2. `asset.dump_folder {folderPath:"/Game"}`.
@@ -40,3 +40,4 @@ Assertion failed: FoundGraph [MetasoundFrontendDocument.cpp:1702]
 
 ## History
 - `#1-initial-repro` `OPEN` reporter — `asset.dump_folder {folderPath:"/Game"}` aborted the editor at 753 / 22,426 on `/Game/Audio/Sounds/Weapons/MS_WavePlayerCrossfader` with `Assertion failed: FoundGraph [MetasoundFrontendDocument.cpp:1702]` from `FindConstGraphChecked`, called by `MetaSoundDumpBuilder::BuildMetaSoundJson` (`MetaSoundDumpBuilder.cpp:283`/`:219`) via `BuildAllFilesForAsset` (`AssetDumpHandler.cpp:668`) → `DumpSingleAsset` (`:2232`) → `TickFolderDump` (`:1539`). Cause is a same-tick race: MetaSound logs `Delaying asset versioning due to need to async load soft references` and defers migration to a later tick, while the dump builds the sidecar synchronously on the same tick, so the paged graph is absent. Consequence beyond the crash: the committed asset-dump mirror held 15,274 dumps against 30,807 assets in scope, consistent with earlier sweeps dying here unnoticed. Workaround that completed a clean sweep: pre-load all 143 MetaSound assets under the dumped roots via `python.execute`, wait ~20 s for `Migrated Class Interface paged graph` in the log, then dump. Wanted fix: non-checked accessor plus a skip stub or a deferral to a later tick.
+- `#3-correct-repro-date` `OPEN` reporter — Date correction only; **no claim changes and the status stays `OPEN` / `Critical`**. The repro line and `lastSeen` both read 2026-09-01; the crash is dated **2026-09-02**. Sole source: `X:\src\unreal\unreal-fpv-dev\Saved\Logs\PDS-backup-2026.09.02-08.41.10.log:5055-5059` carries the exact `MetaSoundDumpBuilder::BuildMetaSoundJson` → `BuildAllFilesForAsset` → `DumpSingleAsset` → `TickFolderDump` frames quoted above, at `[2026.09.02-08.41.10:933]`, and it is the only log in that directory containing the symbol at all — no 09-01 occurrence exists. `encounters: 1` is right: one crash, one day.
