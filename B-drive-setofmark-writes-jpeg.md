@@ -5,8 +5,8 @@ status: OPEN
 severity: Medium
 category: bug
 tags: [drive, screenshot, image-format, jpeg, png, silent-mismatch, jpeg-in-png-silent-mismatch]
-encounters: 1
-lastSeen: 2026-07-11T21:45:00+03:00
+encounters: 2
+lastSeen: 2026-08-13T05:57:34Z
 ---
 
 # drive set-of-mark screenshot encodes JPEG but declares mimeType image/png
@@ -65,3 +65,4 @@ narrower than the two canonical screenshot verbs) -> Medium. May warrant High if
 
 ## History
 - `#1-source-identified-sibling` `OPEN` reporter — Identified during the fix analysis of `B-viewport-screenshot-writes-jpeg`: `FDriveSetOfMarkRenderer::CaptureAnnotated` (`DriveSetOfMarkRenderer.cpp:262-276`) runs the identical `FImageUtils::ThumbnailCompressImageArray` (JPEG for >=8x8) -> `PngData` with the real `IImageWrapper` PNG encode gated behind a dead `PngData.Num()==0` fallback, then stamps `OutScreenshot.Mime = "image/png"` (`:291`). So drive set-of-mark screenshots are JPEG/JFIF bytes reported as `image/png`. Source-read confirmation (not an independent live RPC repro); a distinct verb/path from the parent's shared `CaptureGameViewportToPngFile`, so tracked as its own ticket rather than folded into the parent fix.
+- `#2-re-encountered-capture-alpha-out-of-scope` `OPEN` reporter — Independently re-encountered during the **capture-alpha** investigation and deliberately left unfixed as out of scope for that work; filing the re-encounter so the ticket carries the second sighting rather than looking stale. Still live at HEAD, with line numbers shifted since `#1`: the `FImageUtils::ThumbnailCompressImageArray(Width, Height, Bitmap, PngData)` call is now `DriveSetOfMarkRenderer.cpp:271`, the dead `if (PngData.Num() == 0)` `IImageWrapper`/`EImageFormat::PNG` fallback `:272-284`, and the `OutScreenshot.Mime = TEXT("image/png")` stamp `:299` — so JPEG bytes are still delivered (inline base64 via `DeliverScreenshotBytes` `:315`, or written to disk `:327`) under a declared `image/png`. The capture-alpha pass touched the surrounding function and left an explicit acknowledgement in a comment at `:242-247`: alpha is force-stamped opaque *before* the encode precisely because "the primary `ThumbnailCompressImageArray` encode below **happens to drop alpha (it emits JPEG for any image >= 8x8)**, and the `IImageWrapper` PNG fallback right after it encodes BGRA verbatim" — i.e. the JPEG-in-a-PNG-name defect is now load-bearing in a neighbouring fix's reasoning, which raises the cost of leaving it. Same shape as the already-fixed `B-viewport-screenshot-writes-jpeg` (see its `#3`: `EncodeBitmapToPng` now delegates to `FImageUtils::PNGCompressImageArray`), so the fix is a one-line reuse of `PinWrightScreenshotUtils::EncodeBitmapToPng` here, dropping both the thumbnail compressor and the dead fallback; note the `ForceOpaqueAlpha` stamp at `:248` must stay (a genuine PNG encode preserves alpha, so removing it would regress `B-horizontal-orthographic-views-render-no-geometry`). No new ticket filed — this is the same defect, same verb, same path.

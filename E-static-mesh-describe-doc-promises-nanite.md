@@ -5,8 +5,8 @@ status: OPEN
 severity: Low
 category: ergonomic
 tags: [static-mesh, static-mesh-describe, nanite, asset-dump, dump-parity, registry-tags, docs, misleading-doc]
-encounters: 2
-lastSeen: 2026-06-24T06:10:13Z
+encounters: 4
+lastSeen: 2026-09-03T00:00:00Z
 ---
 
 # `static_mesh.describe`'s doc promises "Nanite state" that the response (and the `static_mesh.json` sidecar) omit
@@ -135,3 +135,45 @@ Not a dup of:
   still looks correct" has no typed Nanite readback on the surface the
   `static_mesh` overlay names. Same verb / field / overlay page as
   `#1-initial-audit`; no new file.
+- `#3-level-scope-coverage-has-no-verb-either` `OPEN` reporter — Third encounter,
+  and it widens the gap from one asset to a whole level. An ENV blind-A/B critic
+  pass over `/Game/FPS/Maps/FPS_Compound` had to score the stream against a
+  "Nanite meshes everywhere geometry allows" quality bar, i.e. it needed **Nanite
+  coverage across 1023 actors / 18 kit meshes**, not one asset's flag. Three
+  surfaces were tried and none answers it:
+  `static_mesh.describe {assetPath:"/Game/FPS/Env/Meshes/SM_ENV_WallPanel"}`
+  returned verbatim
+  `{"bounds":…,"materials":[…],"lods":1,"trianglesByLod":[160],"verticesByLod":[314],"lightmapResolution":4,"collision":{…},"collisionTraceFlag":"CTF_UseSimpleAndComplex","rebuildRenderConsumers":{…}}`
+  — no nanite key, reproducing `#1` and `#2` on UE 5.8;
+  `geometry.audit_static_meshes {folder:"/Game/FPS/Env/Meshes"}` ran ten checks
+  (`inverted`, `inconsistent_winding`, `not_closed`, `degenerate_triangles`,
+  `non_manifold`, `empty`, `mirrored_build_scale`, `thin_shell`, `z_fighting`,
+  `floating_components`) and **none of them is about Nanite, LOD policy or
+  rendering cost**; `level.audit` over the 1023-actor world likewise offers no
+  Nanite/LOD/draw-cost check in its check list. So the per-asset doc-vs-reality gap
+  this ticket already records has a level-scope twin: there is no verb that answers
+  "what fraction of this level's placed geometry is Nanite?", which is a standard
+  acceptance question for any UE5 environment review. Falling back to
+  `asset.dump` `properties.json` per asset does not scale to a kit, and reading
+  `NaniteSettings` out of the `.uasset` bytes with `grep -a` was inconclusive here
+  (the property name did not appear as a plain string in any of the 18 files).
+  Adds weight to this ticket's preferred **behavior fix** (a typed `nanite` object
+  on the shared static-mesh builder) and asks that whichever surface gains it also
+  be reachable in bulk — a `nanite` column on `geometry.audit_static_meshes` rows,
+  or a Nanite check in `level.audit` — so coverage is one call rather than N. No
+  new file: same verb, same field, same overlay page as `#1`/`#2`.
+- `#4-weapons-critic-fourth-encounter` `OPEN` WEAPONS-critic — Fourth encounter, on a weapons
+  asset this time, reproducing `#1`–`#3` verbatim on UE 5.8.
+  `static_mesh.describe {assetPath:"/Game/FPS/Weapons/Meshes/SM_WPN_AR"}` returned exactly these
+  keys and no others: `bounds`, `materials`, `lods`, `trianglesByLod`, `verticesByLod`,
+  `lightmapResolution`, `collision`, `collisionTraceFlag`, `rebuildRenderConsumers` — **no
+  `nanite` field**. The wiki page the reviewer landed on is the generated
+  `Saved/PinWright/wiki/static_mesh.describe.md`, whose summary still says the verb returns
+  "bounds, materials, LOD counts, lightmap resolution, and collision, **plus Nanite state**", so
+  the over-promise reaches the reader through the *generated method page*, not only through the
+  `docs/wiki-src/static_mesh.md:3` overlay this ticket already cites — worth noting for whoever
+  takes the doc-fix branch, since striking the phrase upstream is what regenerates that page.
+  No new file: same verb, same field, same claim, already covered by `#1`–`#3`. This encounter
+  adds no new mechanism, only reach — the field is now recorded as missing across a Game weapons
+  mesh, a Game env mesh, a Game DemoRoom asset and `/Engine/BasicShapes/Cube`, i.e. every asset
+  class anyone has pointed the verb at.

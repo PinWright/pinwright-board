@@ -1,0 +1,136 @@
+---
+id: B-mgir-custom-node-inputs-and-newlines-lost
+title: "material.compile_mgir silently breaks every Custom HLSL node it writes: named inputs are never created (so the generated shader has no `Input` parameter) and `\n` escapes in a string literal lose their backslash — the material reports success, saves, and renders nothing"
+status: OPEN
+severity: High
+category: bug
+tags: [material, compile_mgir, decompile_mgir, custom-hlsl, round-trip, silent-false-success, ui-material, shader-compile]
+encounters: 1
+lastSeen: 2026-09-03T02:00:00Z
+---
+
+# `material.compile_mgir` cannot write a working Custom HLSL node
+
+## Symptom
+
+Two independent defects in the same code path. Together they mean **every**
+`MaterialExpressionCustom` authored through `compile_mgir` produces a material that
+reports `blocksCompiled: 1`, writes a `.uasset`, and then fails shader compilation and
+draws nothing. Nothing in the `compile_mgir` response says so.
+
+### 1. Named Custom inputs are never created
+
+`material.decompile_mgir` emits Custom inputs as call arguments plus an `Inputs` array:
+
+```
+%n2CB = call `/Script/Engine.MaterialExpressionCustom`(
+    UV: %n04C, I: %n6DC, Code: "...",
+    Inputs: [(InputName="UV",Input=(Expression="...")),(InputName="I",Input=(...))],
+    OutputType: "CMOT_Float1")
+```
+
+Feeding that straight back to `compile_mgir` is rejected:
+
+```
+[MGIR_INPUT_NOT_FOUND] Input 'UV' was not found. Available inputs: Input. Did you mean 'Input'?
+```
+
+So a material containing a Custom node with any input not named `Input` **cannot survive
+its own decompile**. That is the same class of round-trip bug the wiki records as fixed
+for clear-coat and customized-UV root pins (`material.mgir.md` line 138).
+
+Falling back to the one name the compiler admits — `Input` — is accepted, saves, and is
+still broken: the connection is made but the `Inputs` array entry is not populated, so the
+translator emits a Custom function with **no parameter**, and the shader fails:
+
+```
+/Engine/Generated/Material.ush:3746:12: error: use of undeclared identifier 'Input'
+float2 d = Input.xy - 0.5; float r = length(d) * 2.0; ...
+           ^
+```
+
+### 2. `\n` in an MGIR string literal loses its backslash
+
+`Code: "float2 p = ...;\nfloat4 B[27] = ...;"` reaches the shader as
+
+```
+float2 p = float2(Input.x * 2.92857, Input.ynfloat4 B[27] = {float4(...
+```
+
+— the `\` is dropped and the `n` is kept, collapsing the whole program onto one line and
+splicing the last token of each line into the first token of the next. The decompiler
+emits `\n` (see the block quoted above), so this is the second half of the same
+round-trip failure: decompile writes an escape the compiler cannot read.
+
+The one-line collapse also silently destroys any preprocessor directive. A Custom node
+whose code begins `#define SDB(cx,cy,hx,hy) {...}` fails with
+
+```
+/Engine/Generated/Material.ush(3745): Expected a parameter name to follow # character
+in definition of macro 'SDB'.
+```
+
+which reads as "your macro is malformed" when the macro was fine and the newlines were
+removed underneath it.
+
+## Repro
+
+```
+call("material.compile_mgir", {mode:"Append", save:true, text:
+  "entry material `/Game/T/M_Probe.M_Probe` {\n"
+  "    property MaterialDomain: MD_UI\n"
+  "    property BlendMode: BLEND_Translucent\n"
+  "    %uv = call `/Script/Engine.MaterialExpressionTextureCoordinate`() @(-900, 0)\n"
+  "    %c = call `/Script/Engine.MaterialExpressionCustom`(Input: %uv,\n"
+  "         Code: \"float2 d = Input.xy - 0.5;\nreturn length(d);\",\n"
+  "         OutputType: \"CMOT_Float1\") @(-500, 0)\n"
+  "    output Opacity: %c\n"
+  "}"})
+-> {"blocksCompiled":1, "expressionsCreated":3, "assetPaths":[...]}     # reports success
+
+call("material.authoring.compile_material", {materialPath:"/Game/T/M_Probe"})
+-> compileSucceeded: false
+   "use of undeclared identifier 'Input'"
+   "float2 d = Input.xy - 0.5;nreturn length(d);"                        # note the bare `n`
+```
+
+Swapping `Input:` for the decompiler's own `UV:` fails earlier, at validation:
+`[MGIR_INPUT_NOT_FOUND] Input 'UV' was not found. Available inputs: Input.`
+
+## Why this one costs real time
+
+`compile_mgir` is the documented, preferred way to author a material graph, and it is the
+only one that round-trips. Every field it returns says the write worked. The failure is
+invisible until either the material is put on screen — a PIE slot under a shared world
+lock, on this project — or `material.authoring.compile_material` is called by hand, and
+nothing in `compile_mgir`'s response or in `material.compile_mgir.md` suggests that second
+step exists. Two UI materials (a radar backing disc and a traced weapon silhouette) were
+authored, saved, verified present on disk, captured in PIE and reviewed before the
+missing pixels were traced back to here; one of them had been visually "confirmed" from a
+capture in which the shape actually on screen belonged to a different material underneath.
+
+## Workaround
+
+Author Custom nodes with `material.authoring.add_custom_expression`, which takes an
+explicit `inputs: ["UV"]` array and populates it correctly, then wire with
+`material.authoring.connect_nodes`. Keep the HLSL on **one line** with spaces instead of
+newlines, so no `\n` escape and no preprocessor directive is needed. Both materials
+compile clean this way (`compileSucceeded: true`, zero errors).
+
+## Suggested fix
+
+1. `compile_mgir` should create the `Inputs` array entry for every named Custom input it
+   is asked to connect, and accept the `Inputs: [...]` property the decompiler emits.
+2. Decode standard escapes (`\n`, `\t`, `\"`, `\`) in MGIR string literals, since the
+   decompiler already emits them.
+3. Round-trip test: `decompile_mgir` -> `compile_mgir` -> `material.authoring.compile_material`
+   on a material with a multi-input, multi-line Custom node must end at
+   `compileSucceeded: true`.
+4. Consider having `compile_mgir` report the shader compile result, or at minimum have
+   `material.compile_mgir.md` say that `blocksCompiled` is not evidence the material
+   compiles.
+
+## Related
+
+- `E-material-verbs-have-no-shader-compile-signal` — `compile_material` is the only verb
+  that surfaces shader errors, and nothing points authors at it.

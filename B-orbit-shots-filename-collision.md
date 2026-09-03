@@ -1,7 +1,7 @@
 ---
 id: B-orbit-shots-filename-collision
 title: "camera.orbit_shots overwrites shots that share a timestamp filename"
-status: IN-REVIEW
+status: DONE
 severity: Medium
 category: bug
 tags: [camera, screenshot, render, filename-collision, data-loss]
@@ -42,3 +42,19 @@ guarantees uniqueness within the call.
 ## History
 - `#1-timestamp-collision-repro` `OPEN` reporter — `camera.orbit_shots` left each shot's `Request.Filename` empty, so `MakeScreenshotFilename` (`Utils/ScreenshotUtils.cpp:19-45`) auto-named from a SECOND-resolution timestamp (`%Y%m%d_%H%M%S`). Shots in the same second collided on one filename and overwrote each other on disk while the response still listed every shot. Repro: `call("camera.orbit_shots", {actorName:"SmokeCube"})` returned 4 shots but shots 1-3 shared `path` `.../CameraOrbit/CameraOrbit_20260704_131849.png` — only 2 distinct PNGs survived on disk.
 - `#2-per-shot-indexed-filename` `IN-REVIEW` developer — In `Handlers/Render/CameraFrameHandler.cpp` the orbit loop now computes one shared `OrbitStamp` (line 481) and sets a per-shot `Request.Filename = CameraOrbit_<stamp>_shot%02d_az%d_el%d.png` (lines 493-500); the `shotNN` index guarantees uniqueness, az/el keep the name self-describing. Regression test `PinWright.camera.orbit_shots.DistinctShotPaths` in `Tests/Render/TestCameraFrameHandlers.cpp` (lines 516-517) asserts distinct-path-count equals shot-count (assertion at lines 582-583); PASSES under CLI automation. Uncommitted.
+
+- `#3-verified-six-in-one-second` `DONE` tester — Verified incidentally but decisively while
+  runtime-testing the new `views:"sides"` plan (separate workstream). A single
+  `camera.orbit_shots {actorName, views:"sides"}` produced SIX shots that all landed in the same
+  wall-clock second — the exact condition that used to collapse them — and all six survived on disk
+  with distinct names and distinct sizes:
+  `CameraOrbit_20260813_143913_shot00_az0_el0.png` (69138 B), `shot01_az180_el0` (104402 B),
+  `shot02_az90_el0` (68939 B), `shot03_az-90_el0` (84631 B), `shot04_az0_el90` (435067 B),
+  `shot05_az0_el-90` (24237 B). Pre-fix this set would have left ONE file with five of the six
+  response paths pointing at it. The response's per-shot `path` values match disk one-for-one, so the
+  "response lies about which files are present" half is fixed too. Content was checked as well as
+  filenames: all six decode as valid PNGs, and pairwise comparison over a 64x64 luma grid found
+  0 near-duplicate pairs out of 15 (minimum 49.2% of cells differing), so they are six genuinely
+  different images rather than six copies under six names.
+  Correction to `#2`: its closing "Uncommitted" is stale — the fix was already committed in
+  `b0e1a6d6`, so this verification is of shipped code, and no later commit re-bundled it.

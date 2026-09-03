@@ -1,0 +1,144 @@
+---
+id: B-bpir-second-return-branch-data-dropped
+title: "A BPIR function with a return in each branch keeps only one branch's data: both execs are wired to the single FunctionResult, the other branch's value nodes are left orphaned, and the compile reports success with no warning"
+status: OPEN
+severity: High
+category: bug
+tags: [bpir, compile-bpir, return, function-result, branch, orphan-nodes, silent-wrong-result, multi-output]
+encounters: 2
+lastSeen: 2026-09-02T23:35:00+03:00
+---
+
+# Two `return`s, one branch's data survives, silently
+
+A Blueprint function has exactly one `UK2Node_FunctionResult`, so BPIR has to reconcile a `return`
+appearing in more than one branch. It reconciles it by wiring **both** exec paths to that node and
+wiring **one** branch's data pins — the other branch's value nodes are created, left unconnected,
+and the compile answers `compiled: true, errors: [], warnings: []`.
+
+The function then returns the surviving branch's values **on both paths**. Nothing in the response,
+the status, or the node count says so. The only signal is
+`blueprint.graph.find_orphaned_nodes`, which nobody runs on a compile that reported success.
+
+## Repro
+
+```
+entry function GetAimRay() -> (vector Origin, vector Direction) {
+    %owner = call GetOwner(Target: self)
+    %ok = call IsValid(Object: %owner)
+    %b = branch(%ok) [true -> @eyes, false -> @muzzle]
+
+@eyes:
+    %vp = call GetActorEyesViewPoint(Target: %owner)
+    %f = call Conv_RotatorToVector(InRot: %vp.OutRotation)
+    return (Origin: %vp.OutLocation, Direction: %f)
+
+@muzzle:
+    %ml = call K2_GetComponentLocation(Target: $Muzzle)
+    %mr = call K2_GetComponentRotation(Target: $Muzzle)
+    %mf = call Conv_RotatorToVector(InRot: %mr)
+    return (Origin: %ml, Direction: %mf)
+}
+```
+
+`compile_bpir` -> `compiled: true, status: "UpToDate", errors: [], warnings: []`.
+
+`blueprint.decompile_function` on the result:
+
+```
+    %n2 = branch(%n1) [false -> @merge, true -> @merge]
+
+@merge:
+    %n3 = call K2_GetComponentLocation(Target: $Muzzle)
+    %n4 = call K2_GetComponentRotation(Target: $Muzzle)
+    %n5 = call Conv_RotatorToVector(InRot: %n4)
+    return %n3, %n5
+    %n6 = call GetActorEyesViewPoint(Target: %n0)          <- after the return, unwired
+    %n7 = call Conv_RotatorToVector(InRot: %n6.OutRotation) <- after the return, unwired
+```
+
+Note the shape: **both branch outputs point at the same label**, the second branch's body is what
+survived, and the first branch's two nodes are emitted after the `return` line as dead text.
+`find_orphaned_nodes` confirms it independently:
+
+```
+orphanedNodes: [
+  { nodeId: 7ABF3616…, title: "GetActorEyesViewPoint",  graphName: "GetAimRay" },
+  { nodeId: F9F53584…, title: "Get Rotation X Vector",  graphName: "GetAimRay" }
+]
+```
+
+## Why it is worth a High
+
+The decompiled text is *self-evidently* wrong once read — a `branch` whose two outputs go to the
+same label is not a branch — but nothing routes a caller to read it. In this instance the function
+was the aim-ray source of a hitscan weapon, so **every shot traced from the muzzle component instead
+of the player's eyes**, on a weapon whose owner was always valid. That is a wrong world-space ray
+with a plausible-looking result: bullets still fly, still hit, still spawn impacts, and land a few
+centimetres off where the crosshair points. It survived a live PIE session, a 30-round burst and a
+screenshot before an unrelated orphan sweep found it.
+
+Same mechanism, second sighting in the same session: a two-output function whose success and failure
+branches both returned merged into one `@merge` block, which pulled its *pure* `Map_Find` nodes onto
+the failure path as well — i.e. the merge does not just drop data, it can also **execute nodes on a
+path that never asked for them**, there reading a map off a null object on every miss.
+
+## Workaround, which is also the shape a fix could adopt
+
+Write to member variables under each branch's exec, and return those once:
+
+```
+@eyes:
+    %vp = call GetActorEyesViewPoint(Target: %owner)
+    set AimOrigin = %vp.OutLocation
+    set AimDirection = call Conv_RotatorToVector(InRot: %vp.OutRotation)
+    exec -> @out
+@muzzle:
+    …
+    exec -> @out
+@out:
+    return (Origin: $AimOrigin, Direction: $AimDirection)
+```
+
+`set` is impure, so it only runs on its own path. Verified: the decompile now shows
+`[false -> @else, true -> @then]` with distinct bodies, and `find_orphaned_nodes` reports
+`orphanedCount: 0` across all 32 graphs. The cost is two member variables per multi-branch return,
+which pollutes the class's variable list with things that are really function locals.
+
+## The ask
+
+1. Support it properly: emit local variables (or reroute/select nodes) so each branch's data reaches
+   the single `FunctionResult`, which is what a human does in the editor.
+2. If that is not on the table, **refuse the second `return`** with a diagnostic naming the branch,
+   and suggest the member-variable shape. A `COMPILE_FAILED` here costs one edit; the current
+   behaviour costs a wrong result that survives testing.
+3. Cheapest partial fix, worth doing regardless: when a compile leaves nodes orphaned **in a graph
+   it just authored**, say so in `warnings[]`. `find_orphaned_nodes` already computes exactly this;
+   `compile_bpir` reporting it would have turned an hour into a minute, and would have caught the
+   `key_released` defect filed separately today as well.
+4. `bpir.instructions` §2.9 documents `return` variants without saying a function may only carry one
+   data-bearing return. Say it there.
+
+## Dedup
+
+Board-wide search for `return`, `FunctionResult`, `multiple return`, `orphan`.
+`B-bpir-function-return-class-type-lost` is about a return value's *type* surviving, not about which
+branch's value is wired. `B-add-function-outputs-become-inputs` is `blueprint.add_function`'s pin
+direction. `B-bpir-statement-cast-success-unwired-replace-shared-topology` is the closest relative —
+also "compiled clean, left unwired" — but it is the cast node's exec pins under replace mode, not a
+return. `B-bpir-orphan-warning-diagnostics-lossy` and `B-orphan-finder-vs-decompiler-disagree`
+concern how orphans are reported once you go looking; ask (3) above is that they be reported without
+going looking. No ticket covers multi-branch returns.
+
+## Severity
+
+**High** — the rubric's *"silent wrong … data on a normal path (the caller trusts a result that is a
+lie and builds on it)"*. A branch that silently collapses to one arm is a wrong result rather than a
+missing feature, and it is invisible to `compiled`, `status`, `errors`, `warnings` and node count
+alike. Not Critical: nothing crashed and no asset was corrupted. Reach modifier declined — a
+function returning different values from different branches is ordinary but not present in every
+session.
+
+## History
+- `#1-filed` `OPEN` reporter — A BPIR function with a `return` in each branch keeps only one branch's data and reports success. Repro: `entry function GetAimRay() -> (vector Origin, vector Direction)` with `branch(%ok) [true -> @eyes, false -> @muzzle]`, each branch ending in its own `return (Origin: …, Direction: …)`. `compile_bpir` answered `compiled: true, status: "UpToDate", errors: [], warnings: []`. `decompile_function` shows `branch(%n1) [false -> @merge, true -> @merge]` — both outputs at the same label — with only the **muzzle** branch's `K2_GetComponentLocation` / `K2_GetComponentRotation` / `Conv_RotatorToVector` wired into the single return, and the eyes branch's `GetActorEyesViewPoint` and `Conv_RotatorToVector` emitted after the `return` line as dead text. `blueprint.graph.find_orphaned_nodes` confirms independently: `orphanedNodes: [GetActorEyesViewPoint, "Get Rotation X Vector"], graphName: "GetAimRay"`. Consequence in situ: this was the aim-ray source of a hitscan weapon whose owner is always valid, so **every shot traced from the muzzle component instead of the player's eyes** — bullets still flew, still hit, still spawned impacts, just from the wrong origin. It survived a live PIE session, a 30-round burst and a screenshot; an unrelated orphan sweep found it. Second sighting of the same mechanism in the same session: a two-output function whose success and failure branches both returned merged into one block, which then pulled its **pure** `Map_Find` nodes onto the failure path too, reading a map off a null object on every miss — so the merge can execute nodes on a path that never asked for them, not merely drop data. Workaround verified and shipped: write each branch's values into member variables under that branch's exec (impure `set`, so it runs only on its own path) and `return` those once from a shared `@out` — decompile then shows `[false -> @else, true -> @then]` with distinct bodies and `find_orphaned_nodes` reports `orphanedCount: 0` across all 32 graphs; the cost is member variables standing in for function locals. Asked for: emit local variables or reroute/select nodes so each branch reaches the single `FunctionResult`; failing that **refuse** the second return with a diagnostic naming the branch; and — worth doing regardless and cheapest of the three — have `compile_bpir` report in `warnings[]` when it leaves nodes orphaned in a graph it just authored, which `find_orphaned_nodes` already computes and which would also have caught `B-bpir-key-released-entry-silently-dropped`. Also: `bpir.instructions` §2.9 lists the `return` variants without saying a function may carry only one data-bearing return. Severity High per the silent-wrong-data band.
+- `#2-three-functions-literal-returns-and-a-runtime-repro` `OPEN` reporter — Independent hit, same host and session, on three functions in one Blueprint, plus the runtime consequence and a rewrite pattern that works. Two additions to the picture in `#1`. **(a) With literal returns the function becomes a constant.** `GetAmmoStateInt() -> int` was written with three terminal blocks — `@lowr: return 1`, `@okr: return 0`, `@none: return 2` — and decompiled back as `%n6 = branch(%n5) [false -> @merge, true -> @merge]` with a single `@merge: return 2`. Both outcomes of the final branch point at one return whose value is `2`; the `1` and the `0` do not exist anywhere in the graph. So the function returns 2 unconditionally: at runtime, with a full 30-round magazine, `GetAmmoStateInt()` answered `2` ("empty"), which sent every enemy down the Behavior Tree's Reload branch forever and made the whole engage path unreachable. **(b) It also silently inverts a boolean.** `HasLOSToActor(Actor) -> bool` had `return %same` (hit actor is the target), `return true` (trace hit nothing) and `return false` (invalid target); the collapse kept only `return %n9` where `%n9 = EqualEqual_ObjectObject(HitActor, TargetActor)`, and wired the trace branch's *both* pins into it. A completely clear line of sight — the trace returning false, HitActor null — therefore reported **no** line of sight. That is the exact opposite of the authored meaning, and it disabled sight-based engagement for the entire AI stream. `GetAimPoint() -> (vector, bool)` on a second Blueprint had the same shape. Every one of these compiled with `compiled:true, errors:[], warnings:[]`, and re-reading my own BPIR source could never reveal it — the only thing that exposed it was probing the live function in PIE and finding a 30-round weapon reporting empty, then decompiling. **Working workaround, in case it helps the fix's test matrix:** rewrite to exactly one `return` and move the branching into data. Booleans compose with `Not_PreBool` / `BooleanOR` / `BooleanAND` over unconditional calls; integers need `select(cond:..., true:%a, false:%b)` where **both options come from `MakeLiteralInt`** — an inline integer literal in `select` leaves the wildcard pins untyped and the Blueprint compile fails with *"The type of Option 0 is undetermined"*; and where a `cast` is unavoidable, wire **both** its exec exits to one label holding the sole `return` (`%a = cast<Actor>(%t) [success -> @done, fail -> @done]`), which keeps one FunctionResult and yields null on failure. All three rewritten functions decompile correctly and behave correctly. Suggest the fix also cover the literal case explicitly: it is strictly worse than `#1`'s, because there is no surviving branch whose data is merely "the wrong one" — the function has no branch-dependent behaviour left at all. `encounters` 1 -> 2.

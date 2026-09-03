@@ -5,8 +5,8 @@ status: OPEN
 severity: High
 category: bug
 tags: [asset, save, savestate, pendingFlush, pie, diagnostics, false-deferral, error-payload, niagara, multi-agent]
-encounters: 5
-lastSeen: 2026-09-03T08:20:00+05:00
+encounters: 6
+lastSeen: 2026-09-03T03:20:00Z
 mergedFrom: [B-asset-save-omits-savestate-and-pie-cause]
 ---
 
@@ -143,3 +143,5 @@ today at 19:44:57) x reach=the documented single-package save path for every ass
   One further datum for `#4`'s inconsistency point, reproduced on a different folder: of three `set_material_instance_parameters` calls issued back to back during this PIE window, `MI_FPS_Smoke_Grenade` and `MI_FPS_Smoke_GrenadeWisp` carried `pendingSave:true` and `MI_FPS_Smoke_GrenadeCore` carried no `pendingSave` key — same verb, same second, same PIE block, same outcome on disk.
 
   Also confirmed, as a boundary on the impact: an `asset.save {force:true}` issued in the ~70 s gap between two other streams' PIE sessions (`T_Player` teardown 03:11:14Z, `T_UI` start 03:12:23Z) wrote normally — `MI_FPS_Glass_Dust` 11369 -> 11808 bytes at 03:11:33Z — after two identical calls seconds earlier had returned `state=failed`. Time-varying exactly as `#3` describes. `encounters` 4 -> 5, `lastSeen` refreshed.
+
+- `#6-cost-real-work-on-the-player-stream` `OPEN` reporter — Same signature, and this time it cost committed work. Two `asset.save` calls on `/Game/FPS/Player/BP_FPSCharacter` (the second with `force: true`) both returned `{"saved": false, "sizeBytes": 1341004, "pendingFlush": true}` and **no `saveState` key at all**, while `editor.status` showed `inPie: true` on `UEDPIE_0_T_UI` — another stream's PIE. `sizeBytes` echoes the STALE on-disk size, which reads as reassurance and is not: the file had not moved since 03:05:06Z. Believing `pendingFlush` meant "queued, will land", I went on to other work; the editor then died and took the whole edit with it (six `set_pin_default_values`, two `add_variable`, and one 12-node `compile_bpir` — all confirmed applied in memory, none on disk). The distinction this ticket asks for is exactly the one that would have changed my behaviour: `deferred` means carry on, `failed` means stop and re-plan. Adding to `#4`'s workaround point from the other side: the world lock was accurate here (the other stream held it), so lock-polling would have worked — but the lock is a project convention, not something `asset.save` can rely on, and `force: true` advertising "bypass the save throttle" while silently not bypassing the PIE block is what makes the second call look like a considered retry rather than a repeat of the same no-op.

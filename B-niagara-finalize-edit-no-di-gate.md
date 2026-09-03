@@ -209,3 +209,30 @@ verbs without it is an inconsistency inside one namespace, not a design.
   through a seeded verdict on a target with no `System` because a genuinely mismatched system is not
   portable across hosts and building one would arm the editor-killing assert. **Not compiled, not
   run** — the working tree is under concurrent edit by many agents and building was out of scope.
+- `#3-field-evidence-every-system-edit-arms-it` `IN-REVIEW` reporter — Field evidence from the FPS
+  shared editor, 2026-09-03 03:07-03:14 UTC, that Stage 1's reporting works and that what it reports
+  is worse than "occasionally". **Every** `niagara.set_module_input` issued against a *system* asset
+  (`assetPath` = the `UNiagaraSystem`, `emitter` = a handle name) came back
+  `dataInterfaceCheck: "mismatched"` with `mismatchedScripts` naming that emitter's `SpawnScript` and
+  `UpdateScript` at `compiledDataInterfaces: 0` against `resolvedDataInterfaces: 2` — 8 consecutive
+  edits across `/Game/FPS/VFX/NS_Muzzle_AR` and `NS_Muzzle_Pistol`, on four different emitter handles,
+  100% of the time. The two resolved entries are always the same shape:
+  `<Handle>.Scale Alpha.FloatCurve001` (`NiagaraDataInterfaceCurve`, `compileName`
+  `Emitter.Scale Alpha.FloatCurve001` — note the namespace disagreement) and
+  `SubUVAnimation.Sprite Renderer ` (`NiagaraDataInterfaceSpriteRendererInfo`), both `internal: true`.
+  That is exactly the 0-vs-2 state `B-niagara-di-count-mismatch-vectorvm-assert-kills-editor` says
+  detonates in VectorVM on the next tick, so an ordinary module-input edit arms the editor-killing
+  assert as a matter of course, not as an edge case. Two further facts for whoever takes Stage 2:
+  (a) `niagara.compile {force:true, wait:true}` clears it every time —
+  `niagara.list_orphan_data_interfaces` immediately after a compile returned
+  `dataInterfaceCheck: "consistent"`, `orphanCount: 0`, and `niagara.add_emitter` then accepted the
+  system; (b) the mismatch is per-emitter and cumulative within a session — after editing `Core` only
+  `Core`'s two scripts were listed, and after the next edit touched `Petals` the payload listed all
+  four. So the state is produced by the resolve the edit itself runs, not inherited from disk.
+  The caller-facing hazard is that the documented recovery for a mismatch
+  (`niagara.remove_orphan_data_interfaces`, per the `add_emitter` wiki) is exactly the wrong move
+  here: the "orphans" are the live `ScaleColor` curve and `SubUVAnimation` renderer-info DIs of a
+  working emitter, `remove` would have been accepted (compiled 0 < resolved 2, so dropping both
+  closes the gap by the verb's own safety rule), and it prunes `CachedDefaultDataInterfaces` so they
+  do not come back. Recompiling — not removing — is the remedy, and neither the `set_module_input`
+  page nor the `add_emitter` page says so.

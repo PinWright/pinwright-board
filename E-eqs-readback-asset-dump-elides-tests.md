@@ -307,3 +307,37 @@ established approach.
   Source-confirmed ground truth: `Handlers/Asset/EnvQueryDumpBuilder.cpp` `BuildTestJson`
   serializes only testClass/testOrder/purpose/comment/filter/scoring and never emits
   the test `Context` (nor the option/generator context). culprit `asset.dump`.
+- `#7-sidecar-omits-trace-heights-and-generator-extents` `OPEN` reporter — Fifth
+  independent encounter, from the read side only (no authoring): reviewing the FPS AI
+  stream's `/Game/FPS/AI/EQS_Cover` as a critic on UE 5.8 / `EAContentExamples58`.
+  Confirms `#5`/`#6`'s residual and widens it: the `env_query.json` sidecar omits **every
+  numeric field that decides what a Trace test actually tests**, not just the context
+  class. For `EQS_Cover` the sidecar reports two `EnvQueryTest_Trace` entries
+  distinguished only by `filter.boolValue` `false` / `true` — which reads as "one trace
+  must be blocked, one must be clear" and says nothing about *where*. The two traces are
+  in fact fired from different heights, and that pair is the whole definition of the
+  query: `property.get` / `system.inspect.inspect_object` on
+  `…EQS_Cover:EnvQueryOption_0.EnvQueryTest_Trace_0` returns
+  `ItemHeightOffset.DefaultValue: 40`, `ContextHeightOffset.DefaultValue: 45`,
+  `Context: /Game/FPS/AI/EQC_Target.EQC_Target_C`, `TraceData.TraceChannel:
+  TraceTypeQuery1`, `TraceFromContext: false`; `EnvQueryTest_Trace_1` is identical except
+  `ItemHeightOffset.DefaultValue: 150`. **Change either number to anything else and
+  `env_query.json` is byte-identical** — a cover query validated at knee height and one
+  validated at eye height dump the same. The generator loses the same class of field:
+  `EnvQueryGenerator_SimpleGrid_0` carries `GridSize.DefaultValue: 1700`,
+  `SpaceBetween.DefaultValue: 170` and `GenerateAround:
+  /Script/AIModule.EnvQueryContext_Querier` (441 projected points per run), none of which
+  the sidecar emits — so the dump cannot show the query's search extent, its sample
+  density, or what it searches around. Net: `env_query.json` currently answers "which
+  tests exist and in what order", not "what do they test", and a reviewer verifying an
+  authored query still has to walk every generator and test subobject by hand
+  (`system.inspect.inspect_object` on the `EnvQueryOption_0.<subobject>` paths works and
+  returns all of the above in one call each — worth naming alongside `property.get` in the
+  `eqs.md` readback note, since it does not require knowing the field names in advance).
+  Proposed addition to the `EnvQueryDumpBuilder` fix already IN-REVIEW at `#4`: serialize
+  each test's `Context` plus its class-specific `FAIDataProviderFloatValue` fields
+  (`ItemHeightOffset` / `ContextHeightOffset` for Trace, and the analogous fields on the
+  other stock test classes) and the generator's own data-provider parameters
+  (`GridSize` / `SpaceBetween` / `GenerateAround`), all of which are the same
+  `DefaultValue` reads the builder already performs for `filter` and `scoring`. No plugin
+  source read.
