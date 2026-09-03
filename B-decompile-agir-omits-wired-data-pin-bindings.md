@@ -113,3 +113,25 @@ Blueprint with a variable-driven blend space or aim offset, i.e. effectively all
   `anim.compile_agir` discarding the argument; this one is `anim.decompile_agir` not
   printing a binding that exists), and the two together mean AGIR can neither write nor
   read a data-pin binding while reporting success both ways. No plugin source read.
+- `#2-reproduces-on-rebuilt-graph-and-now-hides-a-disabled-alpha` `OPEN` reporter — Still reproduces
+  at HEAD on the same asset after the AI stream rebuilt its AnimGraph (`/Game/FPS/AI/ABP_Enemy`,
+  UE 5.8 / `EAContentExamples58`), and the consequence has got worse because the graph now carries
+  skeletal controls whose alphas are the thing under review. `anim.decompile_agir` prints:
+  `BlendSpacePlayer(BlendSpace: "...MM_BS_Locomotion_2D")`, `RotationOffsetBlendSpace(BasePose: ...,
+  BlendSpace: "...MM_AO_Rifle")`, `ModifyBone(ComponentPose: ..., BoneToModify: "(BoneName=\"pelvis\")",
+  Translation: "(X=0,Y=0,Z=-34)", TranslationMode: "BMM_Additive")` and two `TwoBoneIK(...)` — every
+  one of them with **no `Alpha:` argument and no `X:`/`Y:` argument**. `blueprint.graph.get_nodes
+  {graphName:"AnimGraph"}` on the same asset in the same minute reports six live links the AGIR does
+  not mention: `Get Direction -> BlendSpacePlayer.X`, `Get Speed -> BlendSpacePlayer.Y`,
+  `Get AimPitch -> RotationOffsetBlendSpace.X`, and one `Get CrouchAlpha` fanning out to
+  `ModifyBone.Alpha`, `TwoBoneIK(foot_l).Alpha` and `TwoBoneIK(foot_r).Alpha`.
+  **Why this is now a correctness trap rather than only a lossy read:** a skeletal-control node with
+  an unbound `Alpha` sits at its literal default and a bound one is driven per frame, and this
+  project's build had *deliberately* pinned `CrouchAlpha` to `0.0` in `BlueprintUpdateAnimation` to
+  disable a broken crouch pose. So the AGIR text for the live graph is character-for-character what
+  AGIR would print for a graph whose alphas were never wired at all — the decompile cannot
+  distinguish "driven, currently 0" from "not driven", which is exactly the distinction a reviewer
+  opens the file to make. I only established the real state by reading
+  `blueprint.decompile` of the event graph and `blueprint.graph.get_nodes` of the anim graph
+  side by side. The `Expected` section above is unchanged and still the right fix; add the
+  skeletal-control `Alpha` pin to the set of bindings that must round-trip. No plugin source read.
