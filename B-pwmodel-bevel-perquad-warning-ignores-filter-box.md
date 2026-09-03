@@ -5,8 +5,8 @@ status: OPEN
 severity: Medium
 category: bug
 tags: [pwmodel, bevel, filter-box, diagnostics, false-positive, model.compile, model.validate]
-encounters: 1
-lastSeen: 2026-09-03T04:45:00+03:00
+encounters: 2
+lastSeen: 2026-09-03T04:35:00Z
 ---
 
 # The per-quad warning fires identically on the correct and the incorrect spelling
@@ -87,3 +87,14 @@ solid in a part -> Medium
   17.45 apart, so the second bevel needed a filter box to avoid re-chamfering the first. A/B in
   one `model.validate` (filtered vs unfiltered, identical geometry shifted 10 in x) gave
   130 tris / 0 crossings vs 306 tris / 215 crossings, and the identical warning on both.
+
+- `#2-second-encounter-on-a-different-document-and-the-warning-was-actively-misleading` `OPEN` reporter — Second encounter, `Content/FPS/Weapons/Meshes/SM_WPN_AR.pwmodel` part `bolt_catch`, same shape as `#1`: two filtered bevels on appended siblings, and the whole-mesh warning fired on both.
+
+```
+'bevel': Mesh has 32 polygroups over 56 triangles - close to one group per quad ...
+  at line 1045 and line 1047, occurrences 2, part bolt_catch
+```
+
+  Worth adding because of **what the 32-over-56 mesh actually was**: not a revolved primitive, but a 2.6 x 0.7 x 0.9 BOX that this file's own previous `bevel` had just chamfered. A bevelled box crosses the per-quad heuristic on its own — 12 chamfer strips and 8 corner patches on top of 6 faces — so **every second bevel in a part raises this warning by construction**, filtered or not, and the message's advice ("Bevel a box or a boolean result instead") is telling the author to do the thing they are already doing.
+
+  It was also actively misleading in this case. The filtered bevels here really were broken — 86 self-intersections, 3 boundary edges, open shell, logged as `#2` on `B-pwmodel-bevel-after-cut-arris-self-intersects` — but for a completely different reason (the second bevel landing on the first one's corner patches), and the only op-anchored warning in the response pointed at polygroup density and at a remedy that does not apply. The real fault's own diagnostics carry `line: -1`. Measuring the ratio inside the filter box, as `#1` asks, would clear this one too: the filtered edge sets here were 12 and 12 edges on 12- and 12-triangle regions.

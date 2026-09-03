@@ -5,8 +5,8 @@ status: OPEN
 severity: High
 category: bug
 tags: [pwmodel, model.compile, model.validate, bevel, boolean, self-intersection, silent-wrong-geometry, no-diagnostic, health-gate]
-encounters: 1
-lastSeen: 2026-09-03T04:45:00+03:00
+encounters: 2
+lastSeen: 2026-09-03T04:35:00Z
 ---
 
 # `bevel` after a cut that crosses an arris self-intersects, and no diagnostic points at the op
@@ -130,3 +130,22 @@ edges on any hard-surface model -> High
   0.12 give identical counts), under `weld_vertices` at two tolerances and both
   `only_unique_pairs` settings, and under `segments`. Worked around by bevelling every solid
   before its booleans; both weapons now compile `selfIntersections: 0`.
+
+- `#2-a-second-trigger-with-no-boolean-in-it-bevel-on-a-previous-bevels-corner-patch` `OPEN` reporter — The same failure has a second trigger that involves **no boolean at all**, which widens this ticket: `bevel` applied to polygroup edges that a PREVIOUS `bevel` created. Where three chamfer strips meet at a box corner, `bevel distance=D` leaves a corner patch roughly D across; a second bevel at the same D on that patch inverts it, and the part comes back open and mis-wound. Signal is identical to `#1` — `PWMODEL_SELF_INTERSECTING_SURFACE` at `line: -1`, `part: ""`, no mention of `bevel` — plus `PWMODEL_MESH_NOT_CLOSED` and `orientationConsistent: false`, none of which name an op either.
+
+  Hit while hoisting `union { gen ; bevel }` blocks to siblings in `Content/FPS/Weapons/Meshes/SM_WPN_AR.pwmodel` for `B-pwmodel-boolean-output-takes-slot-zero`, which forces every hoisted bevel to carry a filter box. Measured per part, on `model.validate` of one part in isolation:
+
+```
+part bolt_catch   body 2.6 x 0.7 x 0.9 bevelled (56 tris / 32 polygroups), then a filtered
+                  bevel on a 0.7 x 0.6 x 0.7 tab and a 0.9 x 0.7 x 1.0 paddle
+  tab + paddle    86 self-intersections, 3 boundary edges, 3 shells, orientationConsistent false
+  paddle only     30 self-intersections, 3 boundary edges, 3 shells
+  neither          0, closed, one shell
+part magazine     3.2 x 4.6 x 18.6 body bevelled, then a filtered bevel on a 3.8 x 5.0 x 1.0
+                  floorplate whose box necessarily contains the body's four bottom arrises
+                  53 self-intersections, 34 boundary edges, 10 non-manifold vertices, 2 shells
+```
+
+  **Scale decides it, not the filter box.** On a large first solid the corner patches are far from any small second solid's box and nothing happens — the same pattern on this model's 20 x 6 x 5.1 upper receiver, its 9.3 x 5 x 4.8 stock body and its 1.24-diameter magazine-catch boss is clean at 0 crossings. It bites when the FIRST solid is small enough that its patches fall inside the second solid's extent. The magazine case is recoverable by emitting the larger solid first so the smaller one's box excludes its arrises; `bolt_catch` is not, and both its sub-solids shipped with no edge break because of it.
+
+  Two notes for whatever fix lands. `bevel` could skip an edge whose two adjacent faces are both already bevel output, which is knowable from the polygroup ids it assigned itself. And the diagnostic gap is the expensive half of this on both triggers: three separate parts here each returned `success: true` with a broken shell, and finding which op did it took a per-part `model.validate` sweep of an 19-part document because `line: -1` names nothing.

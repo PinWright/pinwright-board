@@ -5,8 +5,8 @@ status: OPEN
 severity: High
 category: bug
 tags: [pwmodel, materials, slot, material-id, boolean, union, subtract, bevel, silent-wrong, no-diagnostic]
-encounters: 3
-lastSeen: 2026-09-03T04:20:00Z
+encounters: 4
+lastSeen: 2026-09-03T04:35:00Z
 ---
 
 # A boolean's output is untagged, so it resolves to whichever slot the first part in the document opened
@@ -167,3 +167,39 @@ SM_WPN_Pistol_Slide  id 0 Slide     2066  x[-0.60..20.40]  z[  0.55.. 3.94]
   **Route (2) really is unfixable and now has a number.** One `subtract` survives in the split document — the rear sight's notch — and its opened walls measure exactly **12 triangles** on slot 0 (`x 0.83..1.96, z 3.50..3.94`), phosphate inside an anodised block. The only lever left is document-wide: slot 0 is whichever part tags first, so **part order is the material of every cut wall in the document**. That is a real authoring rule nothing states — `SM_WPN_Pistol` had to keep `slide` first while the slide's eight cuts lived there, and had to have `frame` first the moment they left, or the entire inside of the trigger guard turned phosphate. An author who reorders two parts for readability silently repaints every cut face in the file.
 
   Suggestion, on top of `#2`'s `infer_material_id` default flip: let `subtract` take `material=` and apply it to the opened walls only. The tool is discarded, but the walls are *output*, and they are the one thing the author can name. Failing that, `PWMODEL_MATERIAL_ON_BOOLEAN` should name the part-order consequence instead of only refusing the tag.
+
+- `#4-the-second-shipped-document-and-an-in-format-remedy-for-route-2-through-bores` `OPEN` reporter — Applied `#3`'s sibling + `self_union` pattern to the other weapon, `Content/FPS/Weapons/Meshes/SM_WPN_AR.pwmodel`, which is the 21,420-triangle model this ticket's body measures. Per-triangle read-back off the baked asset, before and after (the magazine's 314 triangles left for `SM_WPN_AR_Magazine` in the same change, so the after column is the rifle alone):
+
+```
+                 BEFORE                                  AFTER
+id 0 Receiver    18559  x[-26.95.. 55.00]                17059  x[-26.20.. 54.20]
+id 1 Polymer       460  x[-25.30.. 13.98]                  428  x[-26.95..  1.99]
+id 2 Barrel       2017  x[-23.70.. 15.50]                 4751  x[-23.70.. 55.00]
+id 3 Optic         384                                     384
+                                          SM_WPN_AR_Magazine  id 0 Polymer 314
+```
+
+  `Barrel` more than doubles and its x range finally reaches the flash hider at 55.00 instead of stopping at the chamber at 15.50. **The residue is exactly accountable**, which is worth recording because it makes route (2)'s cost a number rather than an impression. Summing the compile response's per-part triangle counts by the part's declared slot and differencing against the read-back: Receiver +285, Polymer -128, Barrel -157, Optic 0. The 128 are `part stock`'s bore walls and the 157 are the flash hider's six port walls — every one of them a `subtract` opening, and nothing else in a 19-part document is misplaced by a single triangle.
+
+  **ROUTE (2) HAS AN IN-FORMAT REMEDY WHERE THE CUT IS A THROUGH-BORE, and `#3`'s "really is unfixable" needs that qualification.** A bore subtracted with `subtract { cylinder }` has untaggable walls; the SAME bore generated with `pipe outer_radius=... inner_radius=...` is ordinary generated geometry that takes the generator's `material=` like any other face. The barrel's forward three steps were rewritten that way — `cylinder` → `pipe` at 0.78/0.42, 0.92/0.68 and 1.15/0.68 — and the two `subtract` bore cylinders deleted outright. Identical solid, identical bore diameters and step station, and the muzzle crown (the one surface a player looks straight down the axis of) is now phosphate instead of anodised. Successive pipes of different inner radius union into a stepped bore correctly: the smaller inner radius wins in the overlap, so the 0.42 barrel bore steps up to the 0.68 device bore exactly where the two pipes stop overlapping.
+
+  The remedy does NOT extend to a slot or a window — there is no generator whose output is a tube with six ports in it — so the flash hider's 157 triangles stay. **The rule worth publishing is: if the cut goes all the way through and is a surface of revolution, generate it; otherwise part order is still the only lever.**
+
+  **THE WORKAROUND'S FILTER-BOX COST IS LARGER THAN THE BODY SAYS, AND IT IS NOT ARITHMETIC — IT BREAKS THE MESH.** The body notes that hoisting a `union { gen ; bevel }` block changes the bevel's scope and that `filter_box_min`/`filter_box_max` restores it "computed by hand per site". At 3 of 14 sites on this model no correct box exists at all, and taking the obvious one produced an OPEN, mis-wound, self-intersecting part on a compile that still reported `success: true`:
+
+```
+part bolt_catch  tab + paddle bevels, boxes at each solid's extent +0.12
+                 -> 86 self-intersections, 3 boundary edges, 3 shells, orientationConsistent false
+part magazine    floorplate bevel, box at its extent +0.12
+                 -> 53 self-intersections, 34 boundary edges, 10 non-manifold vertices
+part trigger     no separating box exists in either ordering; bevelling after the resolve instead
+                 -> 82 self-intersections at the blade-to-curl junction
+```
+
+  The mechanism is the same one in all three and it is specific to this workaround: the FIRST solid has already been bevelled, so it carries a **corner patch** — the little facet where three chamfer strips meet — roughly `distance` across at each of its box corners. Any filter box drawn around a SMALL second solid contains one of those patches, and a 0.12 bevel on a 0.12 facet inverts it. Two of the three were recoverable and the third was not:
+
+  - **Generate the larger solid first.** Whichever solid comes second is the one that needs the box, and a box around the smaller contains the larger's arrises while a box around the larger does not contain the smaller's. The magazine went from 53 crossings to 0 purely by emitting its 3.8 x 5.0 floorplate before its 3.2 x 4.6 body.
+  - **Move the solid to its own `part`.** A new part starts with an empty op list, so its bevel is scoped by construction. Used for the rifle's buttpad, where every axis-aligned box holding the pad's twelve arrises also held the stock bore's rear mouth rim.
+  - **Give up the edge break.** `bolt_catch`'s tab and paddle and `trigger`'s finger curl now have none, because no box and no ordering separates them. That is a visible authoring regression caused entirely by working around this ticket.
+
+  Two smaller things this change surfaced. **`PWMODEL_UNUNIONED_OVERLAP` fires on the recommended pattern**: the warning is raised when the sibling is appended and cannot see that a `self_union` follows two lines later, so adopting the workaround took this document from 2 warnings to 10, all of them the fix being mistaken for the bug. If the fix lands as authoring guidance rather than a compiler change, that warning needs to look ahead for a `self_union` in the same op list. And **there is no `set_material_id` op in the format** — `model.describe_ops` lists `set_vertex_color` for colour and nothing at all for material id — so a part cannot re-tag itself after a boolean, which is why every remedy here has to be structural.
