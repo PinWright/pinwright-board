@@ -5,8 +5,8 @@ status: OPEN
 severity: High
 category: bug
 tags: [pwmodel, materials, slot, material-id, boolean, union, subtract, bevel, silent-wrong, no-diagnostic]
-encounters: 1
-lastSeen: 2026-09-03T03:37:04Z
+encounters: 2
+lastSeen: 2026-09-03T03:52:00Z
 ---
 
 # A boolean's output is untagged, so it resolves to whichever slot the first part in the document opened
@@ -133,3 +133,16 @@ appended, so nothing already tagged is recoloured.
 
 ## History
 - `#1-boolean-output-and-bevel-faces-land-on-slot-zero` `OPEN` reporter - `RunBoolean` builds its tool with `bNested=true` (`PwModelCompiler.cpp:2925`) and `RunGenerator`'s only tagging site is gated `if (!bNested)` (`:1681`), so a generator inside a boolean block never reaches `ResolveSlot` and its triangles keep `MaterialID == 0` - which is the first part's slot (`:530-531`, `:561-569`), not a neutral default. Measured on a seven-part five-slot probe compiled to an asset and read back per triangle: `union { box material="Beta" }` lands entirely on `Alpha`; a `subtract`'s bore walls (64 tris) land on `Alpha` while the base box keeps its own slot; `bevel` without `infer_material_id=true` puts 32 of a beveled cube's 44 triangles on `Alpha`. Clean compile, `errors: 0`, no diagnostic. Cost on a real 18-part rifle: 18559 of 21420 triangles on the first part's material - the barrel, gas block and every bevel render as receiver aluminium, and the companion pistol's polymer frame and 110 grip studs render as phosphated steel, because that document's slot 0 is the slide. `materialSlotList`, `static_mesh.describe` and the source tags are all correct; nothing in any response reports triangles per slot, so the fault is invisible until the asset is rendered. `self_union` is not routed through `RunBoolean` and preserves IDs, which makes sibling + `self_union` a workaround for `union` only - and it changes the scope of any modifier that was inside the block, recoverable only by hand-computed `filter_box_min`/`filter_box_max`. Fix: tag boolean output using the snapshot-and-retag mechanism `#4` on `B-pwmodel-modifier-output-takes-slot-zero` adds for modifiers; have `subtract` walls inherit the cut geometry's slot; default `bevel infer_material_id` to true; warn when a boolean emits into a slot the enclosing part never bound; and report triangles per slot on `model.compile`.
+
+- `#2-blast-radius-across-one-project-46-documents` `OPEN` reporter - Scanned every `.pwmodel` in the host project (46 documents across three streams) to size the defect beyond the two weapons in `#1`. **The `bevel` route alone silently damages 15 further models authored by a different team on the same day, none of whom knew.** All 34 environment documents carry a `materials { }` block, all 38 of their `bevel` ops omit `infer_material_id`, and 15 are multi-slot so the bleed is visible geometry rather than a no-op:
+```
+SM_ENV_Truck          6 slots  5 bevels  2 subtracts   first-use slot 0 = Rubber
+SM_ENV_RoofPlant      4 slots  2 bevels
+SM_ENV_DoorPersonnel  3 slots  3 bevels  1 subtract
+SM_ENV_RoofHatch      3 slots  2 bevels  1 subtract
+SM_ENV_RoofLight      3 slots  2 bevels  2 subtracts
++ 10 two-slot models: Barrier_Jersey, Cabinet, Chair, Container20, Desk,
+  LightFixture, PipeSupport, RollerDoor, RubblePile, SignPanel
+```
+The truck is the sharpest case and the best argument for flipping the default: its first-use slot is `Rubber`, so every bevelled edge on its paint, chassis, grille and glass renders as tyre rubber. **Nobody filed a bug about any of these**, because the failure mode is "the material looks slightly wrong along the edges" rather than an obvious fault, and every diagnostic an author can reach - `diagnosticSummary`, `materialSlotList`, `unboundSlots`, `static_mesh.describe` - reports the model as correct. That is the whole shape of this defect: it is not that authors get it wrong, it is that the correct-looking authoring produces wrong triangles and nothing in the toolchain can say so.
+This strengthens the `bevel` recommendation in the body from a nicety to the highest-value single change: **default `infer_material_id` to true**. 38 of 38 bevels written across three independent streams omitted it, which is the definition of a default set the wrong way round - not one author in the project chose the current behaviour. `material_id=0` remains available for the case that genuinely wants a fixed slot.
