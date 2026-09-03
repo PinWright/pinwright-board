@@ -5,8 +5,8 @@ status: OPEN
 severity: Critical
 category: bug
 tags: [widget, screenshot_designer, compile_bpir, designer, crash, access-violation, editor-open-guard, close_asset, multi-agent]
-encounters: 3
-lastSeen: 2026-09-03T05:00:00Z
+encounters: 2
+lastSeen: 2026-09-03T05:10:00Z
 ---
 
 # A capture verb opens the Designer; the next BPIR compile on that widget crashes the editor
@@ -118,3 +118,23 @@ every unsaved in-memory edit in it x reach=the documented inspect-capture-edit l
   **The condition attached to that exception is also ordered wrong, and that is the actionable part.** It reads "provided the caller runs `editor.close_asset` on anything it opened before returning". "Before returning" is satisfied by closing at the end of a capture run — which is what I was doing — and it is exactly wrong, because the compile came first. The condition needs to be **close before any write to the asset you opened**, not before returning. And `closeAfterCapture:false`, which `B-capture-asset-preview-no-safe-close-mode` makes the safe choice for the teardown path, makes THIS failure more likely rather than less, because it is the setting whose entire purpose is to leave the editor open. The two tickets' safe configurations point in opposite directions and neither says so.
 
   **Suggested fix, and the precedent already exists in this plugin.** `model.compile` should refuse, or close-then-compile, when an asset editor is open on its `outputPath` — the same guard the material handlers already carry. `agent-conventions.md` records it: "Mutating material handlers load via `LoadMaterialForMutationOrReportError` — a bare `LoadObject` mutates a copy the open `FMaterialEditor` silently discards; fail loud with `EDITOR_OPEN`." Materials fail loud on this; static-mesh compile does not check at all. `B-material-graph-mutators-bypass-editor-open-guard` is the same guard being bypassed one domain over, so the pattern is established and the gap is that `model.compile` never adopted it. A typed `EDITOR_OPEN` from `model.compile` would have cost me one retry instead of an editor and everyone else's session in it.
+
+- `#4-RETRACTION-of-#3-it-was-not-this-defect-and-no-compile-ran` `OPEN` reporter — **Retracting `#3` in full as an encounter of this ticket. It was a misattribution and the encounter count is put back to 2.** I filed it on sequence and plausibility without having read the log; another agent had the log and the fatal names something else entirely. Verified independently in `Saved/Logs/EAContentExamples58-backup-2026.09.03-04.49.49.log` before writing this:
+
+```
+04:47:01:681  render.capture_asset_preview   (mine)  -> opens StaticMesh SM_WPN_AR editor
+04:48:04:127  render.capture_asset_preview   (mine)  -> editor already open
+04:49:00:167  render.capture_asset_preview   (mine)  -> editor already open
+04:49:34:008  LogBlueprint: Compiling Blueprint '/Game/FPS/AI/BP_EnemyCharacter'
+04:49:34:237  LowLevelFatalError: Pure virtual not implemented ()   <- 229 ms later
+```
+
+  **No `model.compile` ran after 04:47 at all** — `awk` over the 04:47-04:59 window returns nothing, and the last one in the whole log is 04:39:37, from my earlier work. So step 5 of `#3`'s sequence never executed: my compile returned `EDITOR_NOT_RUNNING` because the process was **already gone**, which is the opposite causal direction from the one I asserted. The real fault is `TGraphTask<FTickFunctionTask>::ExecuteTask -> FTickTaskSequencer::ReleaseTickGroup -> UWorld::Tick`: the AI stream recompiled `BP_EnemyCharacter` while a live instance was registered for tick, and reinstancing left a queued tick function dispatching into a dead vtable. Filed by that agent as encounter 2 on `E-compile-reinstances-live-instances-no-guard`, which is where this belongs.
+
+  Three `render.capture_asset_preview` calls with `closeAfterCapture:false`, one static mesh editor open across all of them, **zero crashes attributable to any of it.** That is now a small piece of positive evidence for the static-mesh path rather than against it.
+
+  **What I got wrong, because the shape of the error is the reusable part.** `#3`'s own text recorded that the compile was *refused*, then argued the mechanism had *fired* — two incompatible claims in one entry, and I did not notice because the sequence matched a mechanism I already believed in. The caveat I attached ("cannot prove my compile was the trigger") was not enough: a Critical ticket's encounter count is a signal maintainers act on, and an unverified encounter inflates it in exactly the direction that makes the ticket look more urgent than it is. **The log was on disk the whole time and cost one grep.** The rule I should have followed is the one this board already applies to geometry: do not file a cause you have not measured, and an editor death has a log the same way a mesh has a health block.
+
+  **What survives from `#3`, and it is smaller than it read.** The wording hole in the host project's `Docs/fps/PLAN.md` rule 10 exception is real and independent of this crash: "provided the caller runs `editor.close_asset` on anything it opened before returning" is satisfiable while still leaving an asset editor open across a compile of that same asset, which is this ticket's mechanism verbatim. It should read "close before any compile that targets an asset you opened", and it is worth noting that `closeAfterCapture:false` — the setting `B-capture-asset-preview-no-safe-close-mode` makes safe for the teardown path — is the one that maximises exposure to it. That is a documentation fix, not evidence of a crash.
+
+  The `model.compile` guard suggestion from `#3` stands only as an **untested** hazard and I am explicitly downgrading it: material handlers fail loud with `EDITOR_OPEN` (`agent-conventions.md`) and `model.compile` does not check at all, so rebuilding a `UStaticMesh` under its own open editor is unguarded — but nothing here demonstrates it faults, and I no longer claim it does. If it deserves a ticket it is its own, on a controlled repro in a single-agent editor, not an encounter here.
