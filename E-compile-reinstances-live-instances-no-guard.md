@@ -1,9 +1,9 @@
 ---
 id: E-compile-reinstances-live-instances-no-guard
 title: "blueprint.set_default / blueprint.compile reinstance live PIE instances with no warning"
-status: OPEN
-severity: Medium
-category: ergonomic
+status: IN-REVIEW
+severity: High
+category: bug
 tags: [blueprint, set-default, compile, reinstance, pie, live-instances, safety]
 encounters: 2
 lastSeen: 2026-09-03T04:49:49Z
@@ -64,3 +64,87 @@ Sequence, straight from `Saved/Logs/EAContentExamples58.log`:
 Cost: one editor death taking every stream's in-flight work, the fourth of this session and the second distinct root cause (the other three were `render.capture_open_level`'s hit-proxy `ColorRT` assert, `B-capture-open-level-hitproxy-colorrt-assert-kills-editor`).
 
 **Fix, sharpened by (b):** a warning is not sufficient. Before flushing the reinstancing queue, the handler should enumerate live instances of the class across all loaded worlds and either unregister their tick functions first or refuse with the count and the owning world named. Reporting `instancesReinstanced` and the worlds they were in would also let a caller tell a no-op compile from one that just rebuilt another team's level actors.
+
+## Fix
+
+Severity Medium -> High and category ergonomic -> bug, per encounter #2's own recommendation:
+the second encounter is an editor kill with no PIE and no game code on the stack.
+
+**Ticket verified TRUE against source.** `blueprint.compile` reached
+`CompileBlueprintWithDiagnostics` -> `FKismetEditorUtilities::CompileBlueprint`
+(`BlueprintCompileHandler.cpp:40`, `BlueprintHandlerUtils.cpp:430`) and `blueprint.set_default`
+called it directly (`BlueprintPropertyHandler.cpp`, the finalize block), with no live-instance
+check, no report, and no safe-point gating on either verb.
+
+**Root cause, and encounter #2's suggested fix does not work.** Two independent causes:
+
+1. POSITION. The transport marshals every request with `AsyncTask(ENamedThreads::GameThread, ...)`,
+   so a handler runs from a named-thread pump inside the engine frame (`PinWrightSafePoint::IsSafeNow`
+   reads false there). `FTickTaskLevel` cooks one `TGraphTask<FTickFunctionTask>` per enabled tick
+   function at StartFrame and the task holds a RAW `FTickFunction*` (`TickTaskManager.cpp:284`) that
+   `DoTask` dereferences into the PURE_VIRTUAL `FTickFunction::ExecuteTick` (`EngineBaseTypes.h:524`).
+   Reinstancing trashes the actor mid-frame and the cooked task runs against a destructed object.
+   **Unregistering the tick functions first (the ticket's suggestion) does NOT fix this:**
+   `FTickTaskLevel::RemoveTickFunction` (`TickTaskManager.cpp:1807`) only edits the manager's lists;
+   the already-cooked graph task keeps the same raw pointer. **`EBlueprintCompileOptions::SkipReinstancing`
+   is also ruled out** - the engine asserts `ensure(!bSkipReinstancing); // This is an internal option,
+   should not go through CompileSynchronouslyImpl` (`BlueprintCompilationManager.cpp:365`).
+2. CONSENT. Reinstancing rebuilds placed actors in *any* loaded world and dirties their level
+   (`EditorDestroyActor(OldActor, bShouldModifyLevel=true)`, `KismetReinstanceUtilities.cpp:3011`),
+   including another agent's open map. Nothing reported it.
+
+**Design.** Both halves, deliberately separate - the safe-point gate cannot consent on the caller's
+behalf and the precondition cannot move a stack:
+
+- POSITION: `blueprint.compile` and `blueprint.set_default` added to the existing tick-unsafe method
+  table (`Dispatch/SafePoint.cpp`, new family K with the engine chain). Reuses the plugin's own
+  gate rather than inventing one; the table route is legal here because neither verb is reached
+  through `FRpcDispatcher::DispatchMethod`. Cost: one 0.1s subsystem tick, response unchanged.
+- CONSENT: new `BlueprintReinstancingGuard` - survey live instances (derived classes included; CDOs,
+  archetypes, EditorPreview and Inactive worlds excluded), grouped by owning world package name.
+  `CompileBlueprintWithDiagnostics` surveys *before* the compile and stores it on
+  `FBlueprintCompileDiagnostics`, so **every** verb on the shared diagnostics path reports
+  `reinstanced {count, actorCount, pieActive, worlds[]}` with zero call-site churn. Emitted only when
+  non-empty, so untouched compiles keep their response shape. The refusal is the opt-in gate:
+  `LIVE_INSTANCES_WOULD_BE_REINSTANCED` naming the count and each owning world, overridable with
+  `allowReinstancing: true`, applied to the two verbs the shipped kills came through.
+
+**Known gap, stated rather than hidden:** ~40 other call sites reach
+`FKismetEditorUtilities::CompileBlueprint` (rest of Handlers/Blueprint plus Networking, AI, Physics,
+Interaction, SCS). They now REPORT via the shared path but are not safe-point gated and do not refuse.
+The right fix is declaring tick-unsafety at `REGISTER_RPC_HANDLER` instead of in a hand-maintained
+table; that is a separate change. Noted in the family-K comment.
+
+### Files changed
+
+- NEW `Plugins/PinWright/Source/PinWright/Private/Handlers/Blueprint/BlueprintReinstancingGuard.h`
+- NEW `Plugins/PinWright/Source/PinWright/Private/Handlers/Blueprint/BlueprintReinstancingGuard.cpp`
+- `Plugins/PinWright/Source/PinWright/Private/Dispatch/SafePoint.cpp` (family K, 2 table entries)
+- `Plugins/PinWright/Source/PinWright/Private/Handlers/Blueprint/BlueprintHandlerUtils.h` (survey on
+  `FBlueprintCompileDiagnostics`)
+- `Plugins/PinWright/Source/PinWright/Private/Handlers/Blueprint/BlueprintHandlerUtils.cpp` (survey
+  before compile; emit in `AddCompileDiagnosticsToJson`)
+- `Plugins/PinWright/Source/PinWright/Private/Handlers/Blueprint/BlueprintCompileHandler.cpp`
+- `Plugins/PinWright/Source/PinWright/Private/Handlers/Blueprint/BlueprintPropertyHandler.cpp`
+- `Plugins/PinWright/Source/PinWright/Private/Handlers/ErrorCodes.h`
+  (`ERR_LIVE_INSTANCES_WOULD_BE_REINSTANCED`)
+- NEW `Plugins/PinWright/Source/PinWright/Private/Tests/Blueprint/TestBlueprintReinstancingGuard.cpp`
+- `Plugins/PinWright/docs/wiki-src/blueprint.md`
+
+Not compiled and not run - a separate compile pass follows.
+
+### Reviewer verification
+
+1. Build; then run `PinWright.blueprint.reinstancing_guard.*` + `PinWright.blueprint.compile.*`
+   (4 new tests: survey counts/empties per world; empty survey adds no field while a populated one
+   emits `reinstanced` and names both worlds; dispatcher-level refuse-then-opt-in on a real spawned
+   instance; both verbs declare `allowReinstancing` AND appear in `GetTickUnsafeMethods()`).
+   Also run `PinWright.core.error_codes.*` and `PinWright.core.safe_point.*` (registry + table
+   contracts) and `PinWright.blueprint.set_default.PersistsThroughCompile` (transient BP, no
+   instances - must still pass unrefused).
+2. Live editor, cross-stream repro: open a map holding a placed actor of some BP, then
+   `call("blueprint.compile", {path: "<that BP>"})`. Expect `LIVE_INSTANCES_WOULD_BE_REINSTANCED`
+   naming that map. Re-issue with `allowReinstancing: true`: expect success carrying
+   `reinstanced.worlds[0].world == <that map package>`, the actor rebuilt, and **no editor death** -
+   the pre-fix crash was in the tick immediately after the compile.
+3. Confirm a compile of a BP with no live instances is unchanged: no refusal, no `reinstanced` field.

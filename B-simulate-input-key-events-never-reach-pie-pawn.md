@@ -1,7 +1,7 @@
 ---
 id: B-simulate-input-key-events-never-reach-pie-pawn
 title: "editor.simulate_input key_down/key_up report success but never reach a running PIE session — the possessed pawn's input state does not change, so no verb can drive a game under test"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: bug
 tags: [editor, simulate_input, key_down, key_up, pie, enhanced-input, slate-focus, silent-false-success]
@@ -90,6 +90,89 @@ Return the handled-bool from `FSlateApplication::ProcessKeyDownEvent` rather tha
 session is active — or add an explicit `target: "pie" | "editor"` parameter — so the caller can tell
 "delivered and ignored" from "never delivered".
 
+## Fix
+
+**Confirmed TRUE against source.** `EditorCommandHandler.cpp` (pre-fix, `editor.simulate_input`
+key branches) built `FKeyEvent(InputKey, FModifierKeysState(), 0, false, 0, 0)` and called
+`FSlateApplication::ProcessKeyDownEvent` / `ProcessKeyUpEvent`, discarded the returned handled bool
+and set `bSuccess = true`. `FSlateApplication::ProcessKeyDownEvent` (UE 5.8
+`SlateApplication.cpp:4961-5072`) routes **only** along `SlateUser->GetFocusPath()` — there is no
+game-viewport special case — so unless the PIE game viewport widget is on the keyboard user's focus
+path, the event never reaches `FSceneViewport::OnKeyDown` (`SceneViewport.cpp:1266`) →
+`UGameViewportClient::InputKey` (`GameViewportClient.cpp:725`) →
+`ULocalPlayer::PlayerController->InputKey` → `UPlayerInput`. In a PinWright session focus is on an
+editor panel, so keys landed there. The reporter's viewport click did not repair it (it can be
+handled by an editor widget without moving focus into the game), and no measurement existed to say
+so. Same-cause family as `B-simulate-input-cef-click-noop`, whose `mouse_click` fix left the key
+branches alone on purpose.
+
+**Design.** One documented delivery path for game input, in `FDriveGameInput`
+(`Handlers/Drive/DriveGameInput.h/.cpp`), built on the existing `FDriveInput` primitives so
+`drive.*` and `editor.simulate_input` share one injection layer:
+
+1. **Resolve the destination** — every PIE world context (via the existing
+   `PieWorldSelector::GatherPieContexts`), each with its own `UGameViewportClient`
+   (`FWorldContext::GameViewport`), local player and player controller. Default pick prefers the
+   engine's current game viewport *that has a player controller*; an optional `world` selector
+   (`server` / `client` / `client:N` / `pie:N`, the `editor.console_command` grammar) targets a
+   specific instance.
+2. **Repair focus** — if the game viewport widget is not already on the keyboard user's focus path,
+   `FSlateApplication::SetUserFocus` puts it there. Focus is deliberately left on the game (a
+   `key_down`/`key_up` pair must share one focus target).
+3. **Dispatch the real route** — `FSlateApplication::ProcessKeyDown/UpEvent`, so a focused in-game
+   UMG widget (pause menu, CommonUI navigation) sees the key first and the viewport client sees it
+   otherwise. This is what a real keystroke does.
+4. **Measure at the receiver** — the target `UPlayerInput`'s `FKeyState::EventAccumulator` count for
+   that key, sampled before and after. Chosen over `APlayerController::IsInputKeyDown` because
+   `bDown` is only assigned during the next `ProcessInputStack`, so it reads `false` for one more
+   frame and would report a false negative.
+5. **Floor** — only when the focus route provably delivered nothing (no widget consumed it *and* the
+   player's input stack never saw it), the key goes straight to `UGameViewportClient::InputKey` with
+   the local player's own `FInputDeviceId` (`APlayerController::InputKey` drops events whose device
+   maps to another platform user when `bFilterInputByPlatformUser` is on). It cannot double-fire,
+   and the response names which route was used.
+
+Rejected alternative: viewport-client delivery *only* (no Slate). It is immune to focus, but a
+focused in-game UMG widget never sees the key, which is exactly the second encounter on this ticket
+(pause-menu `Escape` then `Down`/`Enter`). Rejected alternative: Slate-only. It leaves the verb dead
+whenever focus cannot be moved onto the game — the reported failure mode.
+
+**Response is now measured, never hardcoded:** `route` (`slate` | `viewport_client`), `handled`,
+`playerInputRegistered`, `focusRepaired`, `focusedWidget`, `pieInstance`, `kind`, `netMode`, `map`,
+`worldPath`, `playerController`, `pawn`. `success` = `handled || playerInputRegistered`; a key
+nothing received is `INPUT_FAILED` naming the focused widget. New params: `target`
+(`auto` default | `game` | `editor`) and `world`. `target:"game"`, and any call naming a `world`,
+refuses with `NO_ACTIVE_SESSION` instead of degrading into an editor keystroke. A missing `key` is
+`INVALID_ARGUMENT` and an unknown FKey name is `INVALID_KEY` (both used to be `INPUT_FAILED` prose).
+
+**Files changed**
+- `Plugins/PinWright/Source/PinWright/Private/Handlers/Drive/DriveGameInput.h` (new)
+- `Plugins/PinWright/Source/PinWright/Private/Handlers/Drive/DriveGameInput.cpp` (new)
+- `Plugins/PinWright/Source/PinWright/Private/Handlers/Drive/DriveInput.h` / `.cpp` —
+  `PressKeyReportingHandled` (keyboard counterpart of `ClickAtReportingHandled`); `PressKey`
+  delegates to it, contract unchanged for `drive.key`.
+- `Plugins/PinWright/Source/PinWright/Private/Handlers/Editor/EditorCommandHandler.cpp` — key
+  branches rewritten; mouse branches untouched.
+- `Plugins/PinWright/Source/PinWright/Private/Tests/Drive/TestDriveGameInput.cpp` (new) — 5 tests.
+- `Plugins/PinWright/docs/wiki-src/editor.md`, `docs/wiki-src/drive.md`, `docs/rpc-design.md` §1.
+
+**Not compiled, not run** — a separate compile pass follows this change.
+
+**Reviewer verification** (the parts only a live PIE session can prove):
+
+1. `editor.play`, possess a pawn, then `editor.simulate_input {type:"key_down", key:"W"}`. Expect
+   `success:true`, `route:"slate"` (or `viewport_client`), `playerInputRegistered:true`, and
+   `playerController` / `pawn` naming the possessed pawn. Read the pawn's `GetVelocity` /
+   `K2_GetActorLocation` a moment later — it must have moved. Send `key_up` to stop.
+2. A key with no binding (e.g. `key:"F9"`): expect `success:true`, `handled:false`,
+   `playerInputRegistered:true` — delivered and ignored, distinguishable from never delivered.
+3. Pause-menu path: `key_down`/`key_up` on `Escape` with a menu-opening binding, then `Down` /
+   `Enter`. The menu must open and navigate (this is the route-through-Slate half).
+4. No PIE running: `{type:"key_down", key:"W", target:"game"}` must answer `NO_ACTIVE_SESSION`,
+   never `success:true`.
+5. Multi-instance PIE (`editor.play {numClients:2, netMode:"listen"}`): `world:"client:1"` and
+   `world:"server"` must report different `pieInstance` / `playerController` values.
+
 ## History
 
 - `#1-filed` `OPEN` reporter — Hit while reviewing the FPS PLAYER stream's first-person feel, which
@@ -100,3 +183,4 @@ session is active — or add an explicit `target: "pie" | "editor"` parameter �
   review that hit this had to fall back to direct function dispatch, and consequently could not
   report measured bob amplitude or a sprint pose at all. No plugin source read.
 - `#N-ui-critic-pause-menu-unreachable` `OPEN` reporter — Hit again 2026-09-03T00:30Z on EAContentExamples58, and it is now **blocking a review verdict**, not just an inconvenience. Capturing `/Game/FPS/UI/WBP_PauseMenu` requires opening it the way a player does: `IA_Pause` / `Escape` handled by `BP_HUDManager` (a `PlayerController`). In a live standalone PIE session I sent `editor.simulate_input {type:"key_down"/"key_up", key:"Escape"}`, then `Down`, then `Enter`; every call returned `{"success":true,"message":"Key down: Escape"}`. **No menu ever appeared.** Proof it was input routing and not a dead menu: the same PIE frames show the HUD alive and advancing (compass heading moved 115 -> 309 across the shots, crosshair drawn, ammo painted), and a `mouse_click` at the menu's screen position in the same session *did* report `"was handled by a widget"` — so Slate was live and reachable, only the keyboard path never reached the player controller. Consequence: the one High-severity defect this review had to rule on (pause-menu keyboard/gamepad focus state) could not be exercised by the critic at all, and had to be reported unverified for the second round running. A `key` route that targets the PIE viewport client / player input stack rather than only the focused Slate widget would unblock it.
+- `#3-game-input-router` `IN-REVIEW` developer — Confirmed TRUE by reading source only (no editor calls). Root cause is not "no game forwarding" but **wrong routing target plus a discarded handled bool**: `FSlateApplication::ProcessKeyDownEvent` routes solely along the keyboard user's focus path (UE 5.8 `SlateApplication.cpp:4961`), which in a PinWright session is an editor panel, and the handler hardcoded `bSuccess = true`. Fixed by adding `FDriveGameInput` (resolve the PIE `UGameViewportClient` + local player -> put the game viewport on the focus path -> dispatch the real Slate route -> measure the target `UPlayerInput`'s queued-event count -> fall back to `UGameViewportClient::InputKey` only when the focus route provably delivered nothing), and rewiring `editor.simulate_input` key branches onto it with `target` / `world` params and a measured response (`route`, `handled`, `playerInputRegistered`, `focusRepaired`, `focusedWidget`, world/player/pawn identity). Shares the injection layer with `drive.*` via the new `FDriveInput::PressKeyReportingHandled` (keyboard counterpart of the `ClickAtReportingHandled` added by `#2-reword-and-fix` on `B-simulate-input-cef-click-noop`); that ticket's key-branch carve-out is now closed. 5 tests in `Tests/Drive/TestDriveGameInput.cpp` cover the pure destination-selection rule, focus-path containment against a real Slate hierarchy, and the response contract without PIE (`target:"game"` with no session must be `NO_ACTIVE_SESSION`, bad key/target refused by code, editor route reports `handled`). Not compiled and not executed here — a separate compile pass follows; the live-PIE half is the reviewer checklist in the Fix section. Details, rejected designs and file list: `## Fix` above.

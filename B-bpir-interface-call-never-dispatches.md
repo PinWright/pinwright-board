@@ -1,10 +1,10 @@
 ---
 id: B-bpir-interface-call-never-dispatches
-title: "RETRACTED by reporter in #2 - the interface call does dispatch. Residual real defect: call K2Node_Message(...) silently builds a plain CallFunction instead and reports success"
-status: OPEN
+title: "BPIR could not express UK2Node_Message: a correct interface-message node decompiled as a plain `call`, so it looked like it was never built (both #1 and its residual #2 claim are false; the ambiguity was the real defect)"
+status: IN-REVIEW
 severity: Medium
 category: bug
-tags: [bpir, compile-bpir, interface, k2node-message, silent-noop, dispatch, generic-k2node, node-props]
+tags: [bpir, compile-bpir, interface, k2node-message, decompiler, round-trip, dispatch, generic-k2node, node-props]
 encounters: 1
 lastSeen: 2026-09-02T23:12:00+03:00
 ---
@@ -138,7 +138,110 @@ resolution, not dispatch. `B-bpir-statement-cast-success-unwired-replace-shared-
 cast node's exec wiring under replace mode; here the cast wires correctly and is not the fault. No
 ticket covers interface dispatch.
 
+## Fix
+
+**Both claims in this ticket are false, and the second one is false in a way that is itself the
+defect.** Verified by code reading only (no editor, no PIE) against the current tree.
+
+**`#1` (the interface call never dispatches) — correctly retracted.** A plain `call` on an
+interface function emits `UK2Node_CallFunction` with an interface-typed self pin, which dispatches
+like any virtual call. No code change.
+
+**`#2`'s residual claim (`call K2Node_Message(...)` silently builds a plain `CallFunction`) — also
+false.** The generic lane builds exactly the class it is given:
+
+- `Compiler/BpirCompiler.cpp:6012-6016` routes a `K2Node_*` / `UK2Node_*` function-name slot to
+  `EmitGenericK2NodeInstruction`, which calls `CodeNodeEmitter::CreateGenericK2Node`.
+- `Compiler/CodeNodeEmitter.cpp:1010-1043` resolves the class by name and does
+  `NewObject<UK2Node>(TargetGraph, NodeClass)`. The only class it *refuses* is
+  `UK2Node_AsyncAction` (an explicit, logged rejection). Nothing rewrites `Message` into
+  `CallFunction`.
+- `Compiler/BpirShapeMetadata.cpp:133-137` registers `FunctionReference` as a pre-allocate property
+  on `UK2Node_CallFunction`, and `FindBpirShapeDescriptor` walks the superclass chain, so a
+  `UK2Node_Message` gets its `FunctionReference` applied and `ReconstructNode()`-ed
+  (`BpirShapeMetadata.cpp:285-289`) — which is why the reporter saw the right pin set and
+  `nodeCount: 4`.
+- The `Conv_InterfaceToObject` the reporter read as evidence of substitution is what a *correct*
+  message node forces: `UK2Node_Message::CreateSelfPin` makes the self pin a plain `PC_Object`
+  `UObject` pin (`C:\UE_5.8\Engine\Source\Editor\BlueprintGraph\Private\K2Node_Message.cpp:88-93`),
+  so wiring an interface-typed value into it auto-inserts the conversion. The Blueprint editor does
+  the same thing.
+
+**What was actually broken — and why the misread was unavoidable.** `UK2Node_Message` derives from
+`UK2Node_CallFunction` (`K2Node_Message.h:23`). `FGraphWalker::ClassifyNode` casts to
+`UK2Node_CallFunction` **before** its class registry walk (`Decompiler/GraphWalker.cpp:204-215`), so
+a message node classified as `FunctionCall` and `FBpirTextEmitter::EmitCallNode` printed it as
+`call Foo(...)`, byte-identical to an ordinary call. Consequences:
+
+1. A correct message node was **indistinguishable from the bug the reporter thought they had**.
+   There was no way, short of running the game, to tell "built the right node" from "built the wrong
+   one" — which is exactly what turned one wrong PIE probe into two rounds of wrong fixes.
+2. Decompile → recompile **silently changed the node class** of every message node in any Blueprint
+   (including ones a human authored in the editor, where message nodes are the normal way to call an
+   interface off an object pin). A message no-ops on a non-implementing object; a plain call through
+   a null interface does not. That difference is invisible until runtime.
+3. `Docs/wiki-src/blueprint.md` promised the generic lane round-trips through `EmitGenericNode`.
+   For every `UK2Node_CallFunction` subclass, it did not.
+
+**Change: `message` is now a first-class BPIR opcode form.** Chosen over routing message nodes into
+the generic `call K2Node_<Type>(...)` lane because that lane drops the self pin on emit
+(`FormatArgs` defaults `bSkipSelfPin = true`) and its `node_props` round trip depends on
+`FMemberReference` surviving a CDO-diff → BPIR-literal → `ImportText` cycle, which is not something
+to take on trust. `message` reuses the entire Call lane — resolution cascade, arg wiring, return
+pin, exec threading — and differs only in the node class.
+
+- `Compiler/BpirTypes.h` — `FBpirInstruction::bInterfaceMessage`. A flag on the Call opcode, not a
+  new opcode, so nothing downstream has to learn a new case.
+- `Compiler/BpirSharedConstants.h` — `Keywords::Call` / `Keywords::Message`, the one spelling shared
+  by parser and emitter.
+- `Compiler/BpirGrammar.cpp` — `message` → `EBpirOpcode::Call`. The only behaviour change is for a
+  line whose **first** token is `message`, which was previously "Unrecognized instruction"; the
+  three token-type checks in the parser treat `Keyword` and `Identifier` interchangeably everywhere
+  else, and `FIrTextUtils::FormatNameToken` does not consult the grammar, so a pin or function named
+  `Message` is unaffected.
+- `Compiler/BpirParser.cpp` — `message` in both dispatch tables (statement and `%r = ...` forms).
+- `Compiler/CodeNodeEmitter.{h,cpp}` — `CreateCallFunctionNode(..., bAsInterfaceMessage)` spawns
+  `UK2Node_Message`.
+- `Compiler/BpirCompiler.cpp` — passes the flag at both call sites, and **fails the compile** when
+  the resolved function's owning class is not `CLASS_Interface`. That is ticket ask (2) applied
+  where it is actually true: a message node on an ordinary function is the permanent no-op the
+  reporter was hunting.
+- `Decompiler/BpirTextEmitter.cpp` — `EmitCallNode` emits the `message` keyword;
+  `ShouldQualifyFunctionName` always qualifies a message node (neither of its probes can see the
+  interface through an object-typed self pin); `GetFunctionDisplayName` keeps the `_C` on a message
+  qualifier because `ResolveUClass` resolves a Blueprint class **only** through its `_C` form
+  (`Utils/ClassUtils.cpp` steps 5 and 7) — the stripped name would be an unresolvable token;
+  `FormatTargetPrefix` stops dropping a `Target: self` on a message node, where an unconnected self
+  pin means "no receiver" rather than "self".
+
+Not done, deliberately: ticket ask (1) — auto-emitting `UK2Node_Message` for any interface call — is
+not warranted, because `#2` established the plain call already dispatches. Ticket ask (4) —
+`Message` in `blueprint.graph.create_node`'s node types — is a separate feature, not this defect.
+
+**Test:** `Source/PinWright/Private/Tests/Bpir/TestBpirInterfaceMessageRoundTrip.cpp`,
+`PinWright.bpir.round_trip.InterfaceMessage`. Compiles a `message` call against the native
+`/Script/UMG.UserListEntry` interface and asserts a `UK2Node_Message` was built; asserts the
+decompile names the message form *with* its qualifier and keeps `Target: self`; recompiles the
+decompiled text and asserts it lands on a message node again; and asserts `message` on a
+non-interface function is refused with no node left behind. Skips with the standard
+`PINWRIGHT_ASSERTIONS_SKIPPED` marker if that interface is not registered on the host.
+
+**Not compiled and not run** — the task forbade both. Every claim above is code reading.
+
+**Left open for a follow-up:** the same base-cast swallow applies to every other
+`UK2Node_CallFunction` subclass (`UK2Node_CallParentFunction`, `UK2Node_CallFunctionOnMember`, …).
+They decompile as plain calls and recompile as plain `UK2Node_CallFunction`. `message` fixes only
+the one that had a caller. Recorded in `Docs/bpir-test-matrix.md`.
+
 ## Severity
+
+**Medium**, and the original High reasoning below does not survive the retraction — kept for the
+record. The silent-false-success band applied to a compile that "returns `compiled: true` for logic
+that does nothing"; the compile was correct and the logic did run. What remains is a decompiler that
+cannot represent a node class, which costs wrong diagnoses and a silent node-class change on
+round-trip — real, but not a lie about a normal path.
+
+### Original severity argument (as filed, on the retracted premise)
 
 **High.** The rubric's High band is *"silent false-success, or silent wrong / stale data on a normal
 path (the caller trusts a result that is a lie and builds on it)"*, which is this exactly: two
@@ -158,3 +261,5 @@ board's own convention is that a bump needs "almost every session". It sits at t
   **What is still true and worth keeping**, because it was measured independently of the wrong conclusion: `call K2Node_Message(...) node_props { FunctionReference: ... }` returned `compiled: true, nodeCount: 4` and the decompile shows **no `K2Node_Message` at all** — a `Conv_InterfaceToObject` plus a plain `UK2Node_CallFunction`. BPIR silently substituted a different node class for the one named and reported success. That is a real silent-wrong-result on the documented generic-K2Node escape hatch and it should be split into its own ticket rather than dying with this one. Also still true: `blueprint.graph.create_node` lists no `Message` node type.
 
   **Disposition asked for:** re-title and re-scope this ticket to the `K2Node_<Type>` substitution only, or close it `WONTFIX` and let me file that separately — a tester should not have to work `#1`'s premise. The workaround `#1` describes has been removed from the product: `bApplyRecoilToControllerDirectly` and `RecoilInputScale` are deleted from `BP_WeaponBase`, `DeliverRecoil` now calls the interface and nothing else, and the retraction that rested on this ticket has been struck from `Docs/fps/INTERFACES.md`.
+
+- `#3-rescoped-and-fixed-decompiler-cannot-express-message` `IN-REVIEW` developer — **`#2`'s residual claim is false too, and the way it is false is the defect.** The generic lane does build the class it is named: `BpirCompiler.cpp:6012-6016` → `CodeNodeEmitter.cpp:1010-1043` (`NewObject<UK2Node>(TargetGraph, NodeClass)`, refusing only `UK2Node_AsyncAction`), with `FunctionReference` applied and the node reconstructed via the `UK2Node_CallFunction` shape descriptor (`BpirShapeMetadata.cpp:133-137, 285-289`). The `Conv_InterfaceToObject` read as proof of substitution is what a *correct* message node forces — `UK2Node_Message::CreateSelfPin` makes the self pin a plain `UObject` pin (`K2Node_Message.cpp:88-93`). What was really broken: `UK2Node_Message` derives from `UK2Node_CallFunction` (`K2Node_Message.h:23`) and `FGraphWalker::ClassifyNode` casts to the base **before** its registry walk (`GraphWalker.cpp:204-215`), so a message node printed as a plain `call Foo(...)` — indistinguishable from the bug being hunted, and recompiling that text silently swapped the node class (a message no-ops on a non-implementing object; a plain call through a null interface does not). That ambiguity is what cost two rounds. **Fixed** by making `message Interface::Function(...)` a first-class form: `bInterfaceMessage` on the Call opcode (`BpirTypes.h`), keyword in `BpirGrammar.cpp` + both `BpirParser.cpp` dispatch tables, `CreateCallFunctionNode(..., bAsInterfaceMessage)` spawning `UK2Node_Message` (`CodeNodeEmitter.{h,cpp}`), a hard compile error when the resolved function's owner is not `CLASS_Interface` (`BpirCompiler.cpp` — ask (2), applied where it is actually true), and on the emit side the `message` keyword, forced class qualification, a `_C`-preserving qualifier (`ResolveUClass` resolves a BP class only through `_C`, `ClassUtils.cpp` steps 5/7), and a `Target: self` that is no longer dropped (`BpirTextEmitter.cpp`). Test `PinWright.bpir.round_trip.InterfaceMessage` in `Tests/Bpir/TestBpirInterfaceMessageRoundTrip.cpp` covers compile → node class, decompile → keyword/qualifier/target, recompile → node class, and the non-interface refusal. Docs: `Docs/wiki-src/bpir.instructions.md` (new `call` vs `message` section), `Docs/wiki-src/blueprint.md` (the generic-K2Node round-trip caveat that made this misreadable), `Docs/bpir-test-matrix.md`. Asks (1) and (4) deliberately not done — (1) is unnecessary given the retraction, (4) is a separate feature. **Not compiled, not run** (both forbidden by the task): every claim is code reading, so a tester should compile, run `PinWright.bpir.round_trip.InterfaceMessage`, and confirm no existing `bpir.*` test regressed on the changed `Target: self` / qualification paths.

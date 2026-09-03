@@ -1,7 +1,7 @@
 ---
 id: B-niagara-set-curve-keys-unreachable-module-input-di
 title: "niagara.set_curve_keys cannot address a curve data interface that lives on a stack module input — every scope/name spelling returns DATA_INTERFACE_NOT_FOUND, so no over-life curve can be authored"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: bug
 tags: [niagara, set-curve-keys, data-interface, curve, module-input, scale-sprite-size, scale-color, discoverability, static-switch, silent-bypass, correction]
@@ -114,6 +114,81 @@ defect is the unreachable DI plus a static switch that silently bypasses an
 authored chain, which argues Medium on impact and High on the silent-bypass
 discoverability. Left at High for the original reporter to re-judge.]
 
+## Fix
+
+Confirmed TRUE against source before changing anything. `niagara.set_curve_keys` built its target
+with `Spec.Kind = ENiagaraEditTargetKind::ParameterStore` and looked the DI up with
+`ResolveBoundDataInterface(*Target.ParameterStore, ...)`
+(`NiagaraCurveHandler.cpp` — target spec, store lookup, `DATA_INTERFACE_NOT_FOUND` refusal). No
+other path existed, so a curve on a module's override pin, or still at its module script's default,
+was unreachable by construction. `#3`'s reading was the correct one.
+
+**Shape of the fix.** Both curve verbs (and a new read verb) now take a second addressing form,
+`entryId` + `inputName` — the same one `niagara.set_module_input` takes, `entryKey` included. The
+(asset, emitter, stage, module) half is NOT duplicated: it is `NiagaraEdit::ResolveTarget` with
+`ENiagaraEditTargetKind::Module`, exactly as `set_module_input` resolves it. The only new logic is
+one shared "module input -> DI object" resolver.
+
+The write rule is what makes it safe. An input at `valueMode: "default"` resolves to the module
+ASSET's own object, shared by every placement of that module — engine content included — so a write
+there would edit `/Niagara/Modules/...` itself. `EResolveMode::WriteCreateOverride` therefore creates
+the override pin and its own DI first (via the engine's
+`FNiagaraStackGraphUtilities::SetDataInterfaceValueForFunctionInput`), **seeded from the script
+default** so a one-channel edit keeps the authored shape of the rest. `EResolveMode::Read` hands the
+shared object back marked `writable: false`. An input driven by a dynamic input / linked parameter /
+expression is refused `MODULE_INPUT_OVERRIDE_LINKED` naming the driver; an unknown `inputName` is
+refused `MODULE_INPUT_NOT_FOUND` **listing the module's data-interface inputs**, which answers `#1`'s
+"the caller cannot discover a name that would work".
+
+`niagara.get_curve_keys` is new and closes the read half `#2`/`#6`/`#7`/`#8` are blocked by: it emits
+the samples no other surface does, in both addressing forms, all channels by default. The store-form
+`DATA_INTERFACE_NOT_FOUND` message now names the module-input form, so the refusal `#1`-`#3` cycled
+against is self-correcting.
+
+**Not addressed here, deliberately.** `#4`/`#5`'s silent static-switch bypass (an authored
+dynamic-input chain on a branch the switch does not select) is a `niagara.validate` warning about a
+different verb — it wants its own ticket. `#5`'s "size-over-life is authorable via `Lerp_Float`"
+correction stands and is unaffected; this makes the direct route work as well.
+
+**Files changed** (all under `Plugins/PinWright/`):
+- `Source/PinWright/Private/Handlers/Niagara/NiagaraModuleInputDataInterface.h` / `.cpp` — NEW. The
+  single module-input -> DI resolver, plus the reflection read of `UNiagaraNodeInput`'s private
+  `DataInterface` UPROPERTY (`UCLASS(MinimalAPI)`, so `GetDataInterface()` cannot be linked).
+- `Source/PinWright/Private/Handlers/Niagara/NiagaraCurveHandler.cpp` — dual addressing on
+  `set_curve_keys` and `bind_curve_asset`, new `get_curve_keys`, one shared channel table behind
+  both the write and the read path, self-contained payload parsing (the verbs no longer route
+  through `ParseDataInterfacePayload`, whose four extra keys were undeclared and therefore dead).
+- `Source/PinWright/Private/Handlers/Niagara/NiagaraEditHandler.cpp` — the duplicated reflection
+  read in `RemoveOverrideValueNode` now calls the shared helper. No behaviour change.
+- `Source/PinWright/Private/Handlers/ErrorCodes.h` — registered `MODULE_INPUT_NOT_FOUND` (new) and
+  `CHANNEL_MISMATCH` (emitted since the original curve feature, never registered; the registry test
+  missed it because it was only ever emitted from inside a ternary).
+- `Source/PinWright/Private/Tests/Infra/TestDeclaredParamCoverage.cpp` — pruned the 8 now-stale
+  read-but-undeclared baseline pairs for the two curve verbs (ratchet goes down, not up).
+- `Docs/wiki-src/niagara.md` — `### niagara.set_curve_keys` and `### niagara.get_curve_keys` overlay
+  sections: the two forms, why no store holds a module curve, the override-creation rule, the read
+  gap this closes.
+- `Source/PinWright/Private/Tests/Niagara/TestNiagaraCurveHandler.cpp` — 4 new tests (round-trip
+  write+read through the module-input form on a real `ScaleSpriteSize` placement, the
+  discoverability of `MODULE_INPUT_NOT_FOUND`, the store-miss message naming the module form, and
+  the two forms being mutually exclusive).
+- `Source/PinWright/Private/Tests/Infra/TestNiagaraCurveModuleInputDocs.cpp` — NEW, 2 doc-contract
+  tests over the rendered method pages.
+
+**Not compiled and not run** — a separate compile pass follows.
+
+**Reviewer verification.** On a live editor: duplicate `SimpleSpriteBurst`, `niagara.add_module`
+`/Niagara/Modules/Update/Size/ScaleSpriteSize` into `ParticleUpdateScript`, then
+`niagara.set_curve_keys {assetPath, emitter, entryId: <the module's entryId>, inputName: "Uniform
+Curve Sprite Scale", keys: [{time:0,value:0.2},{time:0.35,value:1.0},{time:1,value:0.05}]}`. Expect
+success with `addressing: "moduleInput"`, `createdOverride: true`, `valueMode: "data"`, `written: 3`.
+Read it back with `niagara.get_curve_keys` on the same address and compare the keys. Then confirm
+the write did NOT touch the module asset: `niagara.get_curve_keys` against a SECOND fresh
+`ScaleSpriteSize` placement must still report `valueMode: "default"` with the stock linear 0->1 ramp
+`#2` read out of the binary. The sixteen emitters `#4` names are the content-level regression suite;
+`E_Explosion_Shockwave` and `E_Explosion_DustRing` are the two that cannot be called correct until
+this works.
+
 ## History
 - `#1-initial-repro` `OPEN` reporter — Found building the FPS impact VFX systems under `/Game/FPS/VFX/` (map as forcing function; host `CLAUDE.md` § "What this project is for"), 2026-09-02, UE 5.8, EAContentExamples58 checkout, live editor on port 27145. All three failing calls above were executed against a fresh `SimpleSpriteBurst` duplicate and returned the quoted `DATA_INTERFACE_NOT_FOUND` text. The `Constants.<Emitter>.<Module>.<Input>` naming was taken from that same emitter's `niagara.inspect {parametersOnly:true}` output, which lists nine such scalar entries per scope and no data-interface entries. Not source-confirmed: no read of the `set_curve_keys` handler was made; the "parameter stores only" reading is from the verb's own parameter list (`scope` + `parameterName`) and the uniform error. Scopes tried: `updateRapidIteration` only for two spellings, plus one at the same scope with the `Constants.` prefix dropped — `spawnRapidIteration`, `rendererBindings` and `user` were **not** tried and a verifier should, though none of them is where a ParticleUpdate module input would live.
 - `#2-both-rapid-scopes-measured-empty-and-the-default-curve-read-out-of-the-binary` `OPEN` reporter — Second reporter, same day, building `/Game/FPS/VFX/NS_Blood`, `NS_Impact_Flesh`, `NS_Smoke_Grenade` and `NS_Explosion` in the EAContentExamples58 checkout on UE 5.8, live editor port 27145. Two things `#1` left open, now measured. **(a) The untried scopes are not where it is hiding.** `#1` notes it only tried `updateRapidIteration` and asks a verifier to try the others. I read BOTH rapid-iteration stores in full on a probe emitter (a `SimpleSpriteBurst` duplicate carrying `add_module`-added `ScaleSpriteSize`, `ScaleColor`, `CurlNoiseForce`, `SubUVAnimation`, `Light_Attributes`, `Collision` and eleven more) with `niagara.inspect {parametersOnly:true, parameterName:"Constants"}`: `spawnRapidIteration` holds 13 entries and `updateRapidIteration` 9, and **every one is a scalar / Vector3f / Vector4f / Quat4f / bool — there is not one data-interface entry in either scope**, on an emitter that demonstrably owns at least three curve DIs. `rendererBindings` came back empty on the same read. So the DI genuinely does not live in a parameter store and no spelling can reach it; `set_curve_keys`'s `scope` + `parameterName` contract simply cannot address a module-pin DI. `niagara.set_curve_keys {scope:"updateRapidIteration", parameterName:"Constants.E_ZZ_ProbeScratch.ScaleSpriteSize.Uniform Curve Sprite Scale"}` returned the same `DATA_INTERFACE_NOT_FOUND` `#1` quotes. **(b) There is no read path either** — `niagara.decompile_model` on the same emitter (186 KB payload) mentions the DI's type, node and enum options but publishes no curve keys, so a caller cannot even see what the curve currently is, let alone edit it. **What the default curve actually is**, since the API will not say: I parsed it out of `Modules/Update/Size/ScaleSpriteSize.uasset` directly, scanning for float32 runs in [0,1] — the baked `ShaderLUT` for `Uniform Curve Sprite Scale` is a **monotone linear 0 -> 1 over `Particles.NormalizedAge`** (57 samples, 0.0, 0.018, 0.036 ... 0.982, 1.0). **Practical cost, which `#1` does not state:** because the keys cannot be edited and `Uniform Curve Scale` is only a multiplier on that 0->1 ramp, a size-over-life ramp authored through this API can only run **0 -> max**. The ordinary VFX ask — smoke growing 30 -> 260, a fireball 60 -> 300 — is unauthorable; every sprite must be born at size zero. Four systems in this package ship with that compromise. Not source-confirmed: no read of the `set_curve_keys` handler.
@@ -174,3 +249,4 @@ discoverability. Left at High for the original reporter to re-judge.]
   **Visible consequence, now photographed.** `Docs/fps/evidence/vfx/b5_10_smoke_120ms_core.png`: with no size-over-life ramp the sprites are born at final size (90-150 uu) and hold it for their whole 2.5-4.5 s life, so at 120 ms the grenade is a wide low haze instead of the tight 55-70 cm knot the fixer's own model predicted. The smoke never billows. That is a second, independent quality defect riding on this ticket's blocked capability, and it is the first time the consequence has been captured in a frame rather than inferred from a stack read.
 
   **Practical trap for the next agent, from the same fixer:** the documented `remove_emitter` + `add_emitter` recovery re-copies from the emitter asset, so running it after editing a system's emitter copies in place DESTROYS those edits. On this asset that would have discarded six landed changes. There is currently no non-destructive route to re-add a missing handle mid-iteration.
+- `#10-module-input-addressing-added-to-the-curve-verbs` `IN-REVIEW` developer — Source-confirmed the defect first (nine encounters, none of them a source read): `niagara.set_curve_keys` built `ENiagaraEditTargetKind::ParameterStore` and resolved through `Target.ParameterStore` only, so a module-pin DI was unreachable by construction rather than by a spelling mistake. Fixed by teaching `set_curve_keys` and `bind_curve_asset` the `entryId` + `inputName` form `niagara.set_module_input` already takes, over one shared module-input -> DI resolver (`NiagaraModuleInputDataInterface.h/.cpp`) rather than a parallel lookup, and adding `niagara.get_curve_keys` for the read half four of the encounters are blocked by. A default-valued input gets its own override DI seeded from the module script default before any write, so the shared module asset is never edited. Full detail, file list and the reviewer recipe are in the `## Fix` section above. NOT compiled and NOT test-run — a separate compile pass follows, and no live editor was touched.

@@ -1,7 +1,7 @@
 ---
 id: B-mrq-run-jobs-succeeds-on-unrenderable-frames
 title: "mrq.run_jobs reports jobSucceeded:true with four healthy-looking 8.8 MB PNGs whose lower 47% is a flat white void and whose Nanite geometry has shattered — every field in the response is a file fact, and none of them is a picture fact"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: bug
 tags: [mrq, run_jobs, silent-false-success, movie-render-queue, nanite, lumen, warm-up, image-stats, acceptance-render]
@@ -103,6 +103,115 @@ Searched the board for `mrq` (7 hits) and for the silent-success pattern. Not a 
   `render.capture_asset_preview`; different namespace, different mechanism, and that one at least
   published `imageStats` for two frames to be compared by. Cross-referenced, not merged.
 
+## Fix
+
+**Confirmed TRUE against source before changing anything.** `PinWrightMRQ::BuildArtifactReport`
+(`Source/PinWright/Private/Handlers/MRQ/MRQArtifactReport.cpp`) opened no image data at all: its
+only per-file measurement was `IFileManager::GetStatData` at the old `:144-158`, feeding `exists`,
+`fileSizeBytes`, `totalFileSizeBytes` and everything derived from them. The root-cause guess in
+this ticket was right.
+
+Ask 1 was implemented (per-frame `imageStats` with the shipped verdicts), plus the statistic ask 2
+called for, plus ask 3 in the doc. Two things the reporter did not ask for were added because they
+are the same defect one layer up: the executor's non-fatal errors and the shots' pipeline state.
+
+**New: the spatial statistic.** `Handlers/Render/FlatRegionStats.h/.cpp`
+(`PinWrightFlatRegion::MeasureLargestFlatRegion`) — largest 4-connected region of one flat colour,
+as a share of the frame, with its bounding box. It lives beside `SubjectRegionStats.h` rather than
+inside `Handlers/MRQ/` because it is a frame property, not an MRQ property: `render.capture_*` has
+the identical blind spot. **Why a new statistic and not a widened `blank`:** on a half-void frame
+every whole-frame aggregate is healthy AND CORRECT — the good half carries a normal mean, a normal
+variance and dozens of tone levels — so no threshold on them separates this from an ordinary
+picture. Blocks are counted per AXIS (64), so the verdict is resolution-invariant the way
+`BlankMinLitFraction` was rewritten to be. Regions grow anchored to their SEED block's level, never
+to the frontier, which is what stops a sky gradient chaining into one giant "flat" region.
+
+**New: the per-frame evidence.** `Handlers/MRQ/MRQFrameEvidence.h/.cpp` decodes a frame through the
+existing `PinWrightImage::LoadBitmap`, measures it with the existing
+`PinWrightRenderCapture::CalculateCaptureImageStats` (so `blank` / `crushed` / `blownOut` /
+`toneLevelsUsed` mean here exactly what they mean on `render.capture_open_level`) plus the flat
+region, and publishes `imageAnalyzed`, `imageStats`, the three verdicts, `suspect` and
+`suspectReasons[]` (`FLAT_REGION` / `BLANK` / `CRUSHED` / `BLOWN_OUT`) on each `outputFiles[]`
+entry, with `framesAnalyzed` / `framesSuspect` per job. **Sampled at 8 frames per job** (evenly
+spaced, first and last always included) because decoding a 4K PNG is ~100 ms on the game thread and
+a render can write hundreds; a warning fires whenever fewer frames were opened than were written,
+so `framesSuspect: 0` can never be read as "every frame was checked". **Warns, never refuses** —
+unlike `render.capture_open_level`'s `BLANK_CAPTURE`, because the files are already on disk and
+refusing to report them would destroy the only record of what was written.
+
+**The one causal thing it can honestly say.** It does NOT name the cause: an unconverged Nanite/VSM
+stream, geometry that never loaded into the PIE world, a GPU timeout mid-accumulation and a matte
+backdrop write the same pixels, and no readback separates them — so the warning lists them as
+candidates and points at `shots[].state` and the queued level. What it DOES compute is where in the
+render the suspect frames fall: all measured frames suspect ⇒ *not* first-frame convergence and
+warm-up will not fix it; only the earliest ⇒ it is. That is exactly the conclusion this ticket
+records taking two builds to reach by hand.
+
+**Also surfaced, same defect class.** `mrq.run_jobs` now binds
+`UMoviePipelineExecutorBase::OnExecutorErrored` and publishes `executorErrors[]`
+(`fatal`, `message`, `jobName`). This is not redundant with `success`: `OnExecutorFinishedImpl`
+broadcasts `!bAnyJobHadFatalError` and that flag is set only on the fatal branch, so a **non-fatal**
+executor error left `success: true` and reached the caller nowhere — `executorWarning` now names
+that combination. Each job also carries `shots[]` (`name`, `state` from `ShotInfo.State`) and warns
+when a shot is not `Finished`. `jobSucceeded` is kept (renaming it breaks every existing caller) but
+is documented in the verb description and the wiki as "the pipeline ran to completion and wrote its
+files", which is all it ever meant.
+
+Deliberately NOT done here: the anti-aliasing / warm-up / sampling config read-back. That is
+`B-mrq-config-readback-omits-sampling`, still OPEN, and implementing it here would clobber its
+scope.
+
+### Files changed
+
+- `Plugins/PinWright/Source/PinWright/Private/Handlers/Render/FlatRegionStats.h` (new)
+- `Plugins/PinWright/Source/PinWright/Private/Handlers/Render/FlatRegionStats.cpp` (new)
+- `Plugins/PinWright/Source/PinWright/Private/Handlers/MRQ/MRQFrameEvidence.h` (new)
+- `Plugins/PinWright/Source/PinWright/Private/Handlers/MRQ/MRQFrameEvidence.cpp` (new)
+- `Plugins/PinWright/Source/PinWright/Private/Handlers/MRQ/MRQArtifactReport.cpp` — frame sampling
+  + analysis inside `BuildArtifactReport`, `framesAnalyzed` / `framesSuspect`, frame warnings
+  emitted ahead of the encode warnings
+- `Plugins/PinWright/Source/PinWright/Private/Handlers/MRQ/MRQArtifactReport.h` — header contract
+- `Plugins/PinWright/Source/PinWright/Private/Handlers/MRQ/MRQHandler.cpp` — `OnExecutorErrored`
+  binding, `executorErrors` / `executorWarning`, per-shot `shots[]` + unfinished-shot warning,
+  rewritten `mrq.run_jobs` description
+- `Plugins/PinWright/Source/PinWright/Private/Tests/Media/TestMRQArtifactReport.cpp` — 3 tests
+- `Plugins/PinWright/docs/wiki-src/mrq.md` — two new `##` sections (kept above any `###`, page is
+  13.4 KB, under the ~20 KB guideline)
+
+### Tests added
+
+- `PinWright.mrq.run_jobs.FrameVoidIsSuspect` — writes two REAL 256x256 PNGs that differ only in
+  whether the lower half is one flat colour, runs both through the shipped `BuildArtifactReport`,
+  and asserts the void frame comes back `suspect: true` / `FLAT_REGION` with
+  `flatRegionFraction ≈ 0.5` and `flatRegionBounds.minY ≈ 0.5`, while `blank` / `crushed` /
+  `blownOut` stay FALSE and `fileSizeBytes` stays healthy — i.e. the ticket's misleading evidence is
+  reproduced in the same response as the correct verdict. The textured control frame must come back
+  clean, so a builder that flags everything fails.
+- `PinWright.mrq.run_jobs.NonImageArtifactIsNotReportedClean` — an `.mp4` gets
+  `imageAnalyzed: false` present-and-false with a reason, and no invented `suspect`.
+- `PinWright.mrq.run_jobs.FlatRegionDoesNotChainAGradient` — a vertical ramp of one level per block
+  row: every block is individually flat, so a frontier-chaining implementation would report the
+  whole frame as one void; the shipped seed anchor caps it under 15 %. A uniform frame in the same
+  test must still report >99 %, so the first half cannot pass by never finding anything.
+
+Not compiled and not run — a separate compile pass follows.
+
+### Reviewer verification
+
+1. Compile; run `PinWright.mrq.*` (3 new tests, 4 existing MRQ tests, all offline — no editor
+   render needed).
+2. Live: `mrq.create_job` + `mrq.run_jobs` on any sequence writing a PNG sequence. Confirm each
+   `outputFiles[]` entry carries `imageAnalyzed`, and the opened ones carry `imageStats` with
+   `flatRegionFraction` / `flatRegionBounds`, `blank` / `crushed` / `blownOut`, `suspect`; confirm
+   `framesAnalyzed` / `framesSuspect` at job level and `shots[].state`.
+3. The ticket's own repro (`LS_ENV_Hero` + `MPC_ENV_Hero_4K` over `FPS_Compound`) should now come
+   back `framesSuspect > 0` with a `flatRegionBounds.minY ≈ 0.53` and the "EVERY frame that was
+   measured is affected" note. If the void no longer reproduces, verify instead against any render
+   whose frame carries a large flat sky and check the region bounds name the TOP of the frame — the
+   warning is expected to fire there too, and that false positive is by design.
+4. Cost check: on a render writing >8 still frames, confirm only 8 are decoded and that the
+   sampling warning is present.
+
 ## History
 - `#1-filed` `OPEN` reporter — Filed from the ENV round-2 blind-A/B critic pass. `mrq.run_jobs` on
   `LS_ENV_Hero` + `MPC_ENV_Hero_4K` over `/Game/FPS/Maps/FPS_Compound` returned `jobSucceeded:true`,
@@ -118,3 +227,21 @@ Searched the board for `mrq` (7 hits) and for the silent-success pattern. Not a 
   a `warnings` entry past ~25 %, or at minimum a doc/name change so `jobSucceeded` reads as "the
   pipeline completed and wrote files" rather than as an acceptance verdict. Workaround: open and
   look at every frame; there is no signal to gate on.
+- `#2-frame-evidence-implemented` `IN-REVIEW` developer — Verified TRUE by reading source:
+  `BuildArtifactReport` measured files only, never pixels. `mrq.run_jobs` now DECODES a bounded
+  sample of the written frames (8 per job, evenly spaced, first and last always included) and
+  publishes per `outputFiles[]` entry `imageAnalyzed`, `imageStats` (the shipped
+  `CalculateCaptureImageStats` fields plus a new `flatRegionFraction` / `flatRegionLevel` /
+  `flatRegionBounds` / `flatBlockFraction`), `blank` / `crushed` / `blownOut`, `suspect` and
+  `suspectReasons[]`, rolled up as `framesAnalyzed` / `framesSuspect`. The new statistic
+  (`Handlers/Render/FlatRegionStats.*`) is the largest 4-connected flat region, block-partitioned
+  per axis so it is resolution-invariant and seed-anchored so a sky gradient cannot chain into one
+  region — a whole-frame aggregate structurally cannot see a half-void frame. It warns and never
+  refuses, and it does not claim the cause; it does report WHERE in the render the suspect frames
+  fall, which separates "unconverged start, add warm-up" from "warm-up will not fix this". Also
+  added: `executorErrors[]` from `OnExecutorErrored` (a NON-fatal executor error leaves
+  `success:true` and previously reached the caller nowhere) with `executorWarning`, and per-job
+  `shots[]` with a warning for any shot not `Finished`. `jobSucceeded` kept but documented as
+  "the pipeline ran to completion and wrote its files". Three tests added; not compiled here — a
+  separate compile pass follows. The sampling-config read-back was deliberately left to
+  `B-mrq-config-readback-omits-sampling`. See the Fix section for files and verification steps.

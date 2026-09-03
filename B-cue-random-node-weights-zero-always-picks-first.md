@@ -1,7 +1,7 @@
 ---
 id: B-cue-random-node-weights-zero-always-picks-first
 title: "SoundCue authoring leaves USoundNodeRandom::Weights zero-filled, so the Random node is deterministic and always plays child 0 — every readback shows a correct graph"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: bug
 tags: [audio, audio.authoring, sound-cue, add_cue_node, connect_cue_nodes, sound-node-random, weights, silent-no-op, randomization, decompile_sound_cue, describe_sound_cue]
@@ -110,6 +110,69 @@ the standard way to author footstep/impact/weapon variation -> High
 the node object, `Weights` = `[1.0, 1.0]`), then re-read with `decompile_sound_cue` and confirm the
 printed array is non-zero before believing the cue randomises.
 
+## Fix
+
+Root cause confirmed by reading source only: `connect_cue_nodes` grew the parent with
+`SourceNode->ChildNodes.SetNum(ChildIndex + 1)` + assign
+(`Handlers/Audio/AudioAuthoringHandler.cpp`, pre-fix), which bypasses
+`USoundNode::InsertChildNode` — the only path that maintains the arrays some node types keep
+parallel to `ChildNodes`. `create_sound_cue`'s `Chain()` lambda pushed with
+`Node->ChildNodes.Add(...)` for the same reason.
+
+Fixed at the primitive rather than per node type: one `AttachSoundCueChildNode()` helper grows
+the slot through `ParentNode->InsertChildNode()`, so the engine's own editor-side defaults land
+(`USoundNodeRandom::Weights` 1.0f + `HasBeenUsed`, `USoundNodeMixer` /
+`USoundNodeConcatenator::InputVolume` 1.0f, `USoundNodeGroupControl::GroupSizes` 1,
+`USoundNodeDistanceCrossFade::CrossFadeInput`) and any future node type is covered for free.
+Both call sites (`connect_cue_nodes`, `create_sound_cue`) route through it.
+
+Two things found while fixing, both shipped in the same change:
+
+- **A Mixer or Concatenator built through this surface was worse than deterministic.**
+  `InputVolume` stayed *empty* and there is no `PostLoad` repair as there is for Random's
+  `Weights`, while `USoundNodeMixer::ParseNodes` indexes `InputVolume[ChildNodeIndex]` with no
+  bounds guard (`SoundNodeMixer.cpp:24`) — an out-of-bounds read at playback, not a silent
+  no-op. The helper covers it.
+- **Legacy content is a landmine for the naive fix.** A node the old path already grew (2
+  children, empty `InputVolume`) would make `USoundNodeMixer::InsertChildNode` run
+  `InputVolume.InsertUninitialized(2)` on a zero-length array — a `check()` crash. The helper
+  resyncs first via `USoundNode::SetChildNodes` (the engine's own fix-up, which tops each array
+  up with the right per-type default) before inserting.
+
+`childIndex` past the node type's `GetMaxChildNodes()` is now `INVALID_CHILD_INDEX` instead of
+an unreachable extra child that every readback clamps away.
+
+Detection, the ticket's second ask: `decompile_sound_cue` now warns `Weights sum to 0 — the node
+always selects child 0 and never randomises`, and separately warns whenever any per-child array
+is out of step with `ChildNodes` (which is what makes an empty Mixer `InputVolume` visible —
+it equals its CDO, so the sparse property diff prints nothing at all). `describe_sound_cue` and
+the `sound_cue.json` sidecar gained a per-node `childValues` block pairing the array with the
+child count (`property`, `count`, `childCount`, `matchesChildCount`, numeric `values`).
+
+Files changed (all under `Plugins/PinWright/`):
+- `Source/PinWright/Private/Handlers/Audio/AudioAuthoringHandler.cpp` — `AttachSoundCueChildNode` /
+  `FindSoundCueNodeByName` / `IsSoundCueRootNodeId` / `SetSoundCueRootNode` helpers; `create_sound_cue`
+  chain + `connect_cue_nodes` routed through the helper; new `set_cue_root` verb (see
+  `E-cue-graph-verbs-cannot-set-firstnode`).
+- `Source/PinWright/Private/Handlers/Asset/SoundCueDumpBuilder.h/.cpp` — `GetSoundNodeChildArrays()`
+  (discovers per-child arrays by `CPF_EditFixedSize`, not a hardcoded class list) + `childValues`.
+- `Source/PinWright/Private/SCIR/SCIRDecompiler.cpp` — the two warnings.
+- `Source/PinWright/Private/Handlers/Asset/AssetDumpCache.cpp` — `sound_cue.json` aspect 4 → 5.
+- `Source/PinWright/Private/Tests/Media/TestSoundCueChildAttachment.cpp` — new.
+- `Docs/wiki-src/audio.authoring.md`, `Docs/wiki-src/asset.dump-sidecars.md`.
+
+Reviewer verification (not run here — this change is uncompiled by instruction):
+1. Run `PinWright.audio.authoring.connect_cue_nodes.*`, `PinWright.audio.authoring.set_cue_root.*`,
+   `PinWright.audio.authoring.create_sound_cue.*` and the existing
+   `PinWright.Assets.SoundCue.ConnectCueNodes.SyncsInputPinsNoCrash`.
+2. Live: build a cue with `create_sound_cue` → `add_cue_node` random → three `wave_player`s →
+   three `connect_cue_nodes`, then read `describe_sound_cue`: the random node's `childValues`
+   must report `values: [1,1,1]` and `matchesChildCount: true`, and `decompile_sound_cue`'s
+   `warnings` must be empty.
+3. Negative half: `property.set` the node's `Weights` to `[0,0,0]` and re-run
+   `decompile_sound_cue` — the zero-sum warning must appear.
+4. Repeat step 2 with `mixer` in place of `random` and confirm `InputVolume` reads `[1,1,1]`.
+
 ## History
 - `#1-filed` `OPEN` reporter — Found while reviewing the AUDIO stream's Build 02
   (`Docs/fps/reviews/audio-review-02.md`) against review 01's defect 3, "every impact and footstep
@@ -128,3 +191,4 @@ printed array is non-zero before believing the cue randomises.
   warning in `decompile_sound_cue` and/or an `audit_folder` finding.
 - `#2-confirmed-by-owning-stream-and-repaired` `OPEN` reporter — Confirmed by the AUDIO stream that authored the cues, and repaired in content. Reading every cue's node tree from `first_node` (the `AllNodes` UPROPERTY is **not exposed to Python** — `get_editor_property('all_nodes')` raises `Failed to find property 'all_nodes'`, so the tree must be walked through `child_nodes`), **all 13 `SoundNodeRandom` nodes across the 14 cues held `Weights: [0.0, 0.0]`** — 100 %, not a subset. The fourteenth cue, `SC_Impact_Generic`, has no Random node by design. That rules out a partial or race-dependent cause: the authoring path produced zero weights on every node it created, which matches the ticket's `AddZeroed` diagnosis. Repair is a single per-node property write — `set_editor_property('weights', [1.0] * len(child_nodes))` — followed by `EditorLoadingAndSavingUtils.save_packages`. Verified two independent ways rather than by read-back: `decompile_sound_cue` now prints `child random SoundNodeRandom_0 @(0, 0) (Weights: [1.000000,1.000000])`, and a byte scan of the saved `.uasset`s finds the little-endian `1.0,1.0` float pair in **13 of 13** cues that have a Random node. Worth adding to the ticket's ask: the defect is invisible to every readback the project had been using — `describe_sound_cue` reports the node and its children, `decompile_sound_cue`'s `warnings` array is empty, and `audit_folder` has no finding for it — so a zero weight-sum warning in `decompile_sound_cue` would have caught this at authoring time. Note also that `decompile_sound_cue` *does* print the weights array, so the information was on screen in Build 02 and simply was not checked; the critic reading the same output is what found it.
 - `#3-repair-verified-independently-warning-still-absent` `OPEN` reporter — Third-round review verification, recorded because the repair is content-side and the plugin defect is untouched. All 14 cues under `/Game/FPS/Audio/Cues/` re-checked two independent ways: a byte scan of each saved `.uasset` for the little-endian `1.0f,1.0f` pair finds exactly one in each of the 13 cues that own a `SoundNodeRandom` and none in `SC_Impact_Generic` (which has no Random node by design), and `decompile_sound_cue` on all 14 now prints `(Weights: [1.000000,1.000000])` on every Random node. The content is fixed. **The plugin behaviour that produced the zeros is not**, and neither is the detection ask: `decompile_sound_cue` still returns `"warnings": []` on all 14 calls, so a freshly authored cue with a dead Random node would still read as correct today, and `audio.analysis.audit_folder` — which I ran over all 63 waves in the same session and which reports seven finding types — still has no cue-graph check of any kind. Worth noting for whoever fixes this: the repair had to be done with a per-node `set_editor_property('weights', ...)` walk, and the walk itself is awkward because `AllNodes` is not exposed to Python (`get_editor_property('all_nodes')` raises `Failed to find property 'all_nodes'`), so the tree must be traversed through `first_node` / `child_nodes`. A caller who does not already know the weights are wrong has no signal pointing them at that walk. The one-line warning asked for in `#1` remains the cheapest fix for the detection half, independent of whether the insert path is corrected.
+- `#4-fixed-at-the-child-attachment-primitive` `IN-REVIEW` developer — Confirmed TRUE by reading source only (no editor). `connect_cue_nodes` grew the parent with `ChildNodes.SetNum(ChildIndex + 1)` + assign and `create_sound_cue`'s `Chain()` with `ChildNodes.Add(...)`, both bypassing `USoundNode::InsertChildNode` — the only path that maintains a node type's per-child arrays. Fixed once at the primitive: a shared `AttachSoundCueChildNode()` grows the slot through `InsertChildNode()`, so Random `Weights`/`HasBeenUsed`, Mixer/Concatenator `InputVolume`, GroupControl `GroupSizes` and DistanceCrossFade `CrossFadeInput` all get the engine's editor-side defaults, and both call sites route through it. Two findings shipped with it: a Mixer or Concatenator built here was *worse* than deterministic (`InputVolume` stayed empty, no `PostLoad` repair exists for it, and `USoundNodeMixer::ParseNodes` indexes it unguarded — an out-of-bounds read at playback), and legacy content already grown by the old path would have made `InsertChildNode` itself `check()`-crash, so the helper resyncs via `USoundNode::SetChildNodes` first. `childIndex` past the node's max is now `INVALID_CHILD_INDEX` rather than an unreachable extra child. Detection half done too: `decompile_sound_cue` warns on a zero weight sum and on any per-child array out of step with `ChildNodes` (which is what surfaces an empty Mixer `InputVolume` — it equals its CDO, so the sparse diff prints nothing), and `describe_sound_cue` / `sound_cue.json` gained a per-node `childValues` block pairing values with the child count (aspect version 4 → 5). Five automation tests added in `Tests/Media/TestSoundCueChildAttachment.cpp`. NOT compiled or run — a separate compile pass follows. See `## Fix` for files and the reviewer checklist.

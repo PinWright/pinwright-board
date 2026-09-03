@@ -1,7 +1,7 @@
 ---
 id: B-niagara-validate-green-while-scripts-ncs-error
 title: "niagara.validate reports valid:true with zero errors while compile.valid is false and particle scripts are NCS_Error — the system then refuses to activate"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: bug
 tags: [niagara, validate, false-success, silent-noop, compile-state, NCS_Error, strict, activation, no-readback]
@@ -115,3 +115,84 @@ LogNiagaraCompiler: Error: 1 errors encountered compiling Vector VM shaders
   **Confirmed fix and confirmed diagnosis in one step:** removing the `ScaleSpriteSize` module from the five affected emitters (`E_Explosion_Shockwave`, `E_Explosion_DustRing`, `E_Smoke_Smoke`, `E_Smoke_Core`, `E_Smoke_Wisps`), recompiling and re-adding each to its system took `compile.valid` from `false` to `true` and all six `NS_Smoke_Grenade` particle scripts from `NCS_Error` to `NCS_UpToDate`, with no new VM compile errors in the log. That confirms the nested chain was the sole cause.
   **Two asks on top of `#1`'s.** (a) `niagara.compile` should report the compile's own error list rather than `status:"completed"` when the VM shader compile produced errors — it already has them, they are in the log it wrote. (b) The nested-dynamic-input write should be refused at the point of the `set_module_input` call, since the resulting HLSL is unconditionally invalid; refusing costs nothing and the current behaviour ships a dead asset that four verbs call healthy.
   Evidence: log lines quoted above; before/after `compile.scripts[].compileStatus` on both systems; `NS_Explosion` 1452799 b and `NS_Smoke_Grenade` 772447 b re-saved after the fix.
+
+## Fix
+
+Confirmed true against source before changing anything. `AddCompileIssues`
+(`NiagaraInspectHandler.cpp`) is the ONLY bridge from the compile block into the top-level
+verdict, and it reads `compile.issues` alone. Nothing ever wrote a script's compile STATUS into
+that array: `BuildCompileDiagnosticsJson` (`NiagaraDumpBuilder.cpp`) filled `issues` with
+`COMPILE_DEFERRED_ON_LOAD`, the authored structural issues, and `COMPILE_STATE_UNINITIALIZED`,
+and published `compile.valid` / `compile.scripts[].compileStatus` as fields only. `FinishValidationResult`
+sets `valid = Errors.Num() == 0`, so ten `NCS_Error` scripts produced `valid:true, errors:[]`
+exactly as reported. Second gap found while reading: the compile-scripts array enumerated only
+system spawn/update + emitter/particle spawn/update, so an event-handler, simulation-stage or GPU
+compute script at `NCS_Error` was invisible even in the nested block — while
+`FVersionedNiagaraEmitterData::IsValidInternal` consults exactly those.
+
+Design: promote the statuses the response already carries, rather than re-deriving them. The
+verdict is computed from the same JSON block the caller is handed, so the nested detail and the
+top-level answer cannot disagree again — which is the shape of this defect. `compile.valid`
+is deliberately NOT promoted: `UNiagaraSystem::IsValid()` is equally false for a system with zero
+emitter handles, so promoting it would turn the documented `basic`-level `NO_EMITTERS` warning into
+an unconditional error and fail validate on every freshly-created system. Both states it conflates
+are reported separately. Pending compiles are reported (`pendingCompile:true` + error), not waited
+out: `niagara.compile {wait:true}` already owns the bounded 90 s wait and validate is a read verb.
+
+Response additions: `scriptCompileCheck` (`passed` / `failed` / `unverified` — published on every
+verdict so "nothing compiled this yet" can never read as a pass), `pendingCompile` (systems only),
+`compile.scripts[].compileErrors` on a failed script, and per-failure
+`NIAGARA_SCRIPT_COMPILE_ERROR` errors at every level carrying `emitter` / `scriptUsage` /
+`scriptPath` / `compileStatus` / `compileErrors`. `NCS_Dirty` and the two `…WithWarnings` statuses
+stay non-fatal (the engine still instances those).
+
+Files changed:
+- `Plugins/PinWright/Source/PinWright/Private/Handlers/Niagara/NiagaraCompileVerdict.h` (new) —
+  `FScriptCompileFailure` / `EScriptCompileCheck` / `FCompileVerdict` + `ReadCompileVerdict`.
+- `Plugins/PinWright/Source/PinWright/Private/Handlers/Niagara/NiagaraCompileVerdict.cpp` (new) —
+  the pure reader over a compile block, its wire spellings, and the caller-facing failure text.
+- `Plugins/PinWright/Source/PinWright/Private/Handlers/Niagara/NiagaraDumpBuilder.cpp` —
+  `BuildScriptJson` emits `compileErrors` (from `FNiagaraVMExecutableData::LastCompileEvents`,
+  falling back to `ErrorMsg`) on `NCS_Error`; `MakeAuthoredScriptArray` strips it alongside
+  `compileStatus`; new `AddEmitterCompileEntries` adds event-handler, simulation-stage and
+  GPU-compute scripts to both the system and standalone-emitter compile arrays.
+- `Plugins/PinWright/Source/PinWright/Private/Handlers/Niagara/NiagaraInspectHandler.cpp` —
+  `AddCompileStatusIssues`, called on all three validate branches (system / emitter / script).
+- `Plugins/PinWright/Docs/wiki-src/niagara.md` — new `#### Did its scripts compile?` subsection
+  under `### niagara.validate`: the three-state field, the two codes, `pendingCompile`, why only
+  `NCS_Error` fails, and why `compile.valid` is not the field to branch on.
+- `Plugins/PinWright/Source/PinWright/Private/Tests/Niagara/TestNiagaraValidateScriptCompileError.cpp`
+  (new) — `PinWright.niagara.validate.CompileVerdictReader` (pure reader: failed / passed /
+  unverified / pending) and `PinWright.niagara.validate.ScriptCompileErrorFailsVerdict`
+  (end-to-end on a duplicated fixture system whose particle update script is forced to `NCS_Error`).
+- `Plugins/PinWright/Source/PinWright/Private/Tests/Infra/TestNiagaraValidateStrictLevelDocs.cpp` —
+  added `PinWright.infra.wiki_handler.MethodPage.NiagaraValidateScriptCompile`.
+
+Not compiled and not run here by instruction; a separate compile pass follows.
+
+Reviewer verification:
+1. Compile the plugin, then run `PinWright.niagara.validate` + `PinWright.infra.wiki_handler` —
+   4 new registrations, 0 failures. `ScriptCompileErrorFailsVerdict` asserts the counterfactual
+   (same system, status untouched, raises no `NIAGARA_SCRIPT_COMPILE_ERROR`), so a reverted
+   promotion fails it rather than passing vacuously.
+2. In a live editor, reproduce the original measurement: author a nested dynamic-input chain (see
+   history `#3`) or otherwise break a module, `niagara.compile`, then
+   `call("niagara.validate", {assetPath: ..., level: "basic"})`. Expect `valid:false`,
+   `scriptCompileCheck:"failed"`, and one `NIAGARA_SCRIPT_COMPILE_ERROR` per failing script naming
+   the emitter, the script slot and the HLSL error text. `level:"strict"` must give the same
+   verdict — this code is not level-escalated.
+3. Regression floor: validate a healthy stock system (e.g. a duplicate of
+   `/Niagara/DefaultAssets/Templates/Systems/SimpleExplosion`) and confirm `valid` is unchanged
+   from before the fix and `scriptCompileCheck` is `passed` or `unverified`, never `failed`.
+4. Confirm `asset.dump` output is unchanged: the authored `compile.json` path
+   (`BuildCompileJson` → `MakeAuthoredScriptArray`) still strips `compileStatus` and now also
+   `compileErrors`. Note it DOES gain script entries for emitters that own event-handler /
+   simulation-stage / GPU scripts — that is intended and no aspect-version bump is needed for the
+   live diagnostics path, but re-dump such a system and eyeball the sidecar.
+
+Open items for the reviewer to decide, not fixed here (each is its own ticket's scope):
+- History `#3`(a): `niagara.compile` still returns `status:"completed"` for a compile that produced
+  only errors. Its response is untouched by this fix; a caller now learns the truth from
+  `niagara.validate`, but the compile verb itself is still optimistic.
+- History `#3`(b): `set_module_input` still accepts the nested-dynamic-input write that generates
+  invalid HLSL — that belongs to `F-niagara-dynamic-input-nested-inputs`.

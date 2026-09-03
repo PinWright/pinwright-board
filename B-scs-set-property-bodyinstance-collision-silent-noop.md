@@ -1,7 +1,7 @@
 ---
 id: B-scs-set-property-bodyinstance-collision-silent-noop
 title: "blueprint.scs.set_property on BodyInstance.CollisionEnabled / BodyInstance.CollisionProfileName returns success but the spawned component keeps QUERY_AND_PHYSICS — a class-template collision write that never reaches the instance"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: bug
 tags: [blueprint, scs, set_property, body-instance, collision, silent-false-success, derived-state, nested-struct, dot-path, character, viewmodel]
@@ -91,3 +91,82 @@ an unrelated physics bug x reach=any Blueprint whose SCS components need non-def
 
 ## History
 - `#1-filed` `OPEN` reporter — Hit on UE 5.8 / EAContentExamples58 while building the FPS PLAYER stream's first-person character. Two `blueprint.scs.set_property` calls (`BodyInstance.CollisionEnabled` = `"NoCollision"`, then `BodyInstance.CollisionProfileName` = `"NoCollision"`) on `/Game/FPS/Player/BP_WeaponStub_PlayerTest`'s `Body` and `Barrel` static-mesh components both returned `success:true` with `source:"local"` and `compiled:true`, and the package saved. A live read on the spawned child actor in PIE still reported `CollisionEnabled.QUERY_AND_PHYSICS` for both. The same verb applied `bOnlyOwnerSee`, `CastShadow`, `bReceivesDecals`, `bUseViewOwnerDepthPriorityGroup`, `ViewOwnerDepthPriorityGroup`, `AnimClass` and `BoundsScale` successfully in the same session, so the failure is specific to the `BodyInstance` sub-struct rather than to dot-paths in general. The visible symptom was severe and pointed away from collision: the character capsule climbed from Z 120 to Z 19 599 in seconds while `CharacterMovement` reported `MOVE_WALKING` with velocity `(0,0,0)` — it was stepping onto its own camera-attached weapon every frame. Worked around with a `BeginPlay` calling `SetActorEnableCollision(false)` on the weapon actor, after which the pawn rests correctly at Z 92.15. Related but distinct: `B-collision-write-skips-instance-bodies` (`actor.set_component_properties`, ISM per-instance bodies) and `B-set-component-properties-no-change-notification` (DONE, same "store is not the write" class on a different verb).
+
+## Fix
+
+**Confirmed TRUE by source read.** `FSCSHandlers::SetSCSComponentProperty`
+(`Source/PinWright/Private/PinWright_SCSHandlers.cpp`) resolved the dot-path with
+`ResolveNestedPropertyPath` and stored through `ApplyJsonValueToProperty` — a raw reflection
+write, no setter, no notification. `actor.set_component_properties` already routed the same
+fields through `Utils/BodyInstanceCollisionPropertyWrite`; `blueprint.scs.set_property` did not.
+
+**Root cause (UE 5.8 source).** The collision fields of a component template are re-derived
+from `CollisionProfileName` on every instance, *after* the archetype values are copied in:
+`USCS_Node::ExecuteNodeOnActor` → `AActor::CreateComponentFromTemplate`
+(`ActorConstruction.cpp:1112-1153`) → `StaticDuplicateObjectEx` (`:1140`, whose `FlagMask` at
+`:1138` strips `RF_ArchetypeObject`) → `ConditionalPostLoad`, run for exactly the non-template
+duplicates (`UObjectGlobals.cpp:3152-3159`) → `UPrimitiveComponent::PostLoad` →
+`FBodyInstance::FixupData` under a `!IsTemplate()` guard (`PrimitiveComponent.cpp:1810-1821`) →
+`LoadProfileData(false)` (`BodyInstance.cpp:4566`, `:4475-4535`) →
+`UCollisionProfile::ReadConfig`, which assigns `CollisionEnabled`, `ObjectType` and the whole
+response container off the profile (`CollisionProfile.cpp:197-199`). Every
+`UPrimitiveComponent` constructor installs `BlockAll` (`PrimitiveComponent.cpp:361`), so the
+value re-applied is `QueryAndPhysics` — the reported symptom exactly. The engine setters keep
+the invariant a raw store breaks: `SetCollisionEnabled` / `SetObjectType` /
+`SetResponseToChannel(s)` all call `InvalidateCollisionProfileName()`
+(`BodyInstance.cpp:564-569, :571-593, :675-680, :742-748`), moving the profile to `Custom`,
+one of the two names `IsValidCollisionProfileName` rejects (`:4470-4473`).
+
+A second, independent loss path was found and closed with it: `bUseDefaultCollision` on a
+`UStaticMeshComponent` makes `OnRegister` → `UpdateCollisionFromStaticMesh` →
+`UseExternalCollisionProfile` → `LoadProfileData` re-read the whole collision setup off the
+mesh at every registration (`StaticMeshComponent.cpp:812-826, :2175-2189`). The engine clears
+that flag from `UStaticMeshComponent::SetCollisionProfileName` (`:2618-2622`) and from none of
+the other three setters.
+
+**Design, and why not the obvious one.** `PreEditChange` / `PostEditChangeChainProperty` from
+the shared property helper would NOT have fixed this: neither
+`UPrimitiveComponent::PostEditChangeProperty` (`PrimitiveComponent.cpp:1541-1643`) nor
+`UStaticMeshComponent::PostEditChangeProperty` (`:1951-2022`) has a `BodyInstance` branch — the
+details panel's fix-up lives in the Slate customization `FBodyInstanceCustomization`
+(`BodyInstanceCustomization.cpp:816-892`), not in a change hook. `Utils/PropertyChangeNotify.h`
+also documents, with engine citations, why the chain form and `PreEditChange` were previously
+rejected for this plugin. The chosen shape instead reuses the module that already owns these
+fields, adding one dot-path entry point that folds the path tail back into the nested-object
+shape and delegates — so both verbs resolve to one implementation and cannot drift.
+Instance-of-template propagation was verified NOT to be the loss mechanism: the handler already
+runs `MarkBlueprintAsStructurallyModified` + `CompileBlueprint`, the compiler preserves SCS
+templates (`FKismetCompilerContext::SaveSubObjectsFromCleanAndSanitizeClass`,
+`KismetCompiler.cpp:762-779`), and reinstancing rebuilds placed actors from those templates.
+
+Files changed (all under `X:\src\unreal\unreal-fpv-dev\Plugins\PinWright\`):
+- `Source/PinWright/Private/Utils/BodyInstanceCollisionPropertyWrite.h/.cpp` — new
+  `ApplyBodyInstanceCollisionPropertyPath(Component, PropertyPath, Value, ...)`; and
+  `ApplyBodyInstanceCollisionProperty` now clears `bUseDefaultCollision` on a
+  `UStaticMeshComponent` before replaying the setters.
+- `Source/PinWright/Private/PinWright_SCSHandlers.cpp` — new file-local
+  `ApplySCSTemplatePropertyValue` tries the collision route then falls back to the plain
+  reflection store; used at both write sites (local/CDO template and the ICH override
+  template). Response gains `collisionRouted: true` when a collision field actually routed.
+- `Source/PinWright/Private/Tests/Blueprint/TestSCSSetPropertyCollision.cpp` — new, 4 tests.
+- `Docs/wiki-src/blueprint.scs.md` — new `### blueprint.scs.set_property` section naming which
+  nested paths are honoured (the third bullet of Expected).
+- `Docs/wiki-src/actor.md` — the `bUseDefaultCollision` note, since the shared helper change
+  reaches `actor.set_component_properties` too.
+
+Tests added (`PinWright.blueprint.scs.set_property.*`):
+- `CollisionEnabledReachesTheSpawnedInstance` — fixture asserted to START at QueryAndPhysics,
+  write, then assert on the **spawned** component, not the template.
+- `CollisionProfileNameLoadsTheProfileData` — asserts the template implements the profile it
+  names (the raw store wrote the name only; the instance repairs itself via `FixupData`, so
+  the template assertion is the load-bearing one here).
+- `CollisionWriteClearsUseDefaultCollision` — cube-meshed template with the flag set.
+- `NonCollisionBodyFieldKeepsTheReflectionStore` — narrowness guard on `BodyInstance.MassScale`.
+
+**Reviewer verification.** Not compiled and not run here (a separate compile pass follows). Run
+`PinWright.blueprint.scs.set_property` and `PinWright.actor.set_component_properties` plus
+`PinWright.Actor.*`; the four new tests must pass and no existing collision test may regress.
+Live check: `blueprint.scs.set_property` `BodyInstance.CollisionEnabled = "NoCollision"` on a
+static-mesh SCS template must return `collisionRouted: true`, and a PIE
+`get_collision_enabled()` on a spawned instance must report `NO_COLLISION`. Read the result off
+a spawned actor — `blueprint.scs.get` / `scs.json` report template state, which was always right.

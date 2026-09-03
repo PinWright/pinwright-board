@@ -1,7 +1,7 @@
 ---
 id: B-board-commit-stale-lock-silent-skip
 title: "board-commit.ps1 cannot land a commit against a stale .git/index.lock (2 s retry budget) and reports success by exiting 0 when the mutex times out, so tickets silently never reach the board"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: bug
 tags: [board, tooling, board-commit, git, index-lock, silent-failure, concurrency]
@@ -77,6 +77,95 @@ threshold, and remove it before retrying; (b) raise the retry budget well past a
 seconds, with backoff; (c) make both silent paths `exit 1` with a message naming the ticket that
 did not land, so a caller cannot mistake "skipped" for "committed"; (d) optionally verify
 `ls-tree HEAD` before returning success, since the script already knows the pathspec.
+
+## Fix
+
+`X:\src\unreal\unreal-fpv-dev\Plugins\PinWright\scripts\board-commit.ps1`, same rewrite as
+`E-board-commit-aborts-on-git-stderr` — which had to land in the same change, because until git's
+stderr stopped being fatal none of the lock code was reachable at all. Not committed (plugin repo
+left dirty by request). All four requested fixes (a)-(d) are in, but (a) is implemented on a
+different premise than the ticket assumes.
+
+**(a) Stale-lock recovery — and a correction that matters.** The obvious guard is to let the
+filesystem arbitrate: try to delete the lock and treat a refusal as "a live process holds it".
+**That does not work.** Measured 2026-09-03 with a real stalled git (a `pre-commit` hook that
+sleeps, so git sits inside the locked section): `Remove-Item` on `.git/index.lock` **succeeded**
+while git held the handle. git-for-Windows opens its lock files with `FILE_SHARE_DELETE`, so
+Windows never refuses. Any design that keys on delete-refusal is a false guard — worth knowing
+before someone writes one.
+
+So age is the whole safety argument, and it is split in two, matching this ticket's own two
+encounters:
+
+- **`-StaleLockSec` (default 120)** — the lock's mtime has been frozen this long *and* no `git.exe`
+  on the machine names this repo in its command line. Encounter `#1` (0-byte lock, no git
+  processes): removed.
+- **`-BusyLockSec` (default 600)** — a git process *is* on the repo. Wait, reporting the pid and the
+  age each time the state changes, until the lock has been frozen this long; then remove it anyway.
+  Encounter `#2` (131072-byte lock, mtime frozen 15 min, live pid 102448): recovered at 10 min.
+  This is exactly the "emit the holding pid and the lock's age so a caller can tell *wait* from
+  *recover*" that `#2` asked for.
+
+Command-line matching is a stated heuristic, not a guarantee: a git started with the board as its
+**working directory** (rather than `git -C <board>`) names nothing and is invisible. That is why
+age, not the process list, authorizes removal. Blast radius of a wrong removal is bounded — git's
+closing rename of `index.lock` onto `index` fails and that command reports an error; the index is
+not rewritten and not corrupted.
+
+`#3`'s zero-byte `next-index-*.lock` crumbs are swept too, but only on the recovery path, so a
+normal run never writes to another host's `.git`.
+
+**(b) Real retry budget.** `-LockWaitSec` (default 60) with exponential backoff capped at 2 s plus
+jitter, replacing the ~2 s of 5 fixed retries. `-Retries` is kept and now means *minimum attempts*;
+giving up requires both to be exhausted. Nothing passes `-Retries` today (grepped the board, the
+harness dir and `.polyskill/skills/`), so no caller breaks.
+
+**(c) No `exit 0` on a path that did not commit.** The mutex timeout now prints
+`could not acquire the commit lock within <N>s; NOT committed: <files>` and exits 1. Retries
+exhausted prints `gave up after <N> attempts / <N>s ...` plus a `NOT committed:` line naming the
+ticket, and exits 1. `board path not found` and `no files given` also became exit 1 — they were
+silent `exit 0`s and they are caller bugs, not degrades. **One `exit 0` without a commit remains
+deliberately:** a board that is not a git repo (the documented custom-`boardPath` degrade). There
+is nothing to commit there ever, so it is not a false success; the header documents it.
+
+**(d) Verification is the verdict, not git's exit code.** Before returning, the script confirms each
+named file is in `HEAD` (`ls-tree --name-only HEAD -- <file>`), and on the "nothing to commit" path
+also that it is clean, and prints the short hash: `board-commit: committed <hash> - <files>`. This
+runs in both directions:
+
+- a green `git commit` whose file is somehow not in HEAD → exit 1;
+- a **failing** git call whose file *is* in HEAD → exit 0 with
+  `git reported an error, but the files ARE on the board: <error>`. This is not theoretical — it
+  fired during testing when the lock recovery raced a stalled git: the commit object landed, then
+  git failed with `fatal: repository has been updated, but unable to write new index file` (exit
+  128). Reporting that as a failure would make an agent re-file a ticket that is on the board.
+
+The dirty check is skipped after our own commit on purpose: a sibling host may edit the same file
+the moment the index is released, and that does not unmake the commit.
+
+**Reviewer verification.** No PowerShell test convention exists in the plugin repo, so this is a
+manual harness rather than a committed test:
+`C:\Users\Alexander\AppData\Local\Temp\claude\X--src-unreal-unreal-fpv-dev\b6c0e260-3e88-4849-a20a-d388c2d0ca65\scratchpad\run-tests.ps1`
+(throwaway repo per run; the real board is never touched). **17 checks, green under both
+`powershell` (5.1.26100.9168) and `pwsh` (7.6.5).** Covering this ticket:
+
+- **T3** 0-byte lock aged 10 min, no holder → removed, ticket committed, recovery line printed (`#1`).
+- **T3b** zero-byte `next-index-*.lock` crumb swept during that recovery (`#3`).
+- **T4** real stalled git holding the lock, age below `-BusyLockSec` → waits, then exits **1**,
+  naming the pid and the ticket (`#2`, "wait" half).
+- **T4b** same stalled git, age past `-BusyLockSec` → lock removed, ticket committed (`#2`,
+  "recover" half).
+- **T5** retries exhausted → exit 1 with a summary, never silence.
+- **T6** a lock that clears mid-wait → commit still lands.
+- **T8** mutex already held → exit **1** naming the ticket (was `exit 0` + "skipping commit").
+- **T9/T10** non-git board still exits 0; a missing board path now exits 1.
+
+Before/after on the pre-fix script, same scenarios: mutex held → `exit=0`, `inHEAD=''`; stale
+0-byte lock → `exit=1` via `NativeCommandError` at line 72, `inHEAD=''`, retry loop never entered.
+
+The board's own `.git` still carries three of `#3`'s crumbs
+(`next-index-{103824,66204,94360}.lock`, all 0 bytes, 2026-09-02 22:11-22:28); they were left in
+place — the next stale-lock recovery on that repo will sweep them.
 
 ## History
 - `#1-filed` `OPEN` reporter — Hit while filing two `audio.synth` tickets after synthesizing 20 impact/explosion waves. Every `board-commit.ps1` call over ~6 minutes died on `fatal: Unable to create '.../.git/index.lock': File exists` against a 0-byte lock older than five minutes with zero `git.exe` processes and the script's global mutex free. A 20-attempt wrapper loop (8 s apart, output suppressed) never committed and exited 0; the tickets stayed `??` in `git status` the whole time. Landed them manually as c848e36 (2 files changed, 183 insertions) after removing the stale lock and using a pathspec commit, then verified with `git ls-tree --name-only HEAD` and `git merge-base --is-ancestor c848e36 HEAD`. The severity driver is not the lock but the reporting: the mutex-timeout path does `exit 0` after printing "skipping commit", and the retries-exhausted path falls out of the loop with no `exit 1` and no summary, so an agent that checks the exit code — or that suppresses output while retrying — is told a ticket was filed when it was not. Evidence that this already bit someone else: `B-synth-layer-peak-excludes-layer-gain.md`, filed by a different agent about an hour earlier, appeared in my commit under `create mode 100644`, i.e. it had never been committed at all.

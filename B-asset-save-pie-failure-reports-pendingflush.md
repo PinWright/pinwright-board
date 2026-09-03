@@ -1,7 +1,7 @@
 ---
 id: B-asset-save-pie-failure-reports-pendingflush
 title: "asset.save reports pendingFlush:true with no saveState when PIE blocks the write, so a hard failure reads as a retryable throttle"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: bug
 tags: [asset-save, pie, savestate, pendingflush, silent-false-signal, diagnostics, multi-agent]
@@ -107,6 +107,99 @@ severity rationale: impact=silent wrong signal on a normal path (the caller trus
 queued when it is not durable) x reach=every `asset.save` in the editor for as long as any agent
 holds PIE, across all concurrent streams -> High.
 
+## Fix
+
+Root cause, read out of the source rather than inferred: the plugin reaches disk for a single
+asset through exactly one engine call, `UEditorAssetLibrary::SaveLoadedAsset` in
+`SaveLoadedAssetThrottled` (`Source/PinWright/Private/Utils/AssetUtils.cpp`), and that API opens
+with `EditorScriptingHelpers::CheckIfInEditorAndPIE()`
+(`C:/UE_5.8/Engine/Source/Editor/UnrealEd/Private/EditorScriptingHelpers.cpp:143`), which logs
+`LogUtils: Error: The Editor is currently in a play mode.` and returns false for EVERY call while
+`GEditor->PlayWorld || GIsPlayInEditorWorld`. That refusal came back as a bare `false`, became
+`ESaveLoadedAssetOutcome::Failed` through the throttle-named channel, mapped to
+`EAssetSaveState::Failed`, was logged in full - and then `AssetSaveHandler.cpp` published only
+`{saved, sizeBytes}` plus a hand-rolled `pendingFlush`, dropping the state it was holding in a
+local variable. `saveState` was emitted on the `diskStateDiverged` error path only.
+
+Design: detect the block up front at the shared chokepoint rather than classifying the resulting
+failure after the fact (which is what `editor.save_all` does, correctly, for its many-caused
+failures). The engine's gate is an unconditional documented precondition, so a pre-check turns a
+guess into a fact, keeps a PIE refusal out of the throttle-named failure channel, and skips a
+disk-header read plus an engine call that were never going to write anything. `blockedByPie` is a
+state of its own rather than a flavour of `failed`, because the remedy differs: wait, re-issue.
+
+Files changed:
+
+- `Source/PinWright/Private/Utils/PieSaveBlockGuard.h` / `.cpp` (NEW) - measures the block
+  (mirroring the engine's exact predicate), names the PIE worlds by reusing
+  `PieWorldSelector::GatherPieContexts`, and publishes `pieActive` / `editorMode` / `pieWorlds`.
+  Writes nothing when PIE is inactive. Same Probe/Describe/AddJson shape as
+  `Utils/PackageDiskStateGuard.h`.
+- `Source/PinWright/Private/Utils/AssetSaveState.h` - new `EAssetSaveState::BlockedByPie`.
+- `Source/PinWright/Private/Utils/AssetUtils.h` / `.cpp` - new
+  `ESaveLoadedAssetOutcome::RefusedBlockedByPie`; the PIE gate in `SaveLoadedAssetThrottled`,
+  placed AHEAD of the throttle (so a dirty throttled save under PIE is not reported as
+  `deferred`, whose remedy is a flush that hits the same refusal) and gated on
+  `Package->IsDirty() || bForce` so a clean unforced save keeps its existing already-clean
+  verdict; the outcome -> state mapping; the wire spelling `blockedByPie` and its `saveDetail`;
+  `AddAssetSaveReport` and `AddMarkDirtySaveReport` now publish the PIE block on the
+  requested-but-not-durable branch, which fixes the ~90 un-threaded save-flag verbs
+  (`material.authoring.*`, `audio.synth.export`, ...) without touching them; new
+  `AddAssetSaveSizeReport` emits `sizeBytes` plus `sizeBytesIsStale:true` when a non-durable save
+  reported a pre-existing file's size. Also sharpened the `deferred` detail to name the 0.5s
+  throttle and to say it is the one state a retry fixes right now.
+- `Source/PinWright/Private/Handlers/Asset/AssetSaveHandler.cpp` - routes through
+  `AddAssetSaveReport` + `AddAssetSaveSizeReport` instead of hand-rolling
+  `{saved, sizeBytes, pendingFlush}`, so `asset.save` carries `saveRequested` / `saveState` /
+  `saveDetail` on every path; the Blueprint-integrity refusal now reports `saveState:"failed"`
+  rather than `notRequested`. Handler summary and file header updated.
+- `Source/PinWright/Private/Handlers/Asset/StaticMeshSetMaterialHandler.cpp`,
+  `StaticMeshSetCollisionComplexityHandler.cpp`, `StaticMeshBakeTransformHandler.cpp` - threaded
+  `EAssetSaveState` through and adopted the size helper, so the neighbouring `save`-flag verbs
+  answer in the same shape.
+- `Docs/wiki-src/safe-mutation-save.md` - `blockedByPie` row plus a Retry column in the Save
+  States table; the `sizeBytes` / `sizeBytesIsStale` rule; a new
+  `## PIE Blocks Every Save In The Editor` section stating the absence contract (no `pieActive`
+  on a not-durable save means PIE was not running) and the `BlockedByPie` <-> `blockedByPie`
+  vocabulary mapping against `editor.save_all`; the "retry with force" sentence now says that
+  remedy applies only under `saveState: "deferred"`.
+- `Docs/wiki-src/asset.md` - `### asset.save` rewritten to say branch on `saveState`, never on
+  `pendingFlush`, with a worked `blockedByPie` payload and the `sizeBytes` caveat.
+
+Tests (added, not run - a separate compile pass follows):
+
+- `Source/PinWright/Private/Tests/Assets/TestAssetSavePieBlock.cpp` (NEW) -
+  `PinWright.assets.PieSaveBlock.ActiveBlockNamesTheSession` (the block payload names map, world
+  path and instance, and `editorMode` matches `editor.save_all`'s spelling),
+  `...InactiveBlockWritesNothing` (the absence contract: zero fields added),
+  `PinWright.assets.AssetSaveReport.StaleSizeBytesAreLabelled` (three size cases), and
+  `PinWright.assets.AssetSaveHandler.ResponseAlwaysCarriesSaveState`, which drives the real
+  handler on a real package through a forced write and a throttled non-durable write and requires
+  a `saveState` on both. NOTE that id is deliberately NOT under `PinWright.asset.save`, which is
+  a complete leaf that a dotted suffix would silently swallow.
+- `Source/PinWright/Private/Tests/Assets/TestAssetSaveState.cpp` - `blockedByPie` added to the
+  per-state tuple table and the durability list, plus assertions that it is distinguishable from
+  both `deferred` and `failed` and that its detail rules out retrying and names
+  `editor.pie_status`.
+
+Reviewer verification:
+
+1. Compile the plugin, then run `PinWright.assets.` + `PinWright.asset.save` in ONE editor.
+   Expect `PinWright.asset.save` (the pre-existing leaf) to still appear in the queue - if it
+   vanished, a dot-prefix collision was introduced.
+2. Live editor, no PIE: `asset.save` a dirty asset twice inside 0.5s. The second must answer
+   `saved:false, pendingFlush:true, saveState:"deferred"` and NO `pieActive`.
+3. Start PIE (`editor.play`), mutate an asset, `asset.save {force:true}`. Expect
+   `saved:false, saveState:"blockedByPie", pieActive:true, editorMode:"PIE"`, a `pieWorlds` entry
+   naming the running map, and - over an asset that already exists on disk -
+   `sizeBytesIsStale:true`. Confirm the `.uasset` mtime did not move.
+4. `editor.stop`, re-issue the same `asset.save`, require `saveState:"written"` and a moved mtime.
+5. In the same PIE window, call a `save:true` verb that threads no state (e.g.
+   `material.authoring.set_material_instance_parameters`) and confirm it now carries
+   `pieActive` / `pieWorlds` beside its `pendingFlush`.
+6. Confirm nothing regressed for the clean-package case: `asset.save` an already-clean asset
+   during PIE must still not be turned into a false refusal by the new gate.
+
 ## History
 
 - `#1-filed` `OPEN` reporter — Hit on EAContentExamples58 (UE 5.8, shared editor, port 27145) authoring `/Game/FPS/VFX/Emitters/E_Explosion_Flash`. Emitter was fully configured and `niagara.compile {force:true, wait:true}` returned `status:"completed"`; two consecutive `asset.save {force:true}` calls each returned `saved:false, sizeBytes:0, pendingFlush:true` with no `saveState`, and `ls` confirmed no `.uasset` on disk. The editor log for the same calls records `LogUtils: Error: The Editor is currently in a play mode.` plus `SaveAssetToDiskReportingPresence ... state=failed outcome=Failed forced=true`, i.e. the cause was PIE held by another agent in the shared editor and the handler knew the state was `failed` while replying `pendingFlush`. Cross-ref `B-editor-save-all-pie-diagnostic` (DONE) — same defect class, fixed for `editor.save_all` only, and `asset.save` is the verb the docs steer callers to instead. Diagnosis from the response payloads, the log lines quoted above, and `safe-mutation-save.md`'s `saveState` table; no plugin source read.
@@ -117,3 +210,4 @@ holds PIE, across all concurrent streams -> High.
 - `#N-audio-stream-blueprint-migration` `OPEN` reporter — Hit again on the FPS AUDIO stream while migrating `/Game/FPS/Audio/BP_DA_ImpactSFX`'s two lookup maps from a `byte` key to `EPhysicalSurface`. `asset.save {assetPath, force:true}` answered `{saved:false, sizeBytes:16180, pendingFlush:true}` twice, with **no error, no `saveState`, and no mention of PIE**. `asset.is_dirty` confirmed `isDirty:true`. The file on disk was an hour stale (mtime 22:41:23 against a 23:49 edit) and `grep -a EPhysicalSurface` on the `.uasset` returned **0**, so the whole type migration existed only in memory. Only `editor.save_all` diagnosed it, and precisely: `SAVE_FAILED ... (PIE active; 3 asset(s) locked by PIE)` with `failedAssets:[{path:.../BP_DA_ImpactSFX, reason:"BlockedByPie"}]` — another stream (WEAPONS) was running a PIE fire/reload verification and PIE holds Blueprint packages. Two things make this expensive rather than cosmetic. First, `pendingFlush:true` is the *same* answer `asset.save` gives for the benign 0.5 s throttle, so the documented remedy (retry with `force:true`) is exactly wrong here and I burned two retries on it. Second, in a shared editor the blocker belongs to a different agent, so the caller cannot even guess the cause from its own actions — `save_all` knows the reason and `asset.save` discards it. Ask: surface the same `BlockedByPie` reason (and a `saveState` of `failed`, not a bare `pendingFlush`) from `asset.save`. Workaround: when `asset.save` reports `pendingFlush` twice on an unchanged mtime, call `editor.save_all` purely to read the reason, then wait out the other stream's PIE session.
 - `#N-audio-synth-export-batch-nonpie-variant` `OPEN` reporter — Hit on the FPS AUDIO stream re-synthesising the 12 `SW_Step_*` footsteps and 5 ambience/foley waves. Sixteen consecutive `audio.synth.export {save:true}` calls returned `verification.pass:true, existsAfter:true, existsOnDisk:true` alongside `saved:false, pendingFlush:true, pendingSave:true`; six follow-up `asset.save {assetPath, force:true}` calls each answered `{saved:false, sizeBytes:<stale on-disk size>, pendingFlush:true}` with **no `saveState`**. `ls` confirmed all 11 files still carried their pre-edit mtime (22:43) more than an hour later, reproducing `#2`/`#4`'s point that `sizeBytes` on a `saved:false` reply is the stale file, not a write. The new datum is the escape hatch: `unreal.EditorLoadingAndSavingUtils.save_packages(pkgs, False)` run through `python.execute` wrote **all 12 packages in one call** and returned `True`, and `ls` then showed every mtime advanced — so on this occasion a different save API succeeded on the same packages within seconds of `asset.save {force:true}` refusing them. I did not establish whether another stream's PIE was up at the moment of either call, so this is not offered as a counter-example to the PIE root cause; what it does show is that `asset.save`'s `pendingFlush` was not describing a condition that blocked *all* writers, and that a caller with no `saveState` to read cannot tell the two situations apart. Reinforces this ticket's existing ask (`saveState` + a named blocker, and drop `sizeBytes` when `saved:false`), and adds: whatever `asset.save {force:true}` is doing, it is weaker than `save_packages(..., only_dirty=False)`, so either it should route through that on `force`, or the docs should name `save_packages` as the real forced path. Disk proof was `ls` mtime plus `grep -a` on the `.uasset` bytes throughout; `asset.reload` was not used.
 - `#N-pie-root-cause-confirmed-from-log-audio-waves` `OPEN` reporter — Closes the gap `#N-audio-synth-export-batch-nonpie-variant` names explicitly ("I did not establish whether another stream's PIE was up"). Same session, FPS AUDIO stream, re-synthesising the ten weapon/impact waves. `audio.synth.export {save:true}` on `SW_Impact_Glass_A` returned `verification.pass:true` beside `saved:false, pendingFlush:true`; two `asset.save {force:true}` retries answered the same with the **stale** `sizeBytes:101173`. The editor log carries the cause on the adjacent line and the RPC does not: `LogUtils: Error: The Editor is currently in a play mode.` immediately precedes each `SaveLoadedAssetThrottled` / `SaveAssetToDiskReportingPresence: ... state=failed outcome=Failed forced=true`, and `LogPlayLevel: Creating play world package: /Game/FPS/Test/UEDPIE_0_T_Weapons` bounds the window. **The same candidate exported and saved cleanly on the first attempt after `LogWorld: BeginTearingDown`, with no recipe change** — so on this occasion PIE *is* demonstrably the blocker, and the identical symptom recurred minutes later inside a second PIE window (`UEDPIE_0_T_AI`) across seven different packages, all of which then saved `true` on one retry once that PIE ended. Two consequences for the ask: (a) the blocker is already known to the handler at the moment it answers — `LogUtils` prints it one line earlier — so `saveState:"failed"` plus a named `saveBlocker:"pie"` is a plumbing change, not new detection work; (b) since the block is a *window*, not a property of the asset, the useful response field is "retry when PIE ends", which is precisely what today's `pendingFlush:true` with no `saveState` cannot distinguish from the 0.5 s throttle it looks identical to. Disk proof throughout was `ls`/`stat` mtime plus `grep -a` on the `.uasset` bytes; `asset.reload` was not used. Cost here was ~15 min of blocked exports plus one wrong initial diagnosis (read as a throttle, retried twice for nothing).
+- `#5-fixed-in-review` `IN-REVIEW` developer - Verified TRUE against source (the handler holds a fully-computed `EAssetSaveState` in a local and publishes only the bool; `saveState` reached the wire on the `diskStateDiverged` error path alone), root-caused to `UEditorAssetLibrary::SaveLoadedAsset`'s unconditional `CheckIfInEditorAndPIE` gate, and fixed at the shared chokepoint: a new `EAssetSaveState::BlockedByPie` produced by a pre-check in `SaveLoadedAssetThrottled`, `asset.save` routed through the shared `AddAssetSaveReport` so it always emits `saveState`/`saveDetail`, `pieActive`/`editorMode`/`pieWorlds` published on every not-durable save report (which covers the un-threaded `save`-flag verbs of `#4`/`#5` on the duplicate too), and `sizeBytes` labelled `sizeBytesIsStale` when it is the pre-existing file's - the `#2`/`#3`/`#4` complaint. Wiki pages `safe-mutation-save.md` and `asset.md` updated; two automation test files added/extended. NOT compiled and NOT run: a separate compile pass follows. See the `## Fix` section above for the file list and the reviewer's verification steps. `B-asset-save-omits-savestate-pie-block` is the same defect and is closed by this same change; it is marked as a duplicate of this ticket and moved to IN-REVIEW alongside it.

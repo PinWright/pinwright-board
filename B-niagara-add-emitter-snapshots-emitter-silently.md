@@ -1,7 +1,7 @@
 ---
 id: B-niagara-add-emitter-snapshots-emitter-silently
 title: "niagara.add_emitter copies the emitter into the system instead of referencing it, and nothing says so — later edits to the emitter asset never reach the system, which still compiles and strict-validates clean"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: bug
 tags: [niagara, add_emitter, emitter-handle, snapshot, stale, silent-noop, docs, wiki-wrong]
@@ -78,7 +78,7 @@ spawns 50-unit white sprites and passes `validate level:"strict"` with zero issu
   Anyone following that guidance duplicates emitters per system for a hazard that does not exist,
   while walking into the one that does.
 
-## Fix
+## Fix (proposed by reporter)
 
 Three things, in order of value:
 
@@ -102,6 +102,115 @@ RPC responses and the `niagara.inspect` stack read-back, both quoted above.
 - `B-niagara-authored-emitter-forces-inert` — the other "system compiles and validates clean while
   the emitter does nothing" defect; its `EMITTER_NOT_IN_SYSTEM_GRAPH` check is the model for fix 2.
 - `B-niagara-add-emitter-reshapes-handles-before-kill` — same verb, different failure.
+
+## Fix (implemented, uncommitted — not yet compiled or test-run)
+
+**The ticket is TRUE, and its mechanism is one step narrower than reported.** `AddEmitterHandle`
+*always* duplicates the emitter into the system — there is no engine mode in which a system
+references an emitter asset — but it normally keeps the copy linked to the asset as its **parent**
+(`UNiagaraEmitter::CreateWithParentAndOwner` sets `VersionedParent` + `VersionedParentAtLastMerge`).
+It strips that link only when the source asset declares itself non-inheritable
+(`NiagaraSystem.cpp:3019-3032`, `if (InEmitter.bIsInheritable == false) ... RemoveParent()`), which
+is how **every stock Niagara template and behaviour-example emitter loads** and what
+`asset.duplicate` preserves — `SimpleSpriteBurst.uasset` serialises `bIsInheritable` (i.e. false)
+while `SimpleExplosion.uasset` does not. So the repro's `asset.duplicate` of `SimpleSpriteBurst`
+produced an asset the editor would never produce: `NiagaraEmitterFactoryNew.cpp:183` sets
+`bIsInheritable = true` on any emitter its wizard creates from a template. PinWright's handler was
+byte-identical to the editor's own path — the defect was that **nothing reported which of the two
+relationships it had made**, and there was no readback and no non-destructive repair.
+
+Second half of the mechanism, which applies to inherited handles too and is what the `#3` encounter
+actually hit: even *with* a parent, the merge runs on load (`UpdateEmitterAfterLoad`) or on demand.
+Editing the asset in a live session does not touch the already-loaded system.
+
+**Changed files** (all under `Plugins/PinWright/`):
+
+- `Source/PinWright/Private/Handlers/Niagara/NiagaraHandler.cpp`
+  - `niagara.add_emitter` gains `inherit` (boolean, **default true**). The relationship is
+    **measured** off the created copy's own parent pointer after the write, never re-derived from
+    the engine's inheritability rule (spelled `bIsInheritable` on 5.4+, `TemplateSpecification` on
+    5.3). Response gains `emitterSource: "inherited" | "snapshot"` and `parentEmitterPath`; both
+    fact blocks (`WiringFacts` / `MutationFacts`) carry `emitterSource` too, so refusals report it.
+  - `inherit: false` performs the editor's *Remove Parent Emitter* (`Modify()` + `RemoveParent()`,
+    matching `FNiagaraEmitterViewModel::RemoveParentEmitter`).
+  - `inherit: true` (default) with a non-inheritable source **refuses**: the handle is rolled back
+    out with `RemoveEmitterHandlesById` (the graph is not rebuilt on that path, so the handle list
+    is the only thing to undo) and `EMITTER_NOT_INHERITABLE` is sent, naming both remedies.
+  - New verb `niagara.refresh_emitter {systemPath, emitter?, compile?, save?}` —
+    `MergeChangesFromParent()` per inherited handle. Deliberately a merge, not a re-add: it keeps
+    the system's own per-handle overrides, which is the non-destructive route `#3` said did not
+    exist. Reports `refreshed[]` (`wasStale` read before, `synchronizedWithParent` read after,
+    `graphModified`, `merged`, `errors[]`), `skipped[]` (`reason: "no_parent"`),
+    `mergesApplied` / `mergesFailed`. Nothing to merge → `EMITTER_NOT_INHERITED`, not a zero-item
+    success. Carries the same `EDITOR_OPEN` refusal, instance quiesce, and pre-save
+    `dataInterfaceCheck` gate as the two handle verbs; a run with any failed merge is not saved.
+  - Handle resolution (Guid-or-name) extracted to `ResolveNiagaraEmitterHandle` and shared with
+    `remove_emitter`, so the two verbs cannot drift on `EMITTER_HANDLE_NOT_FOUND` /
+    `AMBIGUOUS_EMITTER_HANDLE`.
+- `Source/PinWright/Private/Handlers/Niagara/NiagaraDumpBuilder.cpp` — every
+  `versionedEmitterData` object (system handles, and a standalone emitter asset) now carries
+  `parent { inherited, path, version, synchronized, parentAtLastMergePath }`. `synchronized` is the
+  engine's own change-id comparison, the same measurement validate and refresh use. **No aspect
+  version bump:** `niagara_system.json` / `niagara_emitters.json` are no longer written as dump
+  sidecars (`Docs/wiki-src/niagara.dump-files.md:15`), so this reaches only live RPC payloads.
+- `Source/PinWright/Private/Handlers/Niagara/NiagaraInspectHandler.cpp` — `niagara.validate` gains
+  `AddStaleParentEmitterIssues`, one `EMITTER_PARENT_STALE` **warning at every level** per handle
+  whose parent has moved on, naming the handle and the parent. Warning, not error: the system is
+  runnable, its content is a deliberate earlier state. A snapshot handle is deliberately silent —
+  it is unlinked, not stale.
+- `Source/PinWright/Private/Handlers/ErrorCodes.h` — `ERR_EMITTER_NOT_INHERITABLE`,
+  `ERR_EMITTER_NOT_INHERITED`. (Call sites keep raw literals: `NiagaraHandler.cpp` is not in
+  `TestErrorCodeRegistry`'s partially-converted baseline, so a single `ErrorCodes::ERR_` reference
+  would flip the file to "adopting" and redden its ~15 hand-spelled codes.)
+- `Docs/wiki-src/niagara.md` — new namespace-page section *A system's emitter is a child of the
+  asset, not the asset*; `### niagara.add_emitter` documents `inherit` / `emitterSource` /
+  `EMITTER_NOT_INHERITABLE`; new `### niagara.refresh_emitter`; `### niagara.validate` documents
+  `EMITTER_PARENT_STALE`; `### niagara.inspect` documents the `parent` block;
+  `### niagara.create_emitter` corrected (it produces an inheritable asset). The reporter's
+  "the wiki says the opposite" is closed.
+- `Docs/rpc-design.md` §1 — the generalised lesson: a verb that creates a relationship must name it;
+  a parameter named like a reference must not silently produce a copy; the lossy variant is the
+  named opt-in and the default refuses rather than downgrading.
+- `Source/PinWright/Private/Tests/Niagara/TestNiagaraEmitterInheritance.cpp` (new, 4 tests):
+  `add_emitter.InheritsFromSourceEmitter`, `add_emitter.SnapshotOptionRemovesParent`,
+  `refresh_emitter.MergesParentChanges`, `refresh_emitter.RefusesWhenNothingInherits`.
+
+**The project-side recipe named in this ticket is NOT fixed here.** "Never share one emitter asset
+between two systems — editing it would change both" lives in the host project's `CLAUDE.md`, not in
+the plugin, and it is now doubly wrong: sharing is the intended model, and each system takes its own
+child, so editing the asset changes no system until a refresh. Whoever owns that file should correct
+it.
+
+### Reviewer verification
+
+1. **Not compiled, not run.** A separate compile pass follows this change. Nothing below has been
+   executed.
+2. `add_emitter` on an emitter created by `niagara.create_emitter` (inheritable) → response carries
+   `emitterSource: "inherited"` and `parentEmitterPath` equal to the emitter asset path.
+3. `add_emitter` on an `asset.duplicate` of
+   `/Niagara/DefaultAssets/Templates/Emitters/SimpleSpriteBurst` → `EMITTER_NOT_INHERITABLE`, and
+   `niagara.inspect` shows the system's `emitterCount` unchanged (the rollback landed). Retry with
+   `inherit: false` → succeeds with `emitterSource: "snapshot"`.
+4. **The ticket's own repro, end to end.** Wire an inheritable emitter into a system, then
+   `niagara.add_module` a second `SpawnBurst_Instantaneous` on the *emitter asset*, compile and save
+   it. `niagara.inspect {includeStack:true}` on the system still shows one burst (unchanged, by
+   design), and `niagara.validate {level:"strict"}` now reports `EMITTER_PARENT_STALE` naming the
+   handle — this is the signal that did not exist. Then
+   `niagara.refresh_emitter {systemPath, compile:true}` → `mergesApplied: 1`,
+   `refreshed[0].wasStale: true`, `refreshed[0].synchronizedWithParent: true`, and the stack
+   read-back now carries **two** bursts.
+5. **The non-destructive property, which is the reason refresh exists rather than remove+add.**
+   Before refreshing, edit something on the system's own copy (e.g. `niagara.set_module_input` on a
+   handle's spawn count). After `refresh_emitter`, that override must still be there *and* the
+   parent's new module must have arrived. `remove_emitter` + `add_emitter` loses the override; this
+   must not.
+6. `niagara.refresh_emitter` on a system whose only handle is a snapshot → `EMITTER_NOT_INHERITED`
+   with `skipped[]` naming the handle.
+7. `niagara.inspect` on a Niagara System and on a standalone emitter asset: both carry
+   `versionedEmitterData.parent`, and its `synchronized` agrees with what validate says.
+8. Watch for `PINWRIGHT_ASSERTIONS_SKIPPED reason=niagara-parent-merge-unavailable` in the suite
+   log: `refresh_emitter.MergesParentChanges` steps over its post-merge assertions if the engine
+   merge manager fails on the synthetic fixture. A run carrying it has not proven the merge.
 
 ## History
 - `#1-initial-repro` `OPEN` reporter — Found while assembling `/Game/FPS/VFX/NS_Blood`,

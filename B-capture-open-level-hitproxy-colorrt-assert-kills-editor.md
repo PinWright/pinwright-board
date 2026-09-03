@@ -1,7 +1,7 @@
 ---
 id: B-capture-open-level-hitproxy-colorrt-assert-kills-editor
 title: "`render.capture_open_level` fires a hit-proxy readback on a viewport with no colour target when it follows `niagara.spawn_actor` with no editor tick between, and the render-thread `Assertion failed: ColorRT` kills the shared editor"
-status: OPEN
+status: IN-REVIEW
 severity: Critical
 category: bug
 tags: [render, capture_open_level, level-load, niagara, spawn_actor, crash, assert, render-thread, hit-proxy, multi-agent, shared-editor]
@@ -195,3 +195,37 @@ Cost so far: two editor deaths ~25 minutes apart, each taking every concurrently
   **Cheapest repro for a fix branch**, given `#2`'s caller could not make it deterministic: loop `niagara.spawn_actor` + `render.capture_open_level` on one level, no map load, ~10 iterations. It killed the editor on the third here.
 
   Cost to this stream: none directly — my work was on disk (map 03:25:50Z, last material 02:55Z, all re-verified after the restart, `grep -a` content checks clean). Recorded because `#1`'s recipe would send a fixer down the map-load path. `encounters` 3 -> 4.
+
+## Fix
+
+**Confirmed true, and the ticket's own `#3`/`#4` retractions were right: the trigger is neither `level.load`, nor `subject`, nor `hideEditorSprites`.** The chain is entirely inside the plugin's shared capture pump, and it is reachable by reading code alone.
+
+`PinWrightRenderCapture::PumpViewport` — the ONE pump every viewport capture verb runs through `CaptureEditorViewportToPng` — did three things to the live viewport it was photographing, 3+N times per capture (N = the warm-up settle rounds):
+
+1. `SlateApp.Tick(ESlateTickType::All)`. `All` includes the `PlatformAndInput` phase (`SlateApplication.cpp:1648-1667`), whose `FSlateUser::UpdateCursor()` (`:1725`) runs a cursor query into the widget under the mouse → `FSceneViewport::OnCursorQuery` (`SceneViewport.cpp:604-622`) → `FLevelEditorViewportClient::GetCursor` (`LevelEditorViewport.cpp:4727`) → `FViewport::GetHitProxy` → `GetRawHitProxyData`. **That is the readback in the callstack.** The capture never asked for hit proxies; the editor's own hover machinery did, because the capture invited it in.
+2. `SlateApp.PumpMessages()`. On Windows this DISPATCHES — `FWindowsApplication::DeferMessage` only defers while `GPumpingMessagesOutsideOfMainLoop` (`WindowsApplication.cpp:4190`) — so a real click landing mid-capture ran `ProcessClick` (another hit-proxy query) against a viewport in the capture's transient state.
+3. `ViewportClient.Invalidate()` and `SceneViewport->Invalidate()`, the no-argument overloads, which invalidate the **hit-proxy map** along with the display. **This supplies the missing precondition.** `FViewport::GetRawHitProxyData` (`UnrealClient.cpp:1923`) returns its cache untouched while `bHitProxiesCached` holds (`:1930-1941`); only a DIRTY cache takes the regeneration branch that constructs `FRHIRenderPassInfo` from `HitProxyMap.GetRenderTargetTexture()` (`:1949-1960`). That render target is released and rebuilt around a `FlushRenderingCommands` on every `SetFixedViewportSize` (`FSceneViewport::UpdateViewportRHI`, `SceneViewport.cpp:2136-2137` → `FViewport::ReleaseRHI` → `HitProxyMap.Release()`, `UnrealClient.cpp:2261-2264`), so a regeneration landing in that window builds a render pass on a null colour target and `appError`s on the rendering thread. The nested wait is what the `FlushRenderingCommands called recursively!` warning reports (`RenderingThread.cpp:1170-1178`).
+
+This explains every observation the reporters recorded, including the ones that looked contradictory. `level.load` and `spawn_actor` both invalidate hit proxies, so they leave the cache dirty *on entry* — that is why the crash only ever followed one of them, and why hand-driven captures with seconds of think-time in front survived (the editor's own tick had re-warmed the cache before the capture started). It is a cache-state precondition, not a timing one, which is exactly why `#4`'s 147 ms / 63 ms / 109 ms gaps ranked in the wrong order and why "wait N ms after the spawn" was never going to close it.
+
+**Fix: take the plugin off the hit-proxy path, in the shared pump, so every capture verb gets it.** No tick-once band-aid, no per-verb guard.
+
+- The pump now ticks `ESlateTickType::TimeAndWidgets` and no longer pumps platform messages. The viewport client still ticks and the widget tree still paints — everything a frame needs. Queued OS input is delivered by the editor's own loop after the capture returns.
+- Every invalidation the capture issues *while it holds the viewport* is now display-only, via the engine's own two-way split (`Invalidate(_, /*bInvalidateHitProxies=*/false)` / `InvalidateDisplay()`, commented "Invalidate only display pixels" at `EditorViewportClient.cpp:6622-6637`). The editor's pick buffer stays warm through the capture, so any hit-proxy query that does arrive hits the cache early-out and never touches the render target.
+- The **restore** side deliberately keeps the full `Invalidate()`: the pose, show flags and viewport size all moved while we held the viewport, so the pick buffer genuinely is stale when it is handed back — and that runs with no RHI teardown in flight, because `SetFixedViewportSize(0, 0)` only unlatches `bForceViewportSize`, it does not resize.
+
+Not done, deliberately: no "viewport is render-ready" precondition check was added. With the plugin off the hit-proxy path there is no caller-visible unsafe state left to report, and an `IsInitialized()` gate on an on-screen level viewport is an error branch nothing reaches. Reopen with evidence if a kill survives this.
+
+### Files changed
+
+- `Plugins/PinWright/Source/PinWright/Private/Handlers/Render/PreviewViewportCaptureUtils.cpp` — `PumpViewport` (tick type, no `PumpMessages`, display-only invalidation) plus the three apply-side scopes and `ApplyCaptureCamera` switched to display-only; the `CaptureEditorViewportToPng` scope-exit restore left as a full invalidate with the reason recorded.
+- `Plugins/PinWright/Source/PinWright/Private/Tests/Render/TestCapturePumpHitProxyIsolation.cpp` — **new**, two regression tests.
+- `Plugins/PinWright/Source/PinWright/Private/Dispatch/SafePoint.cpp` — comment only: hazard family B described the old pump verbatim.
+- `Plugins/PinWright/docs/lessons.md` — one entry.
+
+### Verification a reviewer should run
+
+1. Compile the plugin.
+2. `PinWright.render.capture_pump.DoesNotProcessEditorInput` and `PinWright.render.capture_pump.DoesNotInvalidateHitProxies`. Both are source lints and both are red-before-green by construction — each names text that was in `PumpViewport`'s body verbatim before the fix. They are lints rather than a driven capture on purpose: the fix is the *absence* of two calls, `bHitProxiesCached` / `bShouldCheckHitProxy` / `FHitProxyMap` are all private engine state, the only public read is `GetRawHitProxyData` (the crashing call itself), and the failure is a race by the reporters' own measurements — a capture-driving test would be green on the broken code most of the time.
+3. The existing capture suite, which is what proves the pump still produces frames: `PinWright.render.*` (notably `render.editor_sprites.*`, the blank-criterion, exposure-pin and grass-settle tests), `PinWright.camera.*`, `PinWright.spatial.*`.
+4. The repro `#4` asked for, on a scratch editor and not a shared one: loop `niagara.spawn_actor` + `render.capture_open_level` on one level, no map load, ~10 iterations at the same resolution. It killed the editor on the third before the fix.

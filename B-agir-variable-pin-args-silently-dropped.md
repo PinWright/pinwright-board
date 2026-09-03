@@ -1,7 +1,7 @@
 ---
 id: B-agir-variable-pin-args-silently-dropped
 title: "anim.compile_agir silently discards `$Variable` arguments on anim-node data pins — reports nodesCreated with no warning, and the decompile shows the pins unwired"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: bug
 tags: [anim, agir, compile_agir, anim-blueprint, silent-drop, pin-binding, blend-space]
@@ -93,6 +93,47 @@ missing its inputs, and the result animates convincingly enough to pass a glance
 (every locomotion blend space and every aim offset in an authored Anim BP takes variable inputs)
 -> High
 
+## Fix
+
+Fixed together with `B-decompile-agir-omits-wired-data-pin-bindings` — the same hole seen from the
+write end. Expected option 1 ("compile the binding — emit the `K2Node_VariableGet` and wire it")
+is what shipped; the workaround's 6 extra calls per graph are no longer needed.
+
+`$Variable` and the new `bind <path>` form are recognised by `AGIRPinBindings::IsBindingValue` and
+applied by `AGIRPinBindings::ApplyBindingArg`, reached through the single new write path
+`AGIRCliff::Helpers::WriteAnimNodeArg`. `$Name` resolves the member on the target AnimBP, creates a
+self-context `UK2Node_VariableGet`, and connects it to the pin (exposing a hidden pin first via
+`SetPinVisibility`); a failed connection removes the getter rather than leaving a half-applied
+binding behind. All seven arg-write sites now route through it, so a binding is honoured on any
+anim-node family — `call`, `blend_space` (head and sample-graph bodies), `layered_blend`,
+`linked_anim`, `linked_input_pose`, `save_cached_pose`, `use_cached_pose` — not just the generic
+`call` arm.
+
+Expected option 3 is also satisfied for the residual cases: an unresolvable `$Name` (variable
+absent, pin absent, connection refused) returns a diagnostic that the existing arg loops surface as
+an `AGIR_FIELD_WRITE` warning naming the variable and the pin, so `warnings: []` stops meaning
+"three nodes exist".
+
+Files changed: see the Fix section of `B-decompile-agir-omits-wired-data-pin-bindings` (same
+change set). The compile-side files are `AGIRPinBindings.{h,cpp}` (new),
+`AGIRCompilerHelpers.{h,cpp}`, `AGIRCompiler.cpp`, `AGIRCompiler_BlendSpace.cpp`,
+`AGIRCompiler_CachedPose.cpp`, `AGIRCompiler_LayeredBlend.cpp`, `AGIRCompiler_LinkedAnim.cpp`,
+`AGIRCompiler_LinkedInputPose.cpp`.
+
+**Reviewer verification.** NOT compiled and NOT run here.
+
+1. `PinWright.AGIR.PinBindings.VariableGetRoundTrip` covers the exact repro shape: compile AGIR
+   carrying `$Var` on a data pin into a fresh AnimBP, then assert the pin is linked to a
+   `UK2Node_VariableGet` reading that member — the assertion the old code fails.
+   `PinWright.AGIR.PinBindings.PropertyBindingRoundTrip` covers the `bind` form.
+2. Live: re-run this ticket's own repro on a scratch AnimBP that already declares `Direction`,
+   `Speed` and `AimYaw`. `blueprint.graph.get_nodes {graphName:"AnimGraph"}` must now report
+   `linkedTo` populated on the blend space's `X`/`Y` and the aim offset's `X`, and
+   `blueprint.compile` must stay clean. Note the round-trip cross-check this ticket's repro used is
+   now meaningful, because the sibling ticket made `anim.decompile_agir` print the bindings.
+3. Negative case: compile `X: $NoSuchVariable` and confirm the response carries an
+   `AGIR_FIELD_WRITE` warning naming `NoSuchVariable` and `X` instead of returning `warnings: []`.
+
 ## History
 - `#1-filed` `OPEN` reporter — Hit while authoring `/Game/FPS/AI/ABP_Enemy` for the FPS AI stream: a
   rifle locomotion blend space plus a rifle aim offset plus a montage slot. The AGIR compile
@@ -104,3 +145,8 @@ missing its inputs, and the result animates convincingly enough to pass a glance
   links and the `BlendSpace:` asset argument in the *same* argument list compiled correctly, so the
   drop is specific to `$Variable` values; and no plugin source was read, the diagnosis is entirely
   from the compile response, the decompile, and the node readback.
+- `#2-compiled-via-shared-binding-model` `IN-REVIEW` developer — Fixed alongside
+  `B-decompile-agir-omits-wired-data-pin-bindings` via one shared `AGIRPinBindings` unit; `$Variable`
+  now creates and wires the getter (Expected option 1) and an unresolvable one warns (option 3).
+  Routed through a single `WriteAnimNodeArg` so all seven per-family arg loops honour it, not just
+  the generic `call` arm. Not compiled and not run here — verification is the reviewer's.

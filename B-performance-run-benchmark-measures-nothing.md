@@ -162,6 +162,82 @@ Source re-derived at plugin HEAD `ef8a1f1b` with a clean working tree;
 **empty**, so the source read here is the binary that produced the measurement, verbatim. Engine
 citations opened in `C:/UE_5.8`.
 
+## Verification (code review)
+
+**The fix in the tree is correct and complete for what this ticket asks**, and it is committed:
+`2df2d8b0` (plugin, 2026-08-31) carries the handler, the tests and the wiki page; every file below is
+clean against plugin HEAD `347826a6`. Review was source-only — no editor call, no live run.
+
+**The measurement is a real per-frame frame time, not the RPC's own wall clock.**
+`PerformanceHandler.cpp:990` adds a **zero-delay** `FTSTicker` element for the window; `:994-995`
+appends one sample per fire (`DeltaTime * 1000` ms) and accumulates the span. That delta is the
+engine's frame delta, not ticker bookkeeping:
+`C:/UE_5.8/Engine/Source/Runtime/Launch/Private/LaunchEngineLoop.cpp:6103` calls
+`FTSTicker::GetCoreTicker().Tick(FApp::GetDeltaTime())` once per frame, and
+`Runtime/Core/Private/Containers/Ticker.cpp:121` fires every due element with **that same**
+`DeltaTime` (`Element->Fire(DeltaTime)`). One fire = one frame. `measuredDurationSeconds` (`:1034`)
+is the **sum of the sampled deltas** — deliberately not an `FPlatformTime::Seconds()` span, which
+appears only as the `+5.0 s` runaway backstop at `:1004` — so the published window and the published
+samples are on one clock and cannot disagree.
+
+**Quantities published, all from observed frames:** `frameCount` = frames actually sampled (`:1035`);
+`frameTimeMs {min, p50, p95, max, mean}` (`:944-948`) with nearest-rank percentiles indexed into the
+sorted sample array, no interpolation; `avgFps` = frames / measured span (`:1037`);
+`requestedDurationSeconds` named separately from the measured one, with a `warnings` entry when they
+differ by more than 10% (`:1047-1062`). `statFileCaptured` (`:1041`) is now plainly a fact about the
+`.uestats` side artefact, and the misleading `captured` is gone by name.
+
+**The success-without-measurement envelope is structurally closed.** With no samples or a
+non-positive span the job **fails** — `OnComplete(false, nullptr, TEXT("FRAME_TIME_NOT_MEASURED"))`
+at `:1028` — and `FJobRegistry::Complete` maps `bSuccess=false` to `status:"failed"` carrying that
+error (`State/JobRegistry.cpp:178-181`). A non-positive `duration` never starts a job at all
+(`INVALID_ARGUMENT`, `:963`). There is no remaining path that completes a job with no numbers.
+
+**Second defect fixed as filed.** The registration declares `duration` only (`:954`); `type` is gone,
+so the dispatcher's unknown-name gate refuses it with `UNKNOWN_PARAMS`
+(`Dispatch/RpcDispatcher.cpp:182-198`) rather than accepting it silently. The summary at `:952`
+describes what the verb returns.
+
+**Fix 1 of this ticket (refuse like the siblings) was correctly NOT taken.** The refusal was only
+right if the legacy stat file were the measurement; it never was. `start_profiling` / `stop_profiling`
+exist solely to drive that capture and still refuse (`:259-260`, `:289-290`), which stays correct for
+them. The asymmetry this ticket named is resolved in the other direction, which is the stronger one.
+
+**Tests.** `Tests/EditorOps/TestDebugHandlers.cpp:729` (`…ReportsMeasurementOrFails`) drives the real
+handler, pumps the core ticker to close the window (`:717`), reads the ticket out of the live
+`FPluginState::Get().GetJobRegistry()` and admits exactly two terminal states — completed **with**
+`frameCount > 0`, `measuredDurationSeconds > 0`, a separate `requestedDurationSeconds`, five
+`frameTimeMs` fields all `> 0`, `avgFps > 0`, no `captured`, `statFileCaptured` present — or failed
+**with** a non-empty error. `:830` (`…RejectsNonPositiveDuration`) pins the up-front refusal. Ticker
+pumping inside a test is the established pattern here (`Tests/TestUtils.h:447` and eight other TUs),
+and `TestUtils.h:19-20` supplies `Containers/Ticker.h` / `HAL/PlatformProcess.h`. Both tests are in
+the suite `2df2d8b0` reports green (4818/4818).
+
+**Why history `#4` still saw `{captured:false}` — a stale binary, not a failed fix.** The built module
+in this checkout, `Binaries/Win64/UnrealEditor-PinWright.dll` (2026-08-31 19:03), contains the UTF-16
+literal `"Start a performance benchmark"` — the pre-fix summary — and contains **none** of
+`FRAME_TIME_NOT_MEASURED`, `measuredDurationSeconds`, `statFileCaptured`, or the new summary text. So
+the editor answering that probe was running code older than `2df2d8b0` regardless of the DLL's
+timestamp. **`#4` does not refute the fix, and it is not re-verified either**: this ticket still owes
+one live `performance.run_benchmark {duration: 5}` against a freshly built editor before it can go
+`DONE`.
+
+**Caveats, recorded rather than fixed** (none of them re-opens the defect this ticket is about):
+- The quantity is **total wall frame time**. No game/render/RHI/GPU split, no draw counts — that is
+  `F-performance-frame-time-statistics`, deliberately left OPEN, and `#4`'s `performance.read_stats`
+  suggestion belongs there too.
+- A frame-rate limiter bounds the answer. Under VSync, `t.MaxFPS`, editor frame-rate smoothing or
+  background CPU throttling, `frameTimeMs` reports the **delivered** frame time, which is a real
+  measurement of the editor and not a measurement of what the scene costs. The wiki page does not say
+  so yet; worth one sentence there when someone next touches it.
+- If the engine loop stops ticking entirely the sampler never fires and the job stays `running`
+  forever — there is no job-level timeout. Unreachable in practice: the request pump is itself a
+  core-ticker element (`PinWrightSubsystem.cpp:195`), so a frozen ticker means no RPCs are served at
+  all.
+- The first sample is taken on the frame the request arrives: `AddTicker` sets
+  `FireTime = CurrentTime` for a zero delay (`Ticker.cpp:14-16`) and `Tick`'s added-elements pump
+  inside its `do`/`while` (`Ticker.cpp:139`) fires it in the same pass. That sample is a real frame,
+  so this is correct, not a duplicate.
 ## History
 - `#1-successful-job-with-no-measurement` `OPEN` reporter — `performance.run_benchmark` completes a **successful** job whose entire payload is `{captured:false}`. Live-verified twice against the running editor (13:32 build, `d8f1bc32`): `{duration:1, type:"all"}` → `{"captured": false}`, no error and no `NOT_SUPPORTED`. Source re-derived at plugin HEAD `ef8a1f1b`, whose `PerformanceHandler.cpp` is byte-identical to the build's (`git diff d8f1bc32..ef8a1f1b` on that file is empty): registration `:860` summary "Start a performance benchmark"; payload built `:892-901` carrying only `captured` and an optional `statFilePath`; `OnComplete(true, …)` at `:902`. **The strongest form of the claim is engine-independent** — even with `PINWRIGHT_HAS_STATS_FILE_CAPTURE` non-zero the payload becomes `{captured:true, statFilePath:…}`, a file location and still not a performance quantity, so this is not a UE 5.8 regression but a verb that never measured anything. The 5.8 half re-derived to its root: `PINWRIGHT_HAS_STATS_FILE_CAPTURE` (`:27-31`) resolves through `UE_ENABLE_STATS_FILE_DEPRECATED_IN_5_8`, defaulted to 0 at `C:/UE_5.8/.../Stats/StatsFile.h:8-9`, so `'stat startfile'` no longer parses. **The asymmetry that makes it a bug rather than a gap:** the two siblings under the identical macro refuse — `start_profiling` (`:252`) errors `NOT_SUPPORTED` at `:259-260` with a comment calling a success there *"fabricated"*, `stop_profiling` (`:283`) at `:289-290` the same — while `run_benchmark`'s own comment at `:886-890` reasons only about the *field*, not the envelope. **Second defect in the same registration, live-verified:** `RPC_PARAM_OPT("type", …)` at `:863` is never read (zero `TEXT("type")` hits in the file) and never validated — `type:"this-is-not-a-benchmark-type"` returned the same clean `{"captured": false}` — so a documented, defaulted, inert parameter advertises benchmark modes that do not exist. **Third finding, recorded not filed:** the `{avgFps, minFps, maxFps, frameCount}` payload that `B-performance-run-benchmark-no-completion-signal` `#2` claims the timer collects, and `#3` calls "documented", **exists nowhere in the plugin** — zero hits for `avgFps`/`minFps`/`maxFps` across `Source/` and `Docs/`; and that ticket's `**Files:**` line cites `Handlers/Performance/RunBenchmarkHandler.cpp`, which has never existed under `Source/`. Fix asked in two independently-landable parts: refuse with `NOT_SUPPORTED` like the siblings when the capture is compiled out (three lines, stops the false success now), and either measure or rename — with an explicit warning not to fabricate numbers from the stats system, which would trade a false success for a wrong datum. Cross-linked into the session's recurring class with the inversion stated rather than restated: the canonical members report correct numbers and omit the deciding one, whereas here the deciding quantity is never computed. Dedup: searched `run_benchmark`, `avgFps`, `benchmark`, `captured`, `NOT_SUPPORTED`, `stat startfile` and every `performance-*` filename; four adjacent tickets distinguished in § *Distinct from*, and nothing on the board says a `performance.*` verb reports success without measuring. Severity High: the silent-false-success band, with Critical declined (no crash, no asset data lost — the damaged artefact is a conclusion) and Medium declined as the closest call, since the `insights.export_trace` workaround is only reachable by a caller who already knows the verb is broken and repairs the measurement rather than the false success; reach declined in both directions — `performance.*` is not every-session, but a caller here is by definition trying to measure, which is when the lie costs most.
 - `#2-repoint-citations-after-module-rename` `DONE` reporter — Citation maintenance only; **no claim in this ticket changes and the status is untouched**. The plugin module directory was renamed `Source/EditorAutomationRpcGateway/` → `Source/PinWright/` (plugin commit `8962f163`), and `Source/EditorAutomationRpcGatewayTests/` was folded into `Source/PinWright/Private/Tests/`, so every citation under the old root was an **unresolvable path** a fixer could not open — not a stale line number. No body citation was rewritten here. **Deliberately not rewritten.** The only occurrence of the old root is at body line 73, where this ticket *quotes* the sibling `B-performance-run-benchmark-no-completion-signal`'s unresolvable `**Files:**` path in order to say that no `RunBenchmarkHandler.*` has ever existed. Rewriting it would falsify the observation. That sibling ticket is repointed in this sweep to `Handlers/Debug/PerformanceHandler.cpp:860`, which is the file this ticket names as the real home. Sweep-wide record, including every case that could not be repointed: `E-module-rename-citation-sweep`.
@@ -189,3 +265,4 @@ citations opened in `C:/UE_5.8`.
   `imageStats`-style measured block the capture verbs do, or expose the stat values as data
   (`performance.read_stats`) rather than only as a HUD toggle, since the HUD is unreachable from
   every capture surface the plugin offers.
+- `#5-code-review-verification-stale-binary` `IN-REVIEW` reviewer — Source-only re-verification at plugin HEAD `347826a6`; **status deliberately left `IN-REVIEW`** because no live call was made. The `#3` fix is in the tree and committed (`2df2d8b0`), and it does what a verb named `benchmark` must: a zero-delay `FTSTicker` element samples the engine's own per-frame delta (`LaunchEngineLoop.cpp:6103` -> `Ticker.cpp:121`), and the job completes with `frameCount`, `measuredDurationSeconds` (the SUM of the sampled deltas, not a wall-clock span — wall clock is only the `+5 s` backstop at `:1004`), `avgFps` and nearest-rank `frameTimeMs {min,p50,p95,max,mean}`, or FAILS with `FRAME_TIME_NOT_MEASURED` (`:1028` -> `JobRegistry.cpp:178-181`). `type` is gone from the registration, so `UNKNOWN_PARAMS` now refuses it. Full evidence in § *Verification (code review)*. **The finding that changes what `#4` means:** the built `Binaries/Win64/UnrealEditor-PinWright.dll` in this checkout still carries the pre-fix summary literal `"Start a performance benchmark"` and none of the new field names, so the editor that answered `{captured:false}` on 2026-09-03 was running code older than the fix — `#4` is a stale-binary reading, not a failed fix, and is neither a re-open nor a re-verification. What is still owed before `DONE`: one live `performance.run_benchmark {duration: 5}` against a freshly built editor. Nothing implemented and nothing reverted in this pass; three caveats recorded in the new section (total frame time only, so `F-performance-frame-time-statistics` stays OPEN and owns `#4`'s `performance.read_stats` ask; a frame-rate cap or editor smoothing bounds the reported number, which the wiki page does not yet say; and a frozen engine loop would leave the job `running` with no timeout, unreachable because the request pump is itself a core-ticker element).

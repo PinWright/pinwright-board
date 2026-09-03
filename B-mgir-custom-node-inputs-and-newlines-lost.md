@@ -1,7 +1,7 @@
 ---
 id: B-mgir-custom-node-inputs-and-newlines-lost
 title: "material.compile_mgir silently breaks every Custom HLSL node it writes: named inputs are never created (so the generated shader has no `Input` parameter) and `\n` escapes in a string literal lose their backslash — the material reports success, saves, and renders nothing"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: bug
 tags: [material, compile_mgir, decompile_mgir, custom-hlsl, round-trip, silent-false-success, ui-material, shader-compile]
@@ -134,3 +134,76 @@ compile clean this way (`compileSucceeded: true`, zero errors).
 
 - `E-material-verbs-have-no-shader-compile-signal` — `compile_material` is the only verb
   that surfaces shader errors, and nothing points authors at it.
+
+## Fix
+
+Both halves confirmed against source before any edit.
+
+**(a) Custom pins were never created.** `UMaterialExpressionCustom`'s pins live in a runtime
+`TArray<FCustomInput>` whose class default is ONE entry with an empty name
+(`MaterialExpressions.cpp:12747-12748`), and `Compile` skips every unnamed input
+(`:12769-12772`) — so wiring the derived pin name `Input` populated `Inputs[0].Input` on a pin
+the translator ignores, and the generated function had no parameters. Nothing in MGIR ever
+wrote `InputName`. The call's named pin arguments are now the declaration: each one creates an
+input with that name, in document order, before the wire pass runs. Routed through a new
+class-dispatched seam rather than an inline `if (Custom)` branch:
+
+- `Source/PinWright/Private/MGIR/MGIRDynamicInputs.h` / `.cpp` (new) —
+  `GetInputArrayPropertyName(UClass*)` (the one place that knows which classes carry dynamic
+  pins, and which reflected property backs them) and `ApplyDeclaredInputNames`, which resets the
+  array and refuses an empty or duplicated name. `SetMaterialAttributes` deliberately stays on
+  `FMGIRMaterialAttributeUtils`: its pin names must resolve to attribute GUIDs, so its
+  declaration is the explicit `Attributes: [...]` list, not the pin args. Header documents how a
+  future free-form-named class plugs in.
+- `MGIRCompiler.cpp` `EmitInstruction` (Call case) — collects the declared names, applies them
+  after `EmitExpression`, and refuses a restated `Inputs: [...]` argument with
+  `MGIR_INVALID_INPUT_DECLARATION` naming the correct form (per the ephemeral-IR invariant in
+  `Docs/ir-authoring.md`, no dual-accept window: re-decompile pinned text).
+- `MGIRDecompiler.cpp` `AppendExpressionProperties` — suppresses the same reflected array, since
+  `AppendConnectedInputs` already emits every name and connection. That array was the
+  unreadable half of the round trip.
+
+**(b) `\n` lost its backslash.** The decompiler quotes with `FIrTextUtils::EscapeString`
+(`\\ \" \n \r \t \uNNNN`); the compiler's local `TrimQuotes` reversed `\"` and `\\` only, so the
+rest survived as literal backslash pairs. Fixed at the literal layer, for every literal:
+`MGIRHelpers::EncodeStringLiteral` / `DecodeStringLiteral` are now the single encoder/decoder
+pair (delegating to the shared `FIrTextUtils` implementation of the documented IR escape set),
+`TrimQuotes` is gone, and the decompiler's `Quote` goes through the same header so the two sit
+side by side.
+
+Also bumped the `mgir.txt` asset-dump aspect version 3 → 4 (`AssetDumpCache.cpp`): a material
+holding a Custom node now dumps different bytes. **The committed `asset-dumps/` mirror in the
+host project is stale for such materials until re-dumped.**
+
+Files changed: `Source/PinWright/Private/MGIR/MGIRDynamicInputs.{h,cpp}` (new),
+`MGIR/MGIRCompiler.cpp`, `MGIR/MGIRDecompiler.cpp`, `MGIR/MGIRHelpers.h`,
+`Handlers/Asset/AssetDumpCache.cpp`, `Docs/wiki-src/material.mgir.md` (new "String literals and
+escapes" + "Custom HLSL nodes" sections), tests in
+`Source/PinWright/Private/Tests/Material/TestMGIRCustomExpression.cpp` (new).
+
+**Reviewer verification.** Not compiled and not run here (separate compile pass). Then:
+
+1. `PinWright.material.mgir.Custom.NamedInputsAndMultilineCodeCompile` — compiles a document
+   with two named inputs and a multi-line program; asserts `Inputs` = `[UV, Scale]` in order,
+   both wired, and `Code` holding real newlines/tab/quote/backslash.
+2. `PinWright.material.mgir.Custom.DecompileRoundTripsInputsAndCode` — decompile emits `UV: %…`
+   / `Scale: %…` and no `Inputs:`, recompiles, and the Custom call line decompiles identically
+   (handles normalized).
+3. `PinWright.material.mgir.StringLiteral.EscapeSetDecodes` — the escape set on a plain `Desc`,
+   proving the fix is not Custom-specific, plus encoder/decoder symmetry.
+4. Live: re-run the ticket's repro through `material.compile_mgir` with `UV:` (the decompiler's
+   own name) and a `\n`-carrying program, then `material.authoring.compile_material` — expect
+   `compileSucceeded: true`. That last step is the one nothing in this change can fake; the
+   `compile_mgir` response still does not carry a shader verdict
+   (`E-material-verbs-have-no-shader-compile-signal` owns that).
+
+## History
+- `#1-fix-implemented` `IN-REVIEW` developer — Both defects reproduced from source (not run
+  live). Custom pins: added the `MGIRDynamicInputs` seam and made the call's named pin arguments
+  the input declaration, applied before wiring; decompile stops restating the array and a
+  restated `Inputs: [...]` is refused with `MGIR_INVALID_INPUT_DECLARATION`. Escapes: replaced
+  the compiler's two-escape `TrimQuotes` with `MGIRHelpers::DecodeStringLiteral`, the exact
+  inverse of the decompiler's encoder, applied to every MGIR string literal. Bumped the
+  `mgir.txt` dump aspect to 4. Added three round-trip tests. Did not compile or run tests
+  (later phase). No shader-compile signal added — that is
+  `E-material-verbs-have-no-shader-compile-signal`.

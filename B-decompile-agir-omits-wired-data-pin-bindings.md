@@ -1,7 +1,7 @@
 ---
 id: B-decompile-agir-omits-wired-data-pin-bindings
 title: "anim.decompile_agir omits data-pin bindings that ARE wired — a correct AnimGraph decompiles identically to a broken one, and it is the only AGIR read route because blueprint.decompile refuses anim graphs"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: bug
 tags: [anim, agir, decompile_agir, anim-blueprint, readback, blend-space, aim-offset, pin-binding, false-negative]
@@ -100,6 +100,70 @@ working content, on the only documented read route for the asset kind x reach=ev
 Blueprint with a variable-driven blend space or aim offset, i.e. effectively all of them
 -> High
 
+## Fix
+
+Both binding forms now round-trip, in one shared unit rather than two per-side patches.
+
+**New:** `Source/PinWright/Private/AGIR/AGIRPinBindings.{h,cpp}` — the AGIR vocabulary for
+anim-node *data*-pin bindings, used by the emitter (read) and by every compile-side arg loop
+(write):
+
+- `X: $Direction` — a `UK2Node_VariableGet` for that AnimBP member wired into the pin. Same
+  `$Name` sigil BPIR already uses for a member read, so one concept has one spelling across the
+  IR family.
+- `Alpha: bind Speed` / `Alpha: bind Struct.Member` / `Alpha: bind fn GetAlpha` — a
+  property-access binding (`FAnimGraphNodePropertyBinding`).
+
+The `PropertyBindings` map is reached reflectively (`Binding` object on UE 5.4+, the node's own
+map on 5.3) so no engine `Internal/`/`Private/` header is needed and both layouts work with one
+code path. The compile side writes `PropertyName` / `PropertyPath` / `PathAsText` / `Type` /
+`bIsBound` / `ArrayIndex` and calls `ReconstructNode()`; the engine's `OnReconstructNode`
+recomputes the derived `PinType` / `PromotedPinType` / `bIsPromotion`. A hidden pin is exposed
+via `SetPinVisibility` before binding.
+
+**A bound pin's literal is suppressed from the reflected pass** (`AppendReflectedNodeFields` now
+takes a suppressed-name set). That is what makes "driven, currently 0" textually different from
+"not driven" — the distinction encounter #2 opened the file to make.
+
+**Unrepresentable links now warn instead of vanishing.** `FAGIRTextEmitter` grew a `Warnings`
+array; a wired pin whose driver is not a plain self-context member getter produces
+`AGIR_PIN_BINDING_NOT_REPRESENTABLE: node '<n>' pin '<p>' is driven by '<title>' ...`, which
+`FAGIRDecompiler` appends to its result and `anim.decompile_agir` relays.
+
+Files changed:
+- `Source/PinWright/Private/AGIR/AGIRPinBindings.h` (new)
+- `Source/PinWright/Private/AGIR/AGIRPinBindings.cpp` (new)
+- `Source/PinWright/Private/AGIR/AGIRTextEmitter.{h,cpp}` — `AppendNodeFields` collapses the
+  pose-links + bindings + reflected-fields sequence at all 7 emit sites; `Warnings` sink
+- `Source/PinWright/Private/AGIR/AGIRDecompiler.cpp` — relays emitter warnings
+- `Source/PinWright/Private/AGIR/AGIRCompilerHelpers.{h,cpp}` — `WriteAnimNodeArg`, the single
+  write path (binding value -> binding, else the reflective struct write)
+- `AGIRCompiler.cpp`, `AGIRCompiler_BlendSpace.cpp`, `AGIRCompiler_CachedPose.cpp`,
+  `AGIRCompiler_LayeredBlend.cpp`, `AGIRCompiler_LinkedAnim.cpp`,
+  `AGIRCompiler_LinkedInputPose.cpp` — 7 arg-write sites routed through it
+- `Source/PinWright/Private/Tests/Assets/TestAGIRPinBindings.cpp` (new) — 2 round-trip tests
+- `docs/wiki-src/anim.md` — new "AGIR data-pin bindings" section; "Historical, now fixed" entry
+
+**Reviewer verification.** NOT compiled and NOT run by this change — a separate compile pass
+follows. Then:
+
+1. Run `PinWright.AGIR.PinBindings.VariableGetRoundTrip` and
+   `PinWright.AGIR.PinBindings.PropertyBindingRoundTrip`. The first hand-wires a getter into a
+   real AnimGraph, asserts the decompile prints `Alpha: $PinWrightBoundAlpha` *and* not the pin's
+   dead `0.25` literal, then compiles into a fresh AnimBP and asserts the link was rebuilt to the
+   same member. The second compiles hand-authored `Alpha: bind <var>` text, asserts the engine's
+   public `HasBinding("Alpha")`, and re-decompiles to the same spelling.
+2. Live check on the reported asset: `anim.decompile_agir {assetPath:"/Game/FPS/AI/ABP_Enemy"}`
+   must now show `X: $Direction`, `Y: $Speed`, `X: $AimPitch` and `Alpha: $CrouchAlpha` on the
+   `ModifyBone` and both `TwoBoneIK` nodes — cross-check against
+   `blueprint.graph.get_nodes {graphName:"AnimGraph"}`, which reported those six links.
+3. Recompile that decompile output into a scratch AnimBP and diff a second decompile against the
+   first; the bindings must survive.
+
+Counterfactuals: removing `AppendBindingFields` from `AppendNodeFields` makes the text assertions
+fail; removing the `$`/`bind` branch from `WriteAnimNodeArg` makes the rebuilt-link and
+`HasBinding` assertions fail.
+
 ## History
 - `#1-filed` `OPEN` reporter — Found while reviewing the FPS AI stream's `ABP_Enemy` as a
   critic, on UE 5.8 / `EAContentExamples58`. Read the graph through
@@ -135,3 +199,9 @@ Blueprint with a variable-driven blend space or aim offset, i.e. effectively all
   `blueprint.decompile` of the event graph and `blueprint.graph.get_nodes` of the anim graph
   side by side. The `Expected` section above is unchanged and still the right fix; add the
   skeletal-control `Alpha` pin to the set of bindings that must round-trip. No plugin source read.
+- `#3-fixed-both-binding-forms` `IN-REVIEW` developer — Implemented per the Fix section above:
+  `$Name` for a graph-wired variable getter and `bind <path>` for a property-access binding, emitted
+  by the decompiler and honoured by the compiler through one shared `AGIRPinBindings` unit, with the
+  bound pin's dead literal suppressed and unrepresentable drivers reported as
+  `AGIR_PIN_BINDING_NOT_REPRESENTABLE` warnings. Two round-trip tests added. Not compiled and not run
+  here — verification is the reviewer's, per the Fix section.

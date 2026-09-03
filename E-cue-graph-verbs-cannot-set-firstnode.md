@@ -1,7 +1,7 @@
 ---
 id: E-cue-graph-verbs-cannot-set-firstnode
 title: "No SoundCue verb can set FirstNode, so the documented add_cue_node + connect_cue_nodes workflow always produces a silently mute, rootless cue"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: enhancement
 tags: [audio, sound-cue, add-cue-node, connect-cue-nodes, firstnode, cue-root, silent-noop, decompile-sound-cue]
@@ -94,5 +94,52 @@ already suggests callers try it. Either way `decompile_sound_cue`'s existing
 `create_sound_cue`'s "follow with add_cue_node and connect_cue_nodes" sentence should not
 describe a workflow that cannot finish.
 
+## Fix
+
+Fixed alongside `B-cue-random-node-weights-zero-always-picks-first`, which lives in the same
+handler: both are the same root shape (the RPC surface building cue graphs without the
+editor-side bookkeeping that makes them function), and the two changes touch the same file.
+
+Both suggested routes shipped, because they answer different failures:
+
+- **`audio.authoring.set_cue_root {assetPath, nodeId, save}`** is the typed, discoverable verb.
+  It assigns `USoundCue::FirstNode` **and** calls `LinkGraphNodesFromSoundNodes()`, collapsing
+  both halves of the shipped workaround — including the non-obvious second one, the redundant
+  `connect_cue_nodes` re-issued purely to link the EdGraph Root pin.
+- **`connect_cue_nodes` now accepts `sourceNodeId: "Output"` (or `"Root"`)** as a reserved
+  alias for the same write. This one is not redundant: the ticket records that a caller's first
+  instinct is to connect to the Output node, and the error message it hit named nothing. The
+  alias applies only when no real node answers to that name, so a node genuinely named `Output`
+  still wins, and `childIndex` is unused on that path.
+
+`SOURCE_NODE_NOT_FOUND` now names `set_cue_root` (and the `"Output"` spelling) in its message,
+and `decompile_sound_cue`'s warning reads `SoundCue has no FirstNode — it cannot play. Root it
+with audio.authoring.set_cue_root.` The `audio.authoring` wiki overlay gained
+`### audio.authoring.connect_cue_nodes` and `### audio.authoring.set_cue_root` sections, the
+second carrying the full eight-call worked example ending in `set_cue_root`, so the workflow
+`create_sound_cue`'s own summary advertises can now be finished from the docs.
+
+Files changed (all under `Plugins/PinWright/`):
+- `Source/PinWright/Private/Handlers/Audio/AudioAuthoringHandler.cpp` — `IsSoundCueRootNodeId()` /
+  `SetSoundCueRootNode()` helpers, the `set_cue_root` verb, the `connect_cue_nodes` alias branch
+  and its error-message pointer.
+- `Source/PinWright/Private/SCIR/SCIRDecompiler.cpp` — the FirstNode warning now names the verb.
+- `Source/PinWright/Private/Tests/Media/TestSoundCueChildAttachment.cpp` — new; the
+  `set_cue_root.RootsTheGraph` case asserts the unrooted warning, the `"Output"` alias, the
+  resulting `FirstNode`, and that SCIR then prints `root modulator` rather than `orphan`.
+- `Docs/wiki-src/audio.authoring.md`.
+
+Reviewer verification (not run here — this change is uncompiled by instruction):
+1. Run `PinWright.audio.authoring.set_cue_root.*` and `PinWright.audio.authoring.connect_cue_nodes.*`.
+2. Live: run the ticket's five-call repro verbatim, then `set_cue_root {nodeId:
+   "SoundNodeModulator_0"}`. `decompile_sound_cue` must print `root modulator …` with an empty
+   `warnings` array.
+3. Re-run it using `connect_cue_nodes {sourceNodeId: "Output", targetNodeId:
+   "SoundNodeModulator_0"}` instead and confirm the same result.
+4. Open the cue in the Sound Cue editor and confirm the Output node's pin is connected — that is
+   the half `property.set` on `FirstNode` alone never did.
+5. Read `call("audio.authoring.set_cue_root")` and confirm the overlay section renders.
+
 ## History
 - `#1-filed` `OPEN` reporter — Hit while building 14 impact/footstep random-selector cues under `/Game/FPS/Audio/Cues/`. Followed `create_sound_cue`'s own documented follow-on workflow exactly; all eight calls returned clean success and `decompile_sound_cue` showed a perfectly-shaped `modulator -> random -> 2x wave_player` tree marked `orphan`, with `SoundCue has no FirstNode.` in `warnings` — a cue that would never make a sound. `connect_cue_nodes` with `sourceNodeId: "Output"` was rejected `SOURCE_NODE_NOT_FOUND`, and no verb in `audio.authoring` writes `FirstNode`. Shipped by falling back to `property.set` on `FirstNode` (node object paths use a `:` subobject separator and are not returned by any RPC — `USoundCue::AllNodes` is `protected` and unreadable from Python, so I had to find them with `unreal.find_object`), followed by a redundant `connect_cue_nodes` re-issued solely to trigger the handler's `LinkGraphNodesFromSoundNodes()` and link the EdGraph Root pin. Both steps are undiscoverable from the wiki. Related but distinct: `B-create-sound-cue-looping-noop` covers `create_sound_cue` dropping `looping`/`volume`/`pitch` when `wavePath` is omitted and mentions the same `property.set` workaround in passing; this ticket is the missing capability in the graph-editing verbs themselves, which that ticket's fix does not address. Severity High: impact = the documented complex-graph workflow silently produces an unplayable asset x reach = every SoundCue authored with more than the create-time pre-wire.
+- `#2-shipped-set-cue-root-and-output-alias` `IN-REVIEW` developer — Confirmed TRUE by reading source only: `connect_cue_nodes` wrote nothing but `SourceNode->ChildNodes[ChildIndex]`, and no verb in `audio.authoring` touched `USoundCue::FirstNode` outside `create_sound_cue`'s create-time pre-wire. Fixed in the same change as `B-cue-random-node-weights-zero-always-picks-first` (same handler, same root shape). Added `audio.authoring.set_cue_root {assetPath, nodeId, save}`, which sets `FirstNode` **and** calls `LinkGraphNodesFromSoundNodes()` — collapsing both halves of the workaround, including the redundant re-issued connect the ticket had to use to link the EdGraph Root pin. Also took the alternative: `connect_cue_nodes` accepts the reserved `sourceNodeId: "Output"`/`"Root"`, but only when no real node answers to that name. `SOURCE_NODE_NOT_FOUND` and `decompile_sound_cue`'s no-FirstNode warning now both name the fixing verb, and the wiki overlay carries the complete worked example ending in `set_cue_root`. NOT compiled or run — a separate compile pass follows. See `## Fix` for the reviewer checklist.

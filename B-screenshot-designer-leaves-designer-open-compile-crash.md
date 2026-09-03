@@ -1,7 +1,7 @@
 ---
 id: B-screenshot-designer-leaves-designer-open-compile-crash
 title: "widget.screenshot_designer leaves the UMG Designer open, and a later blueprint.compile_bpir on that widget kills the editor in SDesignerView::UpdatePreviewWidget -> UUserWidget::RebuildWidget"
-status: OPEN
+status: IN-REVIEW
 severity: Critical
 category: bug
 tags: [widget, screenshot_designer, compile_bpir, designer, crash, access-violation, editor-open-guard, close_asset, multi-agent]
@@ -138,3 +138,130 @@ every unsaved in-memory edit in it x reach=the documented inspect-capture-edit l
   **What survives from `#3`, and it is smaller than it read.** The wording hole in the host project's `Docs/fps/PLAN.md` rule 10 exception is real and independent of this crash: "provided the caller runs `editor.close_asset` on anything it opened before returning" is satisfiable while still leaving an asset editor open across a compile of that same asset, which is this ticket's mechanism verbatim. It should read "close before any compile that targets an asset you opened", and it is worth noting that `closeAfterCapture:false` — the setting `B-capture-asset-preview-no-safe-close-mode` makes safe for the teardown path — is the one that maximises exposure to it. That is a documentation fix, not evidence of a crash.
 
   The `model.compile` guard suggestion from `#3` stands only as an **untested** hazard and I am explicitly downgrading it: material handlers fail loud with `EDITOR_OPEN` (`agent-conventions.md`) and `model.compile` does not check at all, so rebuilding a `UStaticMesh` under its own open editor is unguarded — but nothing here demonstrates it faults, and I no longer claim it does. If it deserves a ticket it is its own, on a controlled repro in a single-agent editor, not an encounter here.
+
+## Fix
+
+**Both defects fixed; the compile side is the root cause and it is fixed centrally, not per verb.**
+
+**Root cause (compile side).** The engine's only path that compiles a Widget Blueprint with the
+Designer open destroys the preview first — `FWidgetBlueprintEditor::Compile()` is
+`DestroyPreview(); FBlueprintEditor::Compile(); …` (UE 5.8 `WidgetBlueprintEditor.cpp:1799-1803`) —
+and `SDesignerView::OnPreviewNeedsRecreation` says why in the engine's own words: designers must
+"jettison their previews on the compilation of any widget blueprint … to prevent having slate
+widgets that still may reference data in their owner UWidget that has been garbage collected"
+(`SDesignerView.cpp:1593-1598`). That jettison is driven by
+`FWidgetBlueprintEditor::OnWidgetPreviewUpdated`, broadcast only from the toolkit's own preview
+lifecycle. **Every PinWright compile route reaches `FKismetEditorUtilities::CompileBlueprint`
+directly — 53 call sites, `blueprint.compile` / `compile_bpir` / `add_function` / `add_variable` /
+the BPIR emitters — one layer below the toolkit, so no designer was ever notified.** The preview
+then survives into the class rebuild: `UWidgetBlueprintGeneratedClass::PurgeClass` nulls the class's
+`WidgetTree` (`WidgetBlueprintGeneratedClass.cpp:390-397`), `UUserWidget::RebuildWidget` dereferences
+the instance's `WidgetTree` with no null test (`UserWidget.cpp:1213`), and that field is
+`Transient, DuplicateTransient` so reinstancing never carries it (`UserWidget.h:1523`) — the reported
+`0x38` read, on a Slate paint one frame later.
+
+**Design, and why not `EDITOR_OPEN`.** The Niagara guard's own header states the adoption test:
+refuse only where the mutation invalidates something a live widget caches **and no notification
+reaches it**. Here a notification does reach it (`OnBlueprintChangedImpl` → `RefreshPreview` after
+the compile); only the *pre*-compile half was missing, and the engine compiles widgets under an open
+Designer all day. A refusal would also be unusable in the shared editor this ticket is about, where
+the open Designer is routinely somebody else's. So the fix satisfies the engine contract instead of
+refusing: a subscription to `GEditor->OnBlueprintPreCompile()`, which the compilation manager
+broadcasts once per blueprint immediately before the purge
+(`BlueprintCompilationManager.cpp:1361-1367`), fires only for `JobType == Normal` (the case that
+purges), and therefore covers all 53 routes, every future one, and engine paths such as Compile All
+— from one call site. It is idempotent: a compile that already went through
+`FWidgetBlueprintEditor::Compile` finds no preview and does nothing. Scope is deliberately the
+compiled blueprint's own editor, matching `Compile()` exactly; widening to every open designer is
+noted in the header as a separate question needing its own evidence.
+
+**Capture side.** `widget.screenshot_designer` and the `asset.dump` widget preview aspect both
+opened the Widget Blueprint editor and never closed it. Both now go through one RAII bracket over
+the existing `PinWrightCaptureSubject::CloseAssetEditor` — same three-state `closeAfterCapture` rule
+and same deferred (core-ticker) close as `render.capture_asset_preview`, so no second policy and no
+toolkit teardown on the capture stack. Nesting is correct by construction: the inner scope sees
+`bWasAlreadyOpen` and leaves the close to whichever scope opened the window. Checked the other
+capture verbs: `render.capture_asset_preview` and the rest of the subject-resolver family already
+close by default through this same helper; the widget Designer path was the only leak left.
+
+### Files changed
+
+- `Plugins/PinWright/Source/PinWright/Private/Handlers/UI/WidgetDesignerCompileGuard.h` (new) —
+  the contract, the engine citations, and the guard API.
+- `Plugins/PinWright/Source/PinWright/Private/Handlers/UI/WidgetDesignerCompileGuard.cpp` (new) —
+  public-API reimplementation of `DestroyPreview` (`SetDesignerFlags` → `InvalidatePreview(true)`,
+  which *is* `OnWidgetPreviewUpdated.Broadcast()` → `FWidgetBlueprintEditorUtils::DestroyUserWidget`)
+  plus the `OnBlueprintPreCompile` subscription.
+- `Plugins/PinWright/Source/PinWright/Private/PinWrightModule.cpp` — register in `OnPostEngineInit`,
+  unregister in `ShutdownModule`.
+- `Plugins/PinWright/Source/PinWright/Private/Handlers/UI/WidgetDesignerCaptureInternal.h` —
+  `FScopedDesignerAssetEditor`.
+- `Plugins/PinWright/Source/PinWright/Private/Handlers/UI/WidgetDesignerScreenshotHandler.cpp` —
+  uses the bracket; new `closeAfterCapture` param; new `assetEditorWasAlreadyOpen` /
+  `assetEditorClosed` / `assetEditorCloseDeferred` response fields.
+- `Plugins/PinWright/Source/PinWright/Private/Handlers/UI/WidgetDesignerCaptureUtil.cpp` — uses the
+  bracket (this is the `asset.dump` preview path).
+- `Plugins/PinWright/Source/PinWright/Private/Tests/Widget/TestWidgetDesignerCompileGuard.cpp` (new)
+  — 6 tests.
+- `Plugins/PinWright/Docs/wiki-src/widget.md`, `Docs/wiki-src/blueprint.md`, `Docs/lessons.md`.
+
+Not compiled and not run by this agent, per the fix-wave protocol; a separate compile pass follows.
+Nothing committed (plugin repo or board).
+
+### Verification a reviewer should run
+
+1. Build the plugin, then run the new tests plus the existing designer suite in ONE editor:
+   `Automation RunTests PinWright.widget.designer_compile_guard+PinWright.widget.screenshot_designer+PinWright.asset.dump.WidgetScreenshot`.
+   Expect 6 new ids: `designer_compile_guard.{HookRegistered, DeclinesUnaffected,
+   JettisonsLivePreview, PreCompileHookRunsBeforeTheCompile}` and
+   `screenshot_designer.{ClosesDesignerItOpened, LeavesPreexistingDesignerOpen}`.
+2. Counterfactuals, all stated in the test file header: drop `RegisterPreCompileGuard()` from
+   `PinWrightModule.cpp` and `PreCompileHookRunsBeforeTheCompile` fails (its listener, registered
+   after the plugin's, then observes a live preview at pre-compile time); drop the scope from the
+   screenshot handler and `ClosesDesignerItOpened` fails on `assetEditorCloseDeferred`; make that
+   scope close unconditionally and `LeavesPreexistingDesignerOpen` fails.
+3. Live repro of the original sequence in one editor:
+   `widget.screenshot_designer {widgetPath, target:"preview"}` twice — check the response now says
+   `assetEditorWasAlreadyOpen:false, assetEditorCloseDeferred:true` on the first call — then several
+   `blueprint.compile_bpir` on the same widget, including one that fails to compile, and confirm the
+   editor survives. Repeat with `closeAfterCapture:false` (Designer deliberately left open) to
+   exercise the compile-side guard on its own, which is the case the shared-editor witnesses in
+   `#2`–`#5` could not defend against.
+4. Regression watch: `PinWright.widget.screenshot_designer.PreviewSelfOpensDesigner` asserts the
+   designer preview target still resolves right after the handler. It passes because the close is
+   *queued*, not synchronous — if that test goes red, the close became synchronous, which is the
+   thing `B-capture-asset-preview-no-safe-close-mode` forbids.
+
+### Fix amendment — the end-to-end test was wrong, the guard was not
+
+The first post-wave suite (`Saved/Logs/pw_wave_suite3.log`, 09:02:58–09:03:08) ran all six new tests;
+five passed and `PreCompileHookRunsBeforeTheCompile` failed on
+`Expected 'no live designer preview survives into the compile' to be false`.
+
+**Cause: (b), delegate ordering — and the assertion never had discriminating power.**
+`TMulticastDelegateBase::Broadcast` walks its invocation list **backwards** — *"call bound functions
+in reverse order, so we ignore any instances that may be added by callees"*
+(`C:\UE_5.8\Engine\Source\Runtime\Core\Public\Delegates\MulticastDelegateBase.h:299-300`) — while
+`AddDelegateInstance` **appends** (`:336`). So the LAST listener registered runs FIRST: the test's
+observer, added at test time, always executed *before* the plugin's guard (registered at
+`OnPostEngineInit`) and always saw a live preview — whether the guard works or not. Not (a): the log
+shows the compile, the guard is registered (`HookRegistered` green) and tears the preview down when
+invoked (`JettisonsLivePreview` green), and the test's own "the engine broadcast a pre-compile for
+this widget blueprint" assertion passed. Not (c) either: the probe read the right editor, just at the
+wrong point in the broadcast. No production defect; the guard is unchanged in behaviour.
+
+**Change.** The hook's effect is now observable without depending on ordering:
+`WidgetDesignerCompileGuard::GetJettisonedPreviewCount()` (declared
+`Handlers/UI/WidgetDesignerCompileGuard.h`, incremented in `JettisonDesignerPreviewBeforeCompile`,
+`WidgetDesignerCompileGuard.cpp`). The test now runs a real `FKismetEditorUtilities::CompileBlueprint`
+twice on the same freshly-created widget — once before its Designer is opened (counter must not move)
+and once after (counter must move by exactly 1) — so the two runs differ in exactly one thing and
+neither depends on broadcast order or on a close completing. The negative control needs no
+`CloseAllEditorsForAsset` and therefore none of the tick-waiting the sibling designer tests do: the
+asset is GUID-unique and has never had an editor opened.
+
+Files touched by the amendment: `Source/PinWright/Private/Handlers/UI/WidgetDesignerCompileGuard.h`
+(+`GetJettisonedPreviewCount`, with the engine citation for why a counter and not a listener),
+`.../WidgetDesignerCompileGuard.cpp` (+counter), `Source/PinWright/Private/Tests/Widget/TestWidgetDesignerCompileGuard.cpp`
+(rewritten test + updated counterfactual header), `Docs/lessons.md` (the reverse-broadcast-order
+lesson). Still not compiled and not run by this agent; nothing committed.

@@ -1,7 +1,7 @@
 ---
 id: B-ir-source-class-refs-reach-createpackage-fatal
 title: "Class refs inside AGIR/CRIR/BPIR source text reach `CreatePackage`'s Fatal — the dispatch gate can never see them"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: bug
 tags: [agir, crir, bpir, compiler, createpackage, editor-crash, path-safety, tokenizer]
@@ -101,3 +101,66 @@ asymmetry is worth fixing so the defence is not single-layered.
   whether `//` survives them. It does. Filed separately because the parent
   wave's dispatch-boundary mechanism structurally cannot reach it. Blocked on the
   parent landing, to avoid conflicting edits in the same compilers.
+- `#2-guarded-at-the-point-of-use` **IN-REVIEW** (Developer) — Verified TRUE from source;
+  all seven listed sites were still raw, plus five the ticket did not list (MGIR, including two
+  where the existing `IsValidLongPackageName` check ran AFTER the load it was meant to protect).
+  Fixed with the ticket's own recommendation, but the guarded resolver is SHARED with
+  `B-nested-path-values-reach-createpackage-fatal` rather than per-compiler: both tickets are one
+  defect seen from two input shapes. All nine IR trees now hold at zero unguarded loads under a
+  source-scan ratchet. Not compiled or run by the implementing agent; a separate compile pass
+  follows.
+
+## Fix
+
+Confirmed TRUE by reading source on 2026-09-03; all seven sites were still raw `LoadObject` on
+parser output. Fixed with the ticket's own recommendation - one guarded resolve helper - but the
+helper is SHARED with the nested-value ticket rather than being per-compiler, because both tickets
+are the same defect seen from two input shapes and a guard keyed on where the load HAPPENS is blind
+to input shape by construction.
+
+New shared guard: `Source/PinWright/Private/Utils/GuardedLoad.h` -
+`PinWrightGuardedLoad::LoadObjectChecked<T>(Path, OutRefusal?, LoadFlags?)`. Every converted site
+appends the refusal to the diagnostic it already emits, so the compiler's line/column is preserved
+rather than replaced.
+
+Sites converted (14, up from the ticket's 7):
+- `AGIR/AGIRCompiler.cpp` - `call` node class, `implements` interface class, and (defence in depth)
+  the `Options.Context` anim-blueprint target.
+- `AGIR/AGIRCompiler_BlendSpace.cpp` - `sample_graph` child class, `class=`, `asset=`.
+- `CRIR/CRIRCompiler.cpp` - `control_enum` (which now also reports the refusal as a
+  `CRIR_CONTROL_BAD_SUBBLOCK_KEY` warning instead of dropping it), and `Options.TargetAssetPath`.
+- `Compiler/CodeNodeEmitter.cpp:1502` - the one BPIR site not routing through a guarded resolver.
+- **`MGIR/MGIRCompiler.cpp` and `MGIR/MGIRExpressionEmitter.cpp` (5 sites), NOT in the ticket's
+  table.** Same class: `Spec.FunctionPath` / `LayerFunctionPaths` / `BlendFunctionPaths` are parser
+  output, and `GetOrCreateMaterial` / `GetOrCreateMaterialFunction` load on the block name BEFORE
+  their own `IsValidLongPackageName` check - so the validation that would have refused `//` ran
+  after the load that died on it.
+
+`CodeNodeEmitter.cpp:234` is deliberately NOT converted: its argument is a `TEXT(...)` literal
+(`/Engine/EditorBlueprintResources/StandardMacros`), which no caller text reaches.
+
+The related `DataTableAuthoringHandler::ResolveRowStruct` asymmetry noted in this ticket is
+untouched - `structPath` is a top-level param already typed `path`, so it is a resolver-consistency
+cleanup, not a reachable defect. Left for a separate ticket rather than widened into this one.
+
+Docs: `Docs/rpc-design.md` section 24; `Handlers/ParamTypeCheck.h` and `Utils/PathUtils.h` header
+contracts updated to name the second layer.
+
+### Verification
+
+No editor run is needed for the code review; the tests are automation tests.
+
+1. Run `PinWright.infra.contract.LoadGuard.IrCompilersLoadThroughTheGuard`
+   (`Private/Tests/Infra/TestIrAndNestedLoadGuard.cpp`). It holds ALL nine IR trees - AGIR, BTIR,
+   CRIR, Compiler, IrCore, MGIR, MSIR, NIR, SCIR - at **zero** unguarded loads, with a literal
+   argument exempt (decided by reading the arguments, not by naming a site). BTIR/MSIR/NIR/SCIR were
+   already clean and are enrolled so a future IR compiler inherits the rule by location.
+2. Run `PinWright.Core.Path.GuardedLoad.*` (`Private/Tests/Core/TestGuardedLoadPathSafety.cpp`) for
+   the guard's own contract, including that `class=/Game//X.X_C` - the repro shape in this ticket -
+   is refused and that the six legal reference shapes still resolve.
+3. Sanity: `grep -rn 'LoadObject<\|StaticLoadObject\|LoadClass<' Source/PinWright/Private/{AGIR,BTIR,CRIR,MGIR,MSIR,NIR,SCIR,Compiler,IrCore}`
+   should return only the `StandardMacros` literal and one prose mention in a comment.
+4. Do NOT drive an IR compile with `//` on a build without the fix: `CreatePackage`'s Fatal ends the
+   suite host rather than reporting a red.
+
+Not committed (board and plugin repos both left dirty, per the task).

@@ -1,7 +1,7 @@
 ---
 id: B-synth-export-wipes-soundclass-attenuation
 title: "audio.synth.export updated_in_place clears SoundClassObject and AttenuationSettings, which its docs never mention — re-synthesising a wave silently unroutes it from the mix"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: bug
 tags: [audio, synth, export, soundwave, soundclass, attenuation, data-loss, silent-failure, docs-mismatch, updated-in-place]
@@ -189,3 +189,92 @@ unreal.EditorLoadingAndSavingUtils.save_packages([w.get_outermost()], False)
   waves.
   All six repaired with the two `property.set` calls + `asset.save`, then verified on the bytes:
   `grep -ac` returns 2-3 for the class and 1-2 for the attenuation on every one.
+
+## Fix
+
+Confirmed true against source, then fixed at the shared write layer, so all three export verbs
+(`audio.synth.export`, `audio.authoring.create_sound_wave_from_pcm`, `audio.music.export_stems`)
+are covered by one change.
+
+**Root cause.** `PwCreateSoundWaveAsset` handed an occupied path to
+`FSoundWavePCMWriter::SynchronouslyWriteSoundWave`, whose asset branch is
+`NewObject<USoundWave>(CurrentPackage, **FileName, RF_Public | RF_Standalone)`
+(`C:/UE_5.8/.../SampleBufferIO.cpp:369`). `NewObject` with an existing name reconstructs the object
+in the same allocation and re-runs the constructor, so **every** `UPROPERTY` returns to its CDO
+default - not only `SoundClassObject` / `AttenuationSettings` but concurrency, submix and bus sends,
+modulation, loading behaviour, compression type, subtitles, curves and asset user data. The two
+named in the title were simply the two the reporter checked.
+
+**Design.** The rewrite no longer goes through the engine writer at all. When a plain `USoundWave`
+already occupies the path, the payload is written onto that object
+(`PwAudioExportInternal::UpdateSoundWaveInPlace`), so preservation is structural rather than a
+copy-back list that would go stale on the next engine field. The rejected alternative was
+re-create + reflection copy-back of every property differing from the CDO: it has to snapshot
+before the reconstruct anyway, and it mishandles instanced subobjects (`AssetImportData`,
+`AssetUserData`, wave transformations), which are re-created rather than restored.
+
+The update refreshes exactly the state the OLD payload determined - `Duration`, `TotalSamples`,
+`RawPCMDataSize` / `RawPCMData`, `SampleRate`, `NumChannels`, `ImportedSampleRate`,
+`ChannelOffsets` / `ChannelSizes` / `bIsAmbisonics`, `CuePoints` / `CuePointOrigin`, `TimecodeInfo`
+/ `TimecodeOffset` - mirroring the field set the engine's own reimport-over-an-existing-wave path
+resets (`SoundFactory.cpp:657-763`). That list is declared once and used twice: as the write's
+assignment set and as the verification's exclusion set, so a field the write forgets to declare
+fails the verb loudly instead of vanishing quietly.
+
+**Verification now covers it.** Before the rewrite, every non-payload `UPROPERTY` is snapshotted as
+exported text; after, it is diffed. `verification.propertiesPreserved` publishes the verdict,
+`verification.changedProperties` names the offenders, and the result is folded into
+`verification.pass` - so the exact scenario in the report (`pass:true` beside a lost SoundClass) is
+now a `VERIFICATION_FAILED` naming the properties. The response also carries
+`routing.soundClass` / `routing.attenuationSettings` read off the asset AFTER the write, on creates
+too, which answers encounter `#4`: a newly created wave reports two empty strings rather than
+saying nothing.
+
+Not done, deliberately: no `set_sound_wave_routing` verb. `#2` established that `property.set` on
+`SoundClassObject` / `AttenuationSettings` already works, so a wrapper is not the missing piece; the
+wiki now points at that path instead.
+
+### Files changed
+
+- `Plugins/PinWright/Source/PinWright/Private/AudioGen/PwAudioExport.h` - `FPwSoundWaveWriteReport`,
+  `PwCreateSoundWaveAsset` signature (`bool& bOutSavedToDisk` -> `FPwSoundWaveWriteReport&`),
+  `PwAddSoundWaveWriteReport`, rewritten idempotence contract in the header comment.
+- `Plugins/PinWright/Source/PinWright/Private/AudioGen/PwAudioExport.cpp` - `PayloadOwnedProperties`,
+  `CaptureNonPayloadProperties`, `DiffNonPayloadProperties`, `UpdateSoundWaveInPlace`, the
+  create/update branch in `PwCreateSoundWaveAsset`, the report emitter.
+- `Plugins/PinWright/Source/PinWright/Private/Handlers/Audio/AudioSynthGenerateHandler.cpp` -
+  report plumbing, `propertiesPreserved` in the verdict, failure message, verb description.
+- `Plugins/PinWright/Source/PinWright/Private/Handlers/Audio/SoundWavePcmHandler.cpp` - same.
+- `Plugins/PinWright/Source/PinWright/Private/Handlers/Audio/AudioMusicHandler.cpp` - signature
+  adaptation plus a per-stem `VERIFICATION_FAILED` row when a rewrite moves a non-payload property
+  (no always-on preservation block: the per-row response budget cannot carry one).
+- `Plugins/PinWright/Source/PinWright/Private/Tests/Media/TestAudioSynthGenerate.cpp` - new test
+  `PinWright.audio.synth.export.InPlaceRewriteKeepsNonPayloadProperties`.
+- `Plugins/PinWright/docs/wiki-src/audio.synth.md`, `docs/wiki-src/audio.music.md` - the
+  "resets its per-wave properties" sentences this ticket's *Docs mismatch* section flagged.
+- `Plugins/PinWright/docs/rpc-design.md` §4 - the reusable lesson.
+- `Plugins/PinWright/docs/engine-version-support.md` - one row: `SetSoundWaveCuePoints` (5.6) +
+  `SetCuePointOrigin` (5.7) are the only new pre-5.8 blockers the fix introduces.
+
+### Reviewer verification
+
+Not compiled and not run here - a separate compile pass follows.
+
+1. Run `PinWright.audio.synth.export.*` plus `PinWright.audio.authoring.*` and
+   `PinWright.audio.music.export_stems.*`. The new test exports a 240 ms candidate, assigns a
+   `USoundClass`, a `USoundAttenuation`, `bLooping`, `Volume` and `SubtitlePriority` onto the wave,
+   re-exports an 80 ms candidate over it, and asserts from the OBJECT that the five survived while
+   `Duration` and the frame count followed the new payload.
+2. Live check on a real asset, which is what the four encounters used:
+   `asset.dump` a routed wave, `audio.synth.export` over it with `mode:"updated_in_place"`, then
+   `grep -ac` the `.uasset` bytes for the SoundClass and attenuation names - they must be non-zero,
+   where they were 0 before. The response should carry `verification.propertiesPreserved: true` and
+   the two `routing.*` paths.
+3. Failure direction: temporarily add a non-payload property name (e.g. `Volume`) to
+   `UpdateSoundWaveInPlace`'s assignments without adding it to `PayloadOwnedProperties`; the verb
+   must answer `VERIFICATION_FAILED` naming `Volume` rather than succeeding.
+4. Watch for a FALSE failure: the diff walks every non-payload `UPROPERTY`, so an engine field that
+   moves as a side effect of `InvalidateCompressedData` / `CachePlatformData` would fail every
+   in-place export. `LoadingBehavior` was the candidate checked (it is `mutable` and lazily
+   initialised) - the lazy write lands on `GetWorkingSoundWaveData()->LoadingBehavior`, not the
+   `UPROPERTY` (`SoundWave.cpp:5197-5231`) - but the suite is the real proof.

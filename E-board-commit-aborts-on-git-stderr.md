@@ -1,7 +1,7 @@
 ---
 id: E-board-commit-aborts-on-git-stderr
 title: "board-commit.ps1 aborts on git's STDERR instead of using its own retry loop — a CRLF warning or a contended index.lock kills the commit and the ticket silently stays unstaged"
-status: OPEN
+status: IN-REVIEW
 severity: Medium
 category: ergonomic
 tags: [board, board-commit, scripts, powershell, git, index-lock, nativecommanderror, tooling]
@@ -111,6 +111,66 @@ That is what happened here: my ticket was eventually committed by a *different*
 agent's `board-commit` run (`904d070`, which recorded it under that agent's own commit
 message). The ticket landed, but the commit message and authorship are wrong, and
 nothing in my session could tell that it had.
+
+## Fix
+
+`X:\src\unreal\unreal-fpv-dev\Plugins\PinWright\scripts\board-commit.ps1` — rewritten around a
+single `Invoke-Git` helper. Still one script, no new dependencies. Not committed (plugin repo
+left dirty by request).
+
+**Confirmed by reproduction, with one correction to the diagnosis.** Ran the pre-fix script
+(`git show HEAD:scripts/board-commit.ps1`) against a throwaway repo with `core.autocrlf=true`:
+exit 1, `NativeCommandError` at `board-commit.OLD.ps1:72`, nothing in HEAD — the reported shape
+exactly. The correction: `$ErrorActionPreference` **does** govern the promotion. The script sets
+`'Stop'` on line 26, and that is what makes the ErrorRecord terminating. What the reporter
+observed is real but the mechanism is narrower than "the conversion happens at the native-command
+boundary". Measured on 5.1.26100.9168 and 7.6.5, `git add` on an LF file with `2> <file>`:
+
+| `$ErrorActionPreference` | PS 5.1 | PS 7.6 |
+| --- | --- | --- |
+| `Stop` | **terminates the script** | fine, raw stderr captured |
+| `SilentlyContinue` | non-terminating, but the stderr file comes back **0 bytes** — the diagnostic is gone | fine |
+| `Continue` | non-terminating **and** the text survives (as a rendered ErrorRecord) | fine |
+
+So neither of the first two suggestions in this ticket is sufficient on its own: `2>$null` throws
+away the very text the retry logic matches on, and a bare `try/catch` loses it the same way. The
+shipped form is `Continue` scoped to the call plus file redirection.
+
+**What changed**
+
+- Every git call goes through `Invoke-Git`, which sets `$ErrorActionPreference='Continue'` for the
+  duration, redirects both streams to temp files, and returns `{ExitCode; Out; Err; Text}`.
+  Decisions are made on `ExitCode`; stderr text is used for *messages*, never as a verdict.
+- `$PSNativeCommandUseErrorActionPreference = $false` at the top, so PS 7.3+ does not promote a
+  non-zero native exit code either.
+- PS 5.1 writes the **rendered** ErrorRecord into the stderr file — 546 bytes of PowerShell chrome
+  for a one-line CRLF warning. `Invoke-Git` strips the `At <script>.ps1:NN` / caret / `+CategoryInfo`
+  decoration and the `git.exe : ` prefix. The position line is localized (this host renders it in
+  Russian), so the filter keys on the `.ps1:<digits>` shape, never on English words.
+- Lock detection no longer trusts text alone: a failing git call **plus an existing
+  `.git/index.lock`** counts as contention, because that same renderer can hard-wrap the message
+  mid-token and break a `index\.lock` regex.
+- `git add`'s exit code is now read (it was piped to `Out-Null`) — see `#3` on the sibling ticket.
+- The script is now pure ASCII. The first draft kept the header's em-dashes and put one inside a
+  **string literal**; PS 5.1 reads a BOM-less `.ps1` in the ANSI codepage (866 here), and the
+  mangled bytes broke the parser outright. Comments tolerate non-ASCII, string literals do not.
+
+**The `.gitattributes` half-fix is deliberately not included.** It would be a commit to the board
+repo, which this change was not authorized to make. It is still worth doing — `*.md text eol=lf`
+removes trigger 1 at the source — but it is no longer load-bearing: the CRLF warning is now inert.
+
+**Reviewer verification.** The plugin repo has no PowerShell test convention (`find -iname
+'*.Tests.ps1'` finds nothing), so this is a manual harness rather than a committed test:
+`C:\Users\Alexander\AppData\Local\Temp\claude\X--src-unreal-unreal-fpv-dev\b6c0e260-3e88-4849-a20a-d388c2d0ca65\scratchpad\run-tests.ps1`.
+It builds a throwaway repo per run and never touches the real board. **17 checks, green under both
+`powershell` (5.1) and `pwsh` (7.6)** — run it as `-Shell powershell` and `-Shell pwsh`. Covering
+this ticket: **T1** LF ticket + `core.autocrlf=true` commits and prints its hash; **T2** re-run is
+an idempotent no-op; **T7** a pathspec matching nothing exits 1 naming `git add`; **T11** a sibling
+host's staged file is still not swept into the commit. Before/after on the identical scenario:
+pre-fix `exit=1`, `inHEAD=''`; post-fix `exit=0`, `board-commit: committed <hash> - <file>`.
+
+To re-verify by hand without the harness: create a repo with `core.autocrlf=true`, write a ticket
+file with LF endings only, run the script, and check `git ls-tree --name-only HEAD -- <file>`.
 
 ## History
 

@@ -1,16 +1,28 @@
 ---
 id: B-asset-save-omits-savestate-pie-block
 title: "asset.save returns saved:false + pendingFlush:true with NO saveState when PIE blocks the write, so the caller cannot tell 'deferred, retry with force' from 'failed, retrying is pointless' — the exact distinction the wiki tells them to read"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: bug
 tags: [asset, save, savestate, pendingFlush, pie, diagnostics, false-deferral, error-payload, niagara, multi-agent]
 encounters: 6
 lastSeen: 2026-09-03T03:20:00Z
 mergedFrom: [B-asset-save-omits-savestate-and-pie-cause]
+duplicateOf: B-asset-save-pie-failure-reports-pendingflush
 ---
 
 # `asset.save` drops `saveState`, so a PIE-blocked failure is indistinguishable from a throttle
+
+> **DUPLICATE of `B-asset-save-pie-failure-reports-pendingflush`.** Same defect, filed twice by
+> different streams in the same shared editor: `asset.save` computes an `EAssetSaveState` on every
+> call and publishes only `saved` + `pendingFlush`, so a PIE-blocked no-op is wire-identical to a
+> throttled write whose documented remedy is a retry that cannot work. Both files are kept - this
+> one carries evidence the other does not, notably `#4`/`#5` extending the defect to
+> `material.authoring.set_material_instance_parameters` and `material.authoring.compile_material`,
+> and `#5`'s finding that `editor.pie_status` answers correctly while the project world lock does
+> not. The fix is implemented once, on the other ticket; the `## Fix` section there lists the
+> files and the verification steps, and it covers every ask on this page including the
+> un-threaded `save`-flag verbs and the `sizeBytes` labelling. Verify both together.
 
 ## Symptom
 
@@ -145,3 +157,4 @@ today at 19:44:57) x reach=the documented single-package save path for every ass
   Also confirmed, as a boundary on the impact: an `asset.save {force:true}` issued in the ~70 s gap between two other streams' PIE sessions (`T_Player` teardown 03:11:14Z, `T_UI` start 03:12:23Z) wrote normally — `MI_FPS_Glass_Dust` 11369 -> 11808 bytes at 03:11:33Z — after two identical calls seconds earlier had returned `state=failed`. Time-varying exactly as `#3` describes. `encounters` 4 -> 5, `lastSeen` refreshed.
 
 - `#6-cost-real-work-on-the-player-stream` `OPEN` reporter — Same signature, and this time it cost committed work. Two `asset.save` calls on `/Game/FPS/Player/BP_FPSCharacter` (the second with `force: true`) both returned `{"saved": false, "sizeBytes": 1341004, "pendingFlush": true}` and **no `saveState` key at all**, while `editor.status` showed `inPie: true` on `UEDPIE_0_T_UI` — another stream's PIE. `sizeBytes` echoes the STALE on-disk size, which reads as reassurance and is not: the file had not moved since 03:05:06Z. Believing `pendingFlush` meant "queued, will land", I went on to other work; the editor then died and took the whole edit with it (six `set_pin_default_values`, two `add_variable`, and one 12-node `compile_bpir` — all confirmed applied in memory, none on disk). The distinction this ticket asks for is exactly the one that would have changed my behaviour: `deferred` means carry on, `failed` means stop and re-plan. Adding to `#4`'s workaround point from the other side: the world lock was accurate here (the other stream held it), so lock-polling would have worked — but the lock is a project convention, not something `asset.save` can rely on, and `force: true` advertising "bypass the save throttle" while silently not bypassing the PIE block is what makes the second call look like a considered retry rather than a repeat of the same no-op.
+- `#7-duplicate-fixed-on-sibling-ticket` `IN-REVIEW` developer - Confirmed TRUE against plugin source and confirmed a DUPLICATE of `B-asset-save-pie-failure-reports-pendingflush`: both describe `asset.save` dropping the `EAssetSaveState` it has already measured, and both root-cause to `UEditorAssetLibrary::SaveLoadedAsset`'s unconditional `EditorScriptingHelpers::CheckIfInEditorAndPIE` gate. Fixed once, in the shared save path, under that ticket - see its `## Fix` section for the file list and reviewer steps. This page's four specific asks are all covered: (1) `saveState`/`saveDetail` now ship on every `asset.save` response, via the shared `AddAssetSaveReport`; (2) the environmental cause is named as `saveState:"blockedByPie"` plus `pieActive`/`editorMode`/`pieWorlds`, emitted from the shared emitter so the un-threaded `save`-flag verbs of `#4`/`#5` get it without being touched; (3) a PIE refusal no longer travels through the throttle-named channel - it is detected before the throttle and logged as its own refusal; (4) `sizeBytes` on a non-durable save now carries `sizeBytesIsStale:true`. Kept as a separate file rather than deleted, because `#4` and `#5` are the only record that the defect reaches the `material.authoring.*` family and that the project world lock can read "free" while PIE is up. NOT compiled and NOT run: a separate compile pass follows. Verify this ticket and its sibling in one pass.

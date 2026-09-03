@@ -1,7 +1,7 @@
 ---
 id: B-asset-dump-metasound-unmigrated-assert
 title: "asset.dump* on an unmigrated MetaSound kills the editor via FindConstGraphChecked, silently truncating every folder sweep"
-status: OPEN
+status: IN-REVIEW
 severity: Critical
 category: bug
 tags: [asset-dump, metasound, audio, crash, assertion, dump-folder]
@@ -38,7 +38,64 @@ Assertion failed: FoundGraph [MetasoundFrontendDocument.cpp:1702]
 
 **Fix:** in `MetaSoundDumpBuilder.cpp`, replace the `checked` graph accessor with the non-checked one and, when the document version is still pending, either emit a skip stub (`"skipped": true` plus a `skipReason`) or requeue the asset for a later tick of the folder dump. A folder sweep must never be able to take the editor down on one asset.
 
+## Fix
+
+Two layers, because the crash has a cause and a blast radius.
+
+**Root cause — join the engine's async versioning instead of racing it.** UE 5.8 moved MetaSound
+document migration onto an async task started from `PostLoad`, and defers even starting it for an
+asset with soft references (`MetasoundEngineAsset.h:359`). The engine has the same problem when a
+commandlet reads a MetaSound straight after load, and fixes it with
+`Metasound::Frontend::FVersioningManager::WaitUntilVersioningComplete()`
+(`MetasoundEngineAsset.h` PostLoad, under `IsRunningCommandlet`). That call flushes the deferred
+soft-reference load — which is what actually kicks the versioning task off — and then joins the
+task, so on return the paged graph exists. PinWright is in exactly the commandlet's position on
+every MetaSound RPC and on `asset.dump`, so it now takes the same wait, wrapped as
+`PinWright::MetaSound::WaitForDocumentVersioning()` (no-op on 5.3–5.7, where `PostLoad` versions
+synchronously; the header does not exist there, so it is `__has_include`-gated like the rest of the
+MetaSound compat layer).
+
+Called at the two places the plugin first obtains a document: `MetaSoundDumpBuilder::BuildMetaSoundJson`
+(the dump/`describe_metasound` path, which does not go through the load gate) and
+`PinWright::MetaSound::LoadMetaSoundDocumentAsset` (the mutator load gate — every `metasound.*`
+mutator then builds a `FMetaSoundFrontendDocumentBuilder` with `bPrimeCache=true`, whose priming
+walks the same `FindConstGraphChecked`, so the identical crash was reachable through all of them).
+
+**Blast radius — a sweep must never abort on one asset.** `BuildMetaSoundJson` now reads the graph
+through the existing non-checked sibling `FindGraphClassConstGraph` (already used by `PwMusicGraph`
+and `MSIRDecompiler`) and, when the default page is genuinely absent, emits `metasound.json` with
+`skipped: true` / `skipReason: "METASOUND_GRAPH_UNAVAILABLE"` / `skipMessage`, reusing the
+skip vocabulary the folder sweep already writes into a skipped asset's `meta.json`. `assetKind` /
+`assetPath` / `rootGraph` are still emitted; `nodes`/`edges`/`variables` are **omitted, not empty**,
+because an empty array is indistinguishable from a genuinely empty graph.
+
+Files changed:
+- `Plugins/PinWright/Source/PinWright/Private/Handlers/Audio/MetaSound/MetaSoundPathUtils.h` — declare `WaitForDocumentVersioning`.
+- `Plugins/PinWright/Source/PinWright/Private/Handlers/Audio/MetaSound/MetaSoundPathUtils.cpp` — define it (`FVersioningManager`, `__has_include` + `WITH_EDITORONLY_DATA` gated); call it from `LoadMetaSoundDocumentAsset`.
+- `Plugins/PinWright/Source/PinWright/Private/Handlers/Asset/MetaSoundDumpBuilder.h` — export `SkipReasonGraphUnavailable`.
+- `Plugins/PinWright/Source/PinWright/Private/Handlers/Asset/MetaSoundDumpBuilder.cpp` — wait before reading the document; non-checked graph accessor + skip stub + warning log.
+- `Plugins/PinWright/Source/PinWright/Private/Tests/Assets/TestMetaSoundDumpBuilder.cpp` — new test.
+
+Verification for a reviewer:
+1. `PinWright.Assets.MetaSound.DumpBuilder.MissingGraphIsSkippedNotFatal` — feeds the builder a
+   freshly `NewObject`'d `UMetaSoundSource` (no `InitDocument()`, so `PagedGraphs` is empty, the
+   same state an unmigrated asset is in) and asserts it returns a `skipped` stub instead of
+   aborting. Before the fix this test kills the process. 5.5-gated: on 5.3/5.4 the single `.Graph`
+   member always exists, so it only asserts the dump still works.
+2. Live: fresh editor, no MetaSound preloaded, `asset.dump {assetPath:"/Game/Audio/Sounds/Weapons/MS_WavePlayerCrossfader"}`
+   — must return a full `metasound.json` (not a stub: the wait should migrate it), and must not
+   abort. Then `asset.dump_folder {folderPath:"/Game"}` must run past 753/22,426 to completion,
+   with no pre-loading workaround.
+3. `metasound.*` mutators still pass: `PinWright.Assets.MetaSound.*`.
+
+Not changed, deliberately: the two remaining `GetGraphClassConstGraph` (checked) call sites in
+`MetaSoundNodeInputDefaultHandler.cpp:178` and `MetaSoundVariableHandler.cpp:367`. Both are
+post-mutation read-back blocks reached only after the document builder has already primed its
+cache through the same checked accessor, so they are unreachable with a missing graph once the
+load gate waits; converting them is churn without a reachable failure.
+
 ## History
 - `#1-initial-repro` `OPEN` reporter — `asset.dump_folder {folderPath:"/Game"}` aborted the editor at 753 / 22,426 on `/Game/Audio/Sounds/Weapons/MS_WavePlayerCrossfader` with `Assertion failed: FoundGraph [MetasoundFrontendDocument.cpp:1702]` from `FindConstGraphChecked`, called by `MetaSoundDumpBuilder::BuildMetaSoundJson` (`MetaSoundDumpBuilder.cpp:283`/`:219`) via `BuildAllFilesForAsset` (`AssetDumpHandler.cpp:668`) → `DumpSingleAsset` (`:2232`) → `TickFolderDump` (`:1539`). Cause is a same-tick race: MetaSound logs `Delaying asset versioning due to need to async load soft references` and defers migration to a later tick, while the dump builds the sidecar synchronously on the same tick, so the paged graph is absent. Consequence beyond the crash: the committed asset-dump mirror held 15,274 dumps against 30,807 assets in scope, consistent with earlier sweeps dying here unnoticed. Workaround that completed a clean sweep: pre-load all 143 MetaSound assets under the dumped roots via `python.execute`, wait ~20 s for `Migrated Class Interface paged graph` in the log, then dump. Wanted fix: non-checked accessor plus a skip stub or a deferral to a later tick.
 - `#2-correct-repro-date` `OPEN` reporter — Date correction only; **no claim changes and the status stays `OPEN` / `Critical`**. The repro line and `lastSeen` both read 2026-09-01; the crash is dated **2026-09-02**. Sole source: `X:\src\unreal\unreal-fpv-dev\Saved\Logs\PDS-backup-2026.09.02-08.41.10.log:5055-5059` carries the exact `MetaSoundDumpBuilder::BuildMetaSoundJson` → `BuildAllFilesForAsset` → `DumpSingleAsset` → `TickFolderDump` frames quoted above, at `[2026.09.02-08.41.10:933]`, and it is the only log in that directory containing the symbol at all — no 09-01 occurrence exists. `encounters: 1` is right: one crash, one day.
 - `#3-still-present-at-upstream-head` `OPEN` reporter — Re-verified against plugin HEAD `347826a6` after the host clone was pulled 398 commits forward from `b16f0f2b`. **Defect unchanged**; status stays `OPEN`/`Critical`, `encounters` unchanged (source re-read, not a second crash). The whole chain survives verbatim at new line numbers: `TickFolderDump` (`AssetDumpHandler.cpp:1533`) -> `DumpSingleAsset` (call `:1582`, definition `:2094`) -> `BuildAllFilesForAsset` (`:2281`) -> `MetaSoundDumpBuilder::BuildMetaSoundJson` (`:679`; the `IsA<UMetaSoundPatch>() || IsA<UMetaSoundSource>()` dispatch at `:670` is still unguarded) -> `PinWright::MetaSound::GetGraphClassConstGraph` (`MetaSoundDumpBuilder.cpp:289`) -> `GraphClass.FindConstGraphChecked(DefaultPageID)` on 5.5+ (`Handlers/Audio/MetaSound/MetaSoundPathUtils.h:241-248`, checked call on `:246`). Nothing was added upstream to defer or skip a pending document version: `MetaSoundDumpBuilder.cpp` contains no document-version or migration test, and `AssetDumpHandler.cpp` carries no MetaSound-specific guard beyond that dispatch. `git log -SFindConstGraphChecked -- Source/` over the pulled range returns only `1f4bf63f` (interface-vertex tagging) and the history squash — no commit touches this call site, and none of the 398 mentions deferred MetaSound versioning. Note the non-checked sibling already exists and is used elsewhere: `FindGraphClassConstGraph` (`MetaSoundPathUtils.h:252-259`), called by `PwMusicGraph.cpp:307,961` and `MSIRDecompiler.cpp:601`, so the proposed fix remains a one-line accessor swap plus a skip stub.
+- `#4-versioning-wait-and-skip-stub` `IN-REVIEW` developer — Ticket confirmed true by source read; the crash chain is intact at HEAD `347826a6`. Fixed at the root rather than by guarding the accessor: the deferral is UE-5.8-only (`FVersioningManager` exists in no earlier installed engine) and the engine exposes `WaitUntilVersioningComplete()` for exactly this "read a MetaSound straight after load" case, so PinWright now takes that wait via a new `PinWright::MetaSound::WaitForDocumentVersioning()` at both points where it first obtains a document — `MetaSoundDumpBuilder::BuildMetaSoundJson` and the mutator load gate `LoadMetaSoundDocumentAsset` (the latter because `bPrimeCache=true` builders reach the same `FindConstGraphChecked`). Second layer so no single asset can ever abort a sweep again: the dump builder reads the graph through the existing non-checked `FindGraphClassConstGraph` and emits `skipped`/`skipReason`/`skipMessage` when the page is absent, with `nodes`/`edges`/`variables` omitted rather than empty. New automation test `PinWright.Assets.MetaSound.DumpBuilder.MissingGraphIsSkippedNotFatal` covers the skip path without a live asset. Details and reviewer steps in the `## Fix` section above. Not compiled by this agent — a separate compile pass follows.

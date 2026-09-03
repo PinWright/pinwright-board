@@ -101,6 +101,74 @@ namespace page carries both traps). Docs: `docs/wiki-src/pcg.md` (`### pcg.gener
   (can remove points, never add). Either way `PointExtents` is the real spacing control,
   non-linearly (cell size ∝ √(1 / `PointsPerSquaredMeter`), floored by `2 × PointExtents`).
 
+## Verification (code review)
+
+Re-verified by source reading against UE 5.8's PCG plugin (`C:\UE_5.8\Engine\Plugins\PCG`). The
+shipped fix matches the corrected root cause and is complete; status stays `IN-REVIEW` because the
+two runtime gaps recorded in `#3` (a real `pointCount`, an exercised cancel) are unchanged by a
+code review.
+
+**Every engine fact the handler is built on checks out.**
+- Completion is signalled only from `PostProcessGraph` (`PCGComponent.cpp:627-847`):
+  `OnPCGGraphGeneratedDelegate.Broadcast` at `:803`, abort path
+  `OnProcessGraphAborted` → `OnPCGGraphCancelledDelegate.Broadcast` at `:986`. Both delegates,
+  plus `IsGenerating()`, `bGenerated`, `CancelGeneration()`, `GenerateLocalGetTaskId(bool)` and
+  `CleanupLocal(bool)`, are public on `UPCGComponent` (`PCGComponent.h:226,232,260,381-382,403,416`),
+  so no reflection shim is needed.
+- The watchdog's `WatchdogQuietTicks = 2` rationale (`PCGGenerateHandler.cpp:62-67`) is correct:
+  `PostProcessGraph` clears `CurrentGenerationTask` at `PCGComponent.cpp:652` and broadcasts at
+  `:803` **on the same stack**, so no ticker can observe the gap and steal the resolve from the
+  delegate. Same shape on the abort path (`:964` clear, `:986` broadcast).
+- The state poll cannot fire before the work starts: `GenerateInternal` assigns
+  `CurrentGenerationTask` synchronously from `ScheduleComponent` (`PCGComponent.cpp:560`) and
+  returns it, so `IsGenerating()` is already true when the handler reads the task id.
+- `cleanupFirst` is genuinely ordered, not racing: `CleanupLocal` assigns `CurrentCleanupTask`
+  synchronously (`PCGComponent.cpp:1146-1176`) and the generate path adds it to the task's
+  dependencies under `if (IsCleaningUp())` (`PCGComponent.cpp:605-610`). The `5.6+` guard at
+  `PCGGenerateHandler.cpp:204-208` is right — the two-arg `bSave` overload is a deprecated inline
+  passthrough on 5.8 (`PCGComponent.h:236-240`).
+
+**The ticketed seam is the plugin's existing one, on both transport paths.**
+`Ctx.StartJob` (`HandlerContext.cpp:592-643`) sends `{status:"running", ticket_id, …}` inline for a
+plain-JSON client and, for a streaming client, registers the job-event → SSE bridge instead
+(`PinWrightSubsystem.cpp:314,561,656`). `BindNativeDelegate` is a deliberate no-op
+(`PCGGenerateHandler.cpp:388`) because completion comes from the PCG delegates, matching
+`asset.dump_folder`. Every outcome funnels through one `Resolve()` (`:268-302`) behind `bResolved`,
+and `FJobRegistry::Complete` is itself a no-op once a ticket has left `running`, so a late delegate
+cannot overwrite a cancelled ticket.
+
+**The transport deadline that caused the original report can no longer fire mid-generation.**
+`FSocketHttpServer::WriteStreamFrame` refreshes `Entry->DeadlineSeconds`
+(`SocketHttpServer.cpp:1101-1104`) on every emitted frame, and the handler's watchdog emits a
+progress frame every `ProgressIntervalSeconds = 5.0` (`PCGGenerateHandler.cpp:72,483-502`) with
+`bBypassRateLimit=true` — far inside the 300 s streaming ceiling `ProcessCompletionTimeouts`
+(`:1128-1145`) sweeps against. A plain-JSON caller was already answered synchronously at kickoff.
+So the failure mode in the title is closed on both paths, and the ticket outliving the request
+(TTL 3600 s) is the backstop rather than the only defence.
+
+**The residual risk `#3` raised is closed.** The watchdog no longer gates on
+`GetGeneratedGraphOutput().TaggedData.Num() > 0`. All three completion paths call
+`PinWrightPCG::HasProducedOutput` (`PCGGenerateHandler.cpp:347,441,467`), which is
+`bGraphOutputAvailable || InstanceCount > 0 || SpawnedActorCount > 0`
+(`PCGGenerateReadback.h:409-415`) — so the `state_poll` path reads "produced" for exactly the
+spawner graphs that read "empty" on 5.8. That is under test:
+`PinWright.pcg.generate.CountsSpawnedInstancesNotBareZero`
+(`TestPCGGenerateHandler.cpp:137,237-238`) asserts `HasProducedOutput` is true for instance-only
+output with an empty graph output. Landed with `6f60b0c0`, after the `#3` review.
+
+**Registration and error-code hygiene.** All five new codes are declared in
+`Handlers/ErrorCodes.h:1088-1092` (`PCG_COMPONENT_GONE`, `PCG_GENERATION_CANCELLED`,
+`PCG_GENERATION_ENDED_WITHOUT_OUTPUT`, `PCG_GENERATION_NOT_SCHEDULED`, `PCG_GENERATION_TIMEOUT`),
+so `core.error_codes.AllEmittedCodesAreRegistered` is satisfied. The two documented tests exist and
+are differential (`TestPCGGenerateHandler.cpp:809`, `:977`), and the wiki overlay carries the
+ticket→poll contract plus both traps (`docs/wiki-src/pcg.md:44,46,50,60-79`).
+
+**No code changes were made by this review.** The one path with no automation coverage is the
+watchdog ticker itself (`state_poll` / `timeout` branches) — it needs a live multi-frame generation
+to drive, which is the same live-content gap `#3` already records; its decision logic funnels
+through `HasProducedOutput`, which *is* covered. Adding a bespoke test seam to reach the ticker was
+judged not worth the surface.
+
 ## History
 - `#1-initial-repro` `OPEN` reporter — "pcg.generate wedges the game thread the PCG scheduler needs; RPC times out at 300s while the generation itself completes. Caller sees a false failure and every concurrent RPC stalls for the timeout window. Workaround: PCGComponent.generate(True) via python.execute, read point count on a later call."
 - `#2-root-cause-corrected-and-ticketed` `IN-REVIEW` developer — "Root cause corrected from source: the handler never blocked the game thread (it already used MakeAsyncToken); it held the HTTP request open with no ticket while PCG completion advanced over game-thread ticks (PCGSubsystem.cpp:421 → PCGComponent.cpp:803), and SocketHttpServer.cpp:1058 failed the request at the 300s streaming deadline and dropped it. Fixed by converting the verb to Ctx.StartJob + system.job_status with a 1s watchdog ticker that closes the ticket from component state (favouring success when ambiguous), keeping the not-scheduled path inline, adding cleanupFirst/timeoutSeconds, wiring system.job_cancel to UPCGComponent::CancelGeneration, plus tests and wiki docs. NOT compiled and NOT runtime-verified by this agent (build owned by the integration agent, editor deliberately down): needs a live pcg.generate on a real graph to confirm ticket → completed with a non-zero pointCount."
@@ -142,3 +210,14 @@ namespace page carries both traps). Docs: `docs/wiki-src/pcg.md` (`### pcg.gener
 
   Committed as `a4a44281` — the code is sound and no worse than before on any axis; it simply cannot be
   called fully verified until a generation reports a real point count.
+- `#4-code-review-verified` `IN-REVIEW` reviewer — Source-only re-verification (no editor, no live
+  call); see `## Verification (code review)` above for the file:line evidence. The fix waits on the
+  correct PCG completion signal (`OnPCGGraphGeneratedDelegate` / `OnPCGGraphCancelledDelegate` +
+  an `IsGenerating()` state-poll watchdog), never blocks the game thread, and reuses the plugin's
+  own `Ctx.StartJob` / `system.job_status` seam rather than a bespoke wait loop. Two things checked
+  that `#2`/`#3` did not: the SSE path also survives the transport deadline, because
+  `WriteStreamFrame` refreshes `DeadlineSeconds` (`SocketHttpServer.cpp:1101-1104`) on every 5 s
+  progress frame; and `#3`'s residual watchdog risk is closed by `6f60b0c0` routing all three
+  completion paths through `HasProducedOutput`, which is covered by
+  `pcg.generate.CountsSpawnedInstancesNotBareZero`. No code changed. Stays `IN-REVIEW`: a code
+  review cannot supply the live `pointCount > 0` and `system.job_cancel` evidence `#3` is waiting on.

@@ -1,7 +1,7 @@
 ---
 id: B-asset-reload-blueprint-package-crash
 title: "asset.reload kills the shared editor with EXCEPTION_ACCESS_VIOLATION in UStruct::SerializeExpr under UPackageTools::ReloadPackages — a bytecode-carrying package reloaded while its UFunction is referenced re-serialises through a dangling property proxy"
-status: OPEN
+status: IN-REVIEW
 severity: Critical
 category: bug
 tags: [asset, asset-reload, ReloadPackages, editor-crash, access-violation, blueprint, bytecode, shared-editor, AssetManageHandler]
@@ -10,6 +10,12 @@ lastSeen: 2026-09-02T20:38:13+00:00
 ---
 
 # `asset.reload` hard-crashes the editor from inside `ReloadPackages`
+
+> **DUPLICATE of `B-asset-reload-access-violation-kills-editor`.** Same crash instance
+> (`2026.09.02-20.38.13`, same fault address, same `AssetManageHandler.cpp:1846` frame),
+> filed independently by two streams. The fix, the root-cause analysis and the reviewer
+> verification steps live on that ticket; this file is kept for its `#2` witness evidence
+> and is flipped to `IN-REVIEW` alongside it. Do not fix this one separately.
 
 ## Symptom
 
@@ -94,6 +100,26 @@ and this verb is an asset-side call that no lock covers.
 - `B-source-control-revert-no-package-reload` and `B-asset-save-clobbers-out-of-band-change` touch
   reload/refresh behaviour but neither is a crash.
 
+## Fix
+
+Fixed on `B-asset-reload-access-violation-kills-editor` — see its `## Fix` section for the
+root cause, the design rationale and the reviewer verification steps. Files changed:
+
+- `Plugins/PinWright/Source/PinWright/Private/Handlers/Asset/AssetManageHandler.cpp`
+- `Plugins/PinWright/Source/PinWright/Private/Dispatch/SafePoint.cpp`
+- `Plugins/PinWright/Source/PinWright/Private/Tests/Assets/TestAssetReloadHandler.cpp`
+- `Plugins/PinWright/Source/PinWright/Private/Tests/World/TestSafePointGate.cpp`
+
+One correction this ticket's body needs on record, because it steers a fixer wrong: the
+reloaded package is **not** "one carrying compiled Blueprint script". It was a `USoundCue`.
+The faulting `UFunction` belongs to a *referencer*, and `::ReloadPackages` walks **every
+live UObject** as a potential referencer (`PackageReload.cpp:744`, the whole-array path —
+`PackageReload.EnableFastPath` defaults `false`), so the first bullet under "What should
+happen" (refuse when the target package contains a Blueprint with live referencers) targets
+the wrong set and was not implemented. The second bullet — run it at a safe point — is
+right and was implemented, together with removing the detached `AsyncTask` continuation
+that made a safe-point gate ineffective on its own.
+
 severity rationale: impact=process kill in a shared editor, destroying unsaved state for every
 attached agent x reach=any caller of `asset.reload` on a Blueprint-bearing package, which is a
 routine recovery action -> Critical
@@ -101,3 +127,4 @@ routine recovery action -> Critical
 ## History
 - `#1-filed` `OPEN` reporter — Filed by the ENV stream from the crash log, not by the caller. The editor died at `2026.09.02-20.38.13` on UE 5.8 / EAContentExamples58 with the access violation and callstack quoted above, whose deepest PinWright frame is `Handlers/Asset/AssetManageHandler.cpp:1846` inside `UPackageTools::ReloadPackages`. I did not issue the call — my stream's traffic at that moment was `python.execute` and `render.capture_open_level`, both of which returned `EDITOR_NOT_RUNNING ... (connection refused)` on the next attempt — so the `assetPath` and arguments are not recorded here and should be appended by whichever stream issued it. Recording it anyway because the failure is cross-stream by construction: the caller loses one call, everyone else loses unsaved level state. Third kill of this editor in one session, each from a different verb. Dedup: grepped the board for `asset.reload`, `ReloadPackages`, `AssetManageHandler.cpp:184` and reload/crash pairs; the reload-adjacent tickets found (`B-source-control-revert-no-package-reload`, `B-asset-save-clobbers-out-of-band-change`) are behaviour issues with no crash, and the two Critical crash tickets above are different verbs and different faults.
 - `#2-second-witness-weapons-stream` `OPEN` reporter — Second independent witness to the SAME instance (`20.38.13`, same `EXCEPTION_ACCESS_VIOLATION reading address 0x00000039000dd217`, same `AssetManageHandler.cpp:1846` frame), not a new encounter — do not bump the counter for this entry. I am the WEAPONS stream and I did not issue the reload either: my last RPC before the fault was `render.capture_asset_preview` on `/Game/FPS/Weapons/Props/SM_Prop_Pallet` at `20.38.0x`, which returned normally, and the next call 100 s later returned `EDITOR_NOT_RUNNING ... (connection refused)`. Recording it because it settles the reach claim in `#1` with a number: this one call took down at least THREE streams at once (ENV, AUDIO per `B-asset-reload-access-violation-kills-editor#2`, and WEAPONS), none of whom made it. What WEAPONS lost: nothing, and only because every one of its five assets had already been compiled with `saveState:"written"` and confirmed present with `ls` before the crash — the discipline in `CLAUDE.md` § "Verify a write against disk" is what made a Critical shared-process kill cost this stream zero work. That is the mitigation to state alongside the fix: on a shared editor, an unverified in-memory asset is one unrelated `asset.reload` away from being gone. No new `assetPath` to add; the caller is still unidentified from this side.
+- `#3-marked-duplicate-and-fixed-upstream` `IN-REVIEW` developer — Same defect as `B-asset-reload-access-violation-kills-editor`, same crash instance, filed twice by two streams that could not see each other's report. Marked duplicate in the body; the fix, root cause and verification live on that ticket and are not repeated here. Flipped to `IN-REVIEW` so the two move together — a reviewer who verifies one has verified both. The caller `#1` and `#2` could not identify is on the sibling ticket's `#2` (the AUDIO stream, `asset.reload` on `/Game/FPS/Audio/Cues/SC_Impact_Concrete`), which also settles that the reloaded package carried no bytecode: the crashing `UFunction` was a referencer, and the engine's referencer set for a reload is every live UObject. Verified from source only; not compiled and not reproduced.

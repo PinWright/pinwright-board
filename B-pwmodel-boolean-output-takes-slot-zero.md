@@ -1,7 +1,7 @@
 ---
 id: B-pwmodel-boolean-output-takes-slot-zero
 title: "Every triangle a .pwmodel boolean produces lands on material ID 0 - a `union` block's own `material=` is silently discarded and a `subtract`'s cut walls take another part's material, on a clean compile with no diagnostic"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: bug
 tags: [pwmodel, materials, slot, material-id, boolean, union, subtract, bevel, silent-wrong, no-diagnostic]
@@ -131,6 +131,117 @@ appended, so nothing already tagged is recoloured.
 - `B-pwmodel-untagged-generator-inserts-default-slot` - the adjacent case where an untagged
   generator opens `Default` rather than silently taking slot 0.
 
+## Fix as landed
+
+**Verified TRUE against source before changing anything**, and the mechanism is exactly as
+reported: `RunBoolean` ran its block with `bNested=true`, `RunGenerator`'s only tagging site was
+gated `if (!bNested)`, and `RunOp`'s modifier tagging carried the same gate - so nothing inside a
+boolean block ever reached `ResolveSlot`. `FBevelParams` defaults `bInferMaterialID = false,
+SetMaterialID = 0` (`GeometryOps_Modeling.h:569-570`), which is the third route. All three fixed.
+
+**The design decision, and why this shape.** The output is NOT retagged after the operation. A
+boolean renumbers triangles wholesale, so the snapshot-and-diff by triangle id that the modifier
+fix uses is unsound here - which is why `#4` on `B-pwmodel-modifier-output-takes-slot-zero`
+deliberately stopped at the modifier path. Instead **the operands are tagged before the
+operation** and GeometryCore's own attribute transfer carries the ids across - which this
+ticket's own measurements prove works, since the tool's material ID 0 is exactly what reached the
+bore walls and the unioned box. Both operands index the one model-wide slot table, so there is no
+second id space and nothing is remapped afterwards.
+
+Faces the engine invents from NEITHER operand (a hole fill; `fill_holes` defaults true on all
+four ops) cannot be carried in that way, so material ID 0 is **reserved across both operands**
+for the duration of the call: every id is shifted +1 before the op and released after, and a
+triangle still on 0 in the result is by construction created-here and takes the new-face slot.
+That closes the last silent-zero residue rather than leaving one.
+
+`cut_material=` was not needed and is retired as a reserved parameter. `material=` on the boolean
+itself names the faces the operation creates - the only spelling a cut's wall ever has - and
+`Docs/pwmodel-design.md` now records why the reservation was wrong: the answer is carried IN with
+the operands, never read OUT of the result, so no component identity is involved.
+
+**Semantics now stated normatively in `Docs/pwmodel-format.md`** (new section *What a boolean
+does to material slots*):
+
+1. Triangles the operation KEEPS carry the slot they arrived on. A boolean never recolours.
+2. Ops inside the block resolve `material=` through the same model-wide table, so
+   `union { box material="Beta" }` is on `Beta` and `subtract { cylinder material="Bore" }` puts
+   `Bore` on the walls the cut opens.
+3. `material=` on the boolean names the faces it CREATES; untagged, they inherit the slot of the
+   geometry the boolean was applied to (dominant slot, ties to the lower index).
+
+`bevel`: `infer_material_id` now defaults **true** at the document layer and `material_id`
+defaults to the dominant slot of the geometry being bevelled - never a fixed 0. `bevel` also
+gained `material=`. `GeometryOps::FBevelParams` is left pinned to the engine's defaults on
+purpose: a parity test holds it against `FGeometryScriptMeshBevelOptions` and `geometry.bevel`
+publishes it, so the divergence lives in the pwmodel dispatch where it belongs.
+
+`color=` on a boolean stays an error (`PWMODEL_MATERIAL_ON_BOOLEAN`, message rewritten). The
+asymmetry is deliberate: a boolean creates faces but no *vertices*, so a scalar colour could only
+overwrite one an operand's generator already wrote.
+
+**Two new diagnostics**, both raised by the compiler because nothing downstream can see either:
+`PWMODEL_BOOLEAN_MATERIAL_AMBIGUOUS` (multi-slot target, untagged op, fallback used - or an empty
+target with nothing to inherit) and `PWMODEL_BOOLEAN_MATERIAL_UNUSED` (a `material=` that opened
+a slot no triangle of the result carries - the realistic source being a tool solid the operation
+discards entirely, usually one that misses the target while its siblings in the block hit it, so
+the op itself reports nothing wrong).
+
+**Collision is excluded.** A `collision { hull { ... } }` body runs through the PART vocabulary,
+so a boolean inside one reaches the same code. It is told apart by arriving with `bNested` set
+and no enclosing boolean block, and keeps the old behaviour exactly - no slot allocated, no id
+touched, no diagnostic raised.
+
+### Files changed
+
+- `Source/PinWrightGeometry/Private/Model/PwModelCompiler.cpp` - `CountMaterialTriangles` /
+  `DominantMaterialSlot` / `ReserveMaterialIDZero` / `ReleaseMaterialIDZero` helpers;
+  `FCompiler::FBooleanBlockMaterial` state + `TagBooleanBlockGeometry`; `RunBoolean` head and
+  tail rewritten; `RunGenerator` and `RunOp` tagging scopes; `bevel` dispatch defaults;
+  `FCompiler::DescribeSlot` extracted from a lambda.
+- `Source/PinWrightGeometry/Private/Model/PwModelDiagnostic.h` - two new codes,
+  `PWMODEL_MATERIAL_ON_BOOLEAN` re-documented.
+- `Source/PinWrightGeometry/Private/Model/PwModelParser.h` - `FPwModelOpSpec::bSelfTagsMaterial`.
+- `Source/PinWrightGeometry/Private/Model/PwModelParser.cpp` - booleans and `bevel` accept
+  `material=`; a boolean rejects only `color=`; `ValidateMaterialSlots` recurses into
+  `Op.Children` for tags; bevel parameter docs.
+- `Source/PinWrightGeometry/Private/Tests/Model/TestPwModelBooleanMaterial.cpp` - **new**, six
+  tests (union block keeps its slot; cut walls take the op's named slot; bevel faces join the
+  surface they chamfer; the language surface; ambiguity reported; a tag reaching no face
+  reported).
+- `Source/PinWrightGeometry/Private/Tests/Model/TestPwModelParser.cpp`,
+  `TestPwModelWidenedOpVocabulary.cpp`, `TestPwModelModelingOpVocabulary.cpp`,
+  `TestPwModelCompiler.cpp` - updated for the language change. Two of these were premises the
+  fix inverts rather than mechanical edits: `MaterialInsideBooleanBlockDoesNotBindSlot`
+  asserted that a tag inside a block is NOT a reference (renamed to
+  `...BlockBindsItsSlot`, now asserting both directions), and the cross-slot
+  `PWMODEL_UNUNIONED_OVERLAP` case pinned the message text "use union only when both solids
+  use the same material slot" - advice that was true only because a block dropped the tool's
+  slot. That runtime message is rewritten too: union is now the resolution, not the hazard.
+- `Docs/pwmodel-format.md`, `Docs/wiki-src/model.authoring.md`, `Docs/pwmodel-design.md`,
+  `Docs/format-decisions.md`, `Docs/defect-backlog.md` (D-03).
+
+### Reviewer verification
+
+**NOT compiled and NOT run** - a separate compile pass follows. A reviewer should:
+
+1. Build, then run `PinWright.Model.` and `PinWright.Geometry.Ops.` in ONE editor instance.
+2. Re-compile the seven-part probe from the Measured section above and read the asset back per
+   triangle with `GeometryScript_Materials.get_triangle_material_id`. Expected changes:
+   `part_b unioned` on `Beta` not `Alpha`; both `bore wall` rows on their own part's slot, not
+   `Alpha`; `part_f`'s 32 bevel triangles on `Zeta`, all 44 on one slot.
+3. Recompile `SM_WPN_AR.pwmodel` from its **pre-workaround** revision - the sibling +
+   `self_union` rewrite recorded in `#3` / `#4` should no longer be needed - and check `Barrel`
+   reaches x 55.00.
+4. Confirm the ordinary document stays quiet: a `subtract` into single-slot geometry must raise
+   neither new code. Noise there would get the warning switched off wholesale and take the real
+   case with it.
+
+**Scope limits, deliberate.** Triangles-per-slot on the `model.compile` response is NOT
+implemented: it is a response-shape change on a different surface, and the two new warnings carry
+the visibility this fix needs. A slot a boolean opened that nothing carries is warned about but
+NOT rolled back, so the asset still gains an empty section - rolling it back would renumber the
+table, which is not worth the risk for a case that is already reported.
+
 ## History
 - `#1-boolean-output-and-bevel-faces-land-on-slot-zero` `OPEN` reporter - `RunBoolean` builds its tool with `bNested=true` (`PwModelCompiler.cpp:2925`) and `RunGenerator`'s only tagging site is gated `if (!bNested)` (`:1681`), so a generator inside a boolean block never reaches `ResolveSlot` and its triangles keep `MaterialID == 0` - which is the first part's slot (`:530-531`, `:561-569`), not a neutral default. Measured on a seven-part five-slot probe compiled to an asset and read back per triangle: `union { box material="Beta" }` lands entirely on `Alpha`; a `subtract`'s bore walls (64 tris) land on `Alpha` while the base box keeps its own slot; `bevel` without `infer_material_id=true` puts 32 of a beveled cube's 44 triangles on `Alpha`. Clean compile, `errors: 0`, no diagnostic. Cost on a real 18-part rifle: 18559 of 21420 triangles on the first part's material - the barrel, gas block and every bevel render as receiver aluminium, and the companion pistol's polymer frame and 110 grip studs render as phosphated steel, because that document's slot 0 is the slide. `materialSlotList`, `static_mesh.describe` and the source tags are all correct; nothing in any response reports triangles per slot, so the fault is invisible until the asset is rendered. `self_union` is not routed through `RunBoolean` and preserves IDs, which makes sibling + `self_union` a workaround for `union` only - and it changes the scope of any modifier that was inside the block, recoverable only by hand-computed `filter_box_min`/`filter_box_max`. Fix: tag boolean output using the snapshot-and-retag mechanism `#4` on `B-pwmodel-modifier-output-takes-slot-zero` adds for modifiers; have `subtract` walls inherit the cut geometry's slot; default `bevel infer_material_id` to true; warn when a boolean emits into a slot the enclosing part never bound; and report triangles per slot on `model.compile`.
 
@@ -203,3 +314,5 @@ part trigger     no separating box exists in either ordering; bevelling after th
   - **Give up the edge break.** `bolt_catch`'s tab and paddle and `trigger`'s finger curl now have none, because no box and no ordering separates them. That is a visible authoring regression caused entirely by working around this ticket.
 
   Two smaller things this change surfaced. **`PWMODEL_UNUNIONED_OVERLAP` fires on the recommended pattern**: the warning is raised when the sibling is appended and cannot see that a `self_union` follows two lines later, so adopting the workaround took this document from 2 warnings to 10, all of them the fix being mistaken for the bug. If the fix lands as authoring guidance rather than a compiler change, that warning needs to look ahead for a `self_union` in the same op list. And **there is no `set_material_id` op in the format** — `model.describe_ops` lists `set_vertex_color` for colour and nothing at all for material id — so a part cannot re-tag itself after a boolean, which is why every remedy here has to be structural.
+- `#5-boolean-and-bevel-output-now-tagged-at-the-operands` `IN-REVIEW` developer - Verified true against source, then fixed all three routes by tagging the OPERANDS rather than retagging the result: a boolean renumbers triangles, so the modifier fix's snapshot-and-diff is unsound here, but GeometryCore carries a surviving triangle's material id across - which this ticket's own measurements prove, since the tool's ID 0 is exactly what reached the bore walls. Ops inside a boolean block now resolve `material=` through the same model-wide slot table; `material=` is accepted on the boolean itself and names the faces the operation creates; untagged block geometry and cut walls inherit the dominant slot of the geometry the boolean was applied to. Material ID 0 is reserved across both operands for the duration of the call, so a face the engine invents from neither operand (a hole fill - `fill_holes` defaults true) is identifiable and takes the same slot instead of silently landing on the first part's material. `bevel` gained `material=` and its document-layer defaults flipped to `infer_material_id=true` with the dominant slot as the disagreement fallback; `GeometryOps::FBevelParams` stays pinned to the engine's defaults because a parity test and the `geometry.bevel` RPC both depend on them. `color=` on a boolean stays refused and the message now names `set_vertex_color`. New codes `PWMODEL_BOOLEAN_MATERIAL_AMBIGUOUS` and `PWMODEL_BOOLEAN_MATERIAL_UNUSED`. Collision hull bodies keep the old behaviour exactly. `cut_material=` is retired as a reserved parameter: it was reserved on the belief that the new faces had to be identified after the fact, and they never did. Six new tests in `TestPwModelBooleanMaterial.cpp`, three existing test files updated for the language change, language docs synced. NOT compiled and NOT run - see the reviewer verification steps above.
+- `#6-trim-is-a-subtract-not-a-discard` `IN-REVIEW` developer - The post-wave suite failed one of the six new tests, `MaterialSlots.BooleanMaterialTagThatReachesNoFaceIsReported`, and the compiler was RIGHT while the fixture and three comments were wrong. The fixture used `trim material="Cap" fill_holes=false` on the belief that a trim discards its whole cutting surface, so the tag would reach nothing. `GeometryOps::Trim` maps `keep_inside` onto Subtract / Intersection and dispatches the same `ApplyMeshBoolean` the other three booleans use (`GeometryOps_Boolean.cpp:351-353`, `:407`) - so a trim's tool surface BECOMES the cut face, `Cap` landed on the flat top the trim opened, and the warning correctly stayed silent. Diagnosed from the suite log alone: the run recorded `slots [0:Shell, 1:Cap]` with a clean compile and only the two pre-existing `PWMODEL_UNBOUND_MATERIAL` warnings, which proves `RunBoolean` reached the unused-tag loop and found a result triangle carrying the slot. Fixture replaced with the case that provably produces no face - a second tool solid 500 uu from the target inside a block whose first solid does cut, so the boolean works, `PWMODEL_BOOLEAN_NO_EFFECT` stays quiet, and the dead tool's `material="Ghost"` reaches zero triangles - and the test now also asserts the slot the cut walls DO carry is not named, and that the ambiguous code does not fire alongside it. The false `trim` claim was repeated in the diagnostic's own comment (`PwModelDiagnostic.h`), the warning message text (`PwModelCompiler.cpp`), `Docs/pwmodel-format.md` (two places) and `Docs/wiki-src/model.authoring.md`; all five now name a discarded tool solid and state explicitly that trim is not one. No compiler behaviour changed.
