@@ -5,7 +5,7 @@ status: OPEN
 severity: High
 category: bug
 tags: [niagara, set-curve-keys, data-interface, curve, module-input, scale-sprite-size, scale-color, discoverability, static-switch, silent-bypass, correction]
-encounters: 7
+encounters: 8
 lastSeen: 2026-09-03T09:40:00+05:00
 ---
 
@@ -157,3 +157,20 @@ discoverability. Left at High for the original reporter to re-judge.]
   **What it cost.** Task was to fix "no dense core" on `NS_Smoke_Grenade`: the effect reads as a thin grey smudge at 400 ms. Two causes were measurable and were fixed (a `DepthFade` at 40 uu eroding the cloud against the wall it sits on, and `SpawnBurst_Instantaneous.Spawn Count = 1` on all three emitters). The third candidate — whether `ScaleColor`'s alpha ramp suppresses alpha early in life, which decides entirely whether a burst at t=0 is visible at the 120 ms the effect is judged at — **could not be checked at all**, so the fix ships with an unquantified caveat on exactly the frame the reviewer will look at. Writing a known curve to remove the ambiguity was rejected on principle: with no read path, an overwrite of an authored curve is a blind clobber of another agent's work, which the project's parallel-agent rules forbid. That is the practical shape of a read gap on a shared asset — it does not merely slow a caller down, it converts a safe edit into an unsafe one.
 
   **A read-only fix would close most of this ticket.** `#1`-`#7` want `set_curve_keys` to accept a module-input target. Worth noting for scoping: four of the seven consequences recorded here (`#2`'s "cannot see what the curve currently is", `#6`'s constant-light compromise, `#7`'s concrete-vs-wood diff, and this one) are blocked by the **read** half alone, and the read half is strictly easier — the decompiler already holds the object. Shipping the keys in `nir.txt` / `decompile_nir` / `inspect {includeGraphs:true}` before the write verb lands would unblock those four and make any later blind-write argument moot. Not source-confirmed: no read of the decompiler or the `set_curve_keys` handler; evidence is the three payloads above from the live editor.
+
+- `#9-correction` `OPEN` VFX — **encounter `#5`'s "confirmed on disk" claim does not hold on this checkout, for the `NS_Smoke_Grenade` half.** `#5` states the `ScaleSpriteSize` work was "compiled, saved, re-added to their systems with handle parity, and confirmed on disk". Measured on this tree at 2026-09-03T04:40Z:
+
+  ```
+  NS_Smoke_Grenade.uasset       ScaleSpriteSize=0   RampInOut=0
+  Emitters/E_Smoke_Core.uasset  ScaleSpriteSize=4   RampInOut=4
+  Emitters/E_Smoke_Smoke.uasset ScaleSpriteSize=4   RampInOut=4
+  Emitters/E_Smoke_Wisps.uasset ScaleSpriteSize=4   RampInOut=4
+  ```
+
+  The three emitter ASSETS carry the modules; the SYSTEM carries none of them, and the system's mtime is *later* than all three emitters', so this is not a save-ordering slip. The handles were never re-added. I re-derived this myself rather than relaying it: it was first reported by the Build 05 smoke fixer, and I byte-checked all four packages independently before writing this.
+
+  This board is shared by several hosts, so the claim may well have been true where it was written — that is exactly why it is filed as a correction scoped to a named checkout rather than as a contradiction.
+
+  **Visible consequence, now photographed.** `Docs/fps/evidence/vfx/b5_10_smoke_120ms_core.png`: with no size-over-life ramp the sprites are born at final size (90-150 uu) and hold it for their whole 2.5-4.5 s life, so at 120 ms the grenade is a wide low haze instead of the tight 55-70 cm knot the fixer's own model predicted. The smoke never billows. That is a second, independent quality defect riding on this ticket's blocked capability, and it is the first time the consequence has been captured in a frame rather than inferred from a stack read.
+
+  **Practical trap for the next agent, from the same fixer:** the documented `remove_emitter` + `add_emitter` recovery re-copies from the emitter asset, so running it after editing a system's emitter copies in place DESTROYS those edits. On this asset that would have discarded six landed changes. There is currently no non-destructive route to re-add a missing handle mid-iteration.
