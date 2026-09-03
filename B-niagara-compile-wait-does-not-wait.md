@@ -279,3 +279,51 @@ not, even if it eventually returns `compiled: true`.
   **Why the sibling passed.** `PinWright.niagara.CompileWait.CompletionIsMeasuredNotAssumed` is the only other test in the group and it never reads source text: it exercises the pure decision helpers, the save gate and the idle-wait path. A refactor that moves a call between translation units is invisible to it by construction. Only the structural test could see the move, and it saw it as a missing pump.
   **Fix, in `Tests/Niagara/TestNiagaraCompileWait.cpp` only — no plugin source touched.** The assertion is not weakened; it is followed across the delegation and is now strictly stronger than before. Three checks replace the one: `NiagaraCompileWait.cpp` must `#include "Utils/AssetCompilePump.h"`, it must contain `PinWright::AssetCompile::AdvanceOnGameThread();` (so an emptied wrapper fails), and `Utils/AssetCompilePump.h` — read through `IPluginManager` by a new `AssetCompilePumpSourcePath()` beside the existing `CompileWaitSourcePath()` — must still contain `FAssetCompilingManager::Get().ProcessAsyncTasks(`, carrying the original assertion message unchanged. Both halves must hold: checking either alone passes on a chain that starves. Both files are loaded up front and a single existing skip site (`compile-wait-source-unreadable`) covers either being unreadable, so no new skip marker is introduced. The pre-fix loop still fails every assertion — it had neither the include, nor a pump call in the loop body, nor the manager call at either end. The `#6` header comment block was updated to say where the pump lives and why the check now spans two files.
   **Not run.** Compile and suite are the requester's; this entry records a source repair, not a measurement. `#9`'s standing point is unchanged and worth repeating: this test is structural, so its green still cannot confirm this ticket — only the `#5` live repro can.
+- `#11-live-repro-system-wait-times-out-with-pump-present` `OPEN` reporter — **The `#5` live repro
+  that `#9` and `#10` said was the only thing that could settle this. It still times out, on a tree
+  that carries the pump.** Checkout `X:/src/unreal/EAContentExamples58`, UE 5.8, plugin HEAD
+  `5a7f12f2`; `git log -1 -- Source/PinWright/Private/Handlers/Niagara/NiagaraCompileWait.cpp` →
+  `2ba21649` (later than `f281e2a0`), `AdvanceAsyncCompilationOnGameThread()` defined at `:40` and
+  called at `:62`, before the `PollForCompilationComplete` at `:71` and the sleep at `:73`. So all of
+  `#9`'s presence checks hold and the behaviour is still wrong.
+  **Measured.** Six `niagara.set_module_input` writes on `/Game/FPS/VFX/NS_Muzzle_Pistol` (a 6-emitter
+  muzzle-flash system; Sprite Size Min/Max on three emitters), then
+  `niagara.compile {force:true, wait:true}` as its own call:
+  `{requested:true, compiled:false, waited:true, waitedMs:90001.74, timedOut:true,
+  outstandingCompilationRequests:true, status:"timedOut", durationMs:90138.25}`.
+  **The engine log is the new part.** `Saved/Logs/EAContentExamples58.log:8542`:
+  `[2026.09.03-04.21.33:851] LogNiagara: Compiling System NiagaraSystem
+  /Game/FPS/VFX/NS_Muzzle_Pistol.NS_Muzzle_Pistol took 143.205261 sec (time since issued).`
+  143.2 s, not 90.0 s — so this is **not** `#8`'s signature of `time since issued` tracking the wait
+  ceiling to within 100 ms. The compile landed ~53 s **after** the loop released, while the editor
+  served ordinary RPCs. Two probes bracket it: `niagara.validate` ~24 s after the timeout still read
+  `hasOutstandingCompilationRequests:true, hasActiveCompilations:true` with every
+  `Core`/`Petals`/`Streak` particle script at `compileStatus:null`; the same probe ~82 s after the
+  timeout read both false with all six at `NCS_UpToDate`. Reading: the pump is not starving the
+  compile outright any more, but ~53 s of real progress that the freed thread does in ~53 s got
+  approximately none of it done inside the 90 s window. Either the pump still is not driving the
+  pass this system needs, or the ceiling is simply short for a system this size — the fix owner can
+  separate those; the caller-visible outcome is unchanged from `#8`: a 90 s stall that persists
+  nothing and refuses the save.
+  **Second observation, emitter path, weaker evidence — flagging, not asserting.** The same verb on
+  the three standalone emitter assets (`E_FPS_MuzzlePistol_Core` / `_Petals` / `_Streak`) returned
+  `status:"completed", compiled:true` with `waited:false`, `waitedMs` 0.0001–0.0008 and `durationMs`
+  0.05–0.08 — i.e. `WaitForSystemCompile` never entered its loop because
+  `HasOutstandingCompilationRequests()` was already false at entry. `NS_Muzzle_Pistol` was loaded and
+  uses all three, so `WaitForEmitterCompile`'s `UsesEmitter` walk should have covered it. If the
+  request is parked in the `NeedsRequestCompile()` state that `:71`'s `bFlushRequestCompile=true`
+  exists to drain, then that flush is unreachable — the loop is skipped when the predicate is false
+  at entry — and `DidCompileLand` reports `completed` for a compile that had not started. That is the
+  `#1` shape on the emitter path. **Not proven:** I did not instrument which state the request sat
+  in, and the 143 s system compile that followed is equally explained by my own six system-level
+  edits. Worth an hour from whoever owns the fix; do not treat it as measured.
+  **Workaround used, and it is cheap.** After the timeout, poll
+  `niagara.inspect {includeProperties:false, includeGraphs:false, includeStack:false,
+  includeCompile:true}` for `compile.hasOutstandingCompilationRequests == false`, then
+  `niagara.validate` for `dataInterfaceCheck:"consistent"`, then `asset.save {force:true}`. The save
+  came out clean: `grep -c "Data interface count mismatch"` and
+  `grep -c "errors encountered compiling Vector VM shaders"` are both **0** for the whole session log,
+  and all six edited values are on disk. The ergonomic cost is that both probes spill past the 10k
+  inline budget (14.5k and 15.2k chars) purely to read two booleans — a `niagara.compile_status`
+  read-only probe, or `parametersOnly`-style projection for the compile aspect, would remove the file
+  round-trip this workaround needs.
