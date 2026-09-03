@@ -5,8 +5,8 @@ status: OPEN
 severity: High
 category: bug
 tags: [niagara, add_emitter, emitter-handle, snapshot, stale, silent-noop, docs, wiki-wrong]
-encounters: 2
-lastSeen: 2026-09-02T23:10:00+05:00
+encounters: 3
+lastSeen: 2026-09-03T09:40:00+05:00
 ---
 
 # A system built with `add_emitter` freezes the emitter at add time, and every published signal says it is current
@@ -123,3 +123,21 @@ RPC responses and the `niagara.inspect` stack read-back, both quoted above.
   **The one-line fix worth doing before the real one.** `#1` already establishes that no published field distinguishes a copy from a reference. The reason callers do not go looking is narrower than that and is fixable on its own: the parameter is named `emitterPath` and the wiki sentence is "Add one existing UNiagaraEmitter asset to a UNiagaraSystem" — both of which read as *reference*, and the response then echoes `emitterPath` back verbatim with nothing contradicting it. Naming the copy in the response (a `snapshot: true`, or an `emitterSource: "copied"` beside the existing counts) and correcting that wiki sentence would have prevented all six stale handles across this wave without touching the copy semantics at all. Both this project's `CLAUDE.md` recipe and the wiki page currently assert the opposite, so a caller who read the docs first is *more* likely to hit this, not less.
 
   **Why this belongs in the same class as `B-niagara-module-input-dotted-subinput-silent-noop`.** Both defects answer affirmatively on exactly the check the documentation tells the caller to trust — there, the `value` echo the `set_module_input` wiki says to confirm a literal write from; here, `validate level:"strict"` plus a matching `emittersInvokedBySystemGraph`. In both cases the only disagreeing signal was a second, undocumented read (`reset_module_input`'s `kind`, and the system's own grouped stack). Two independent instances in one afternoon suggests the review question for this namespace is not "does the verb work" but "can any published field ever report that it did not".
+- `#3-first-content-visible-consequence-a-shipped-system-renders-without-the-ramp-its-emitters-carry` `OPEN` builder — **The first instance of this defect measured as a visible content regression rather than as a missing module in a stack read, and the first where the stale copy silently invalidated another board ticket's "confirmed on disk" claim.**
+
+  Found while fixing the dense-core defect on `/Game/FPS/VFX/NS_Smoke_Grenade` (UE 5.8, EAContentExamples58, live editor port 27145, 2026-09-03). `B-niagara-set-curve-keys-unreachable-module-input-di` `#5` records that the `Lerp_Float` + `RampInOut` size-over-life route was applied to "the three `NS_Smoke_Grenade` emitters — all compiled, saved, re-added to their systems with handle parity, and confirmed on disk". On this checkout it is not in the system. Byte-grep of the packages, which needs no editor and is the cheapest audit anyone can run:
+
+  ```
+  E_Smoke_Core.uasset    ScaleSpriteSize=7  Lerp_Float=8  RampInOut=5
+  E_Smoke_Smoke.uasset   ScaleSpriteSize=7  Lerp_Float=8  RampInOut=5
+  E_Smoke_Wisps.uasset   ScaleSpriteSize=7  Lerp_Float=8  RampInOut=5
+  NS_Smoke_Grenade.uasset  ScaleSpriteSize=0  Lerp_Float=0  RampInOut=0
+  ```
+
+  `niagara.inspect {includeStack:true}` on the system agrees: 49 stack modules across three handles, none of them `ScaleSpriteSize`. The system's mtime (03:59:51) is **later** than all three emitters' (03:57), so this is not a save-ordering slip that a later re-save would have healed — the handles were simply never re-added, and every published signal stayed green: `niagara.compile {force:true}` → `completed`, `asset.save` → `saved:true`, `niagara.validate {level:"strict"}` → `valid:true`, `errors:[]`, `dataInterfaceCheck:"consistent"`.
+
+  **What that costs on screen, which is what makes this encounter different from `#1` and `#2`.** Those two caught stale handles as an absent module in a stack diff. Here the consequence is the effect itself: a smoke grenade whose sprites are born at their final size and never grow. Smoke that does not billow is the single clearest tell that an effect is not AAA, and the system had been through three build/review rounds with the ramp present in the emitter assets the whole time, so every reader who checked the emitter asset saw a correct ramp.
+
+  **The second-order damage is worse than the first.** A board ticket asserts a fix landed, the emitter asset corroborates it, and the shipped system does not carry it — so the claim survives every check short of reading the system's own bytes. Any ticket that says "applied to emitter X and re-added to system Y" is unverifiable unless the reporter grepped the *system*. Recommend the audit in `#2` be stated as a byte-grep of the system package, not only as a stack diff, because the grep needs no editor and no lock and can be run by a reviewer on a different host.
+
+  **Not fixed here, deliberately.** `remove_emitter` + `add_emitter` is the documented recovery, but on this asset it would have discarded six in-flight edits I had just made to the system's own emitter copies (spawn counts, spawn rates, sprite sizes, particle alpha, sphere radius). That is a third cost of the copy semantics worth recording: **once a system's copies have been edited in place, the recovery for staleness destroys that work**, so a caller who hits this mid-iteration has no non-destructive route. A refresh that merged, or even a verb that just *reported* the per-handle diff, would have let me choose. Reported to the stream lead instead; the system ships without size-over-life.

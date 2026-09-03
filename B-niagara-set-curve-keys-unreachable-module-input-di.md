@@ -5,8 +5,8 @@ status: OPEN
 severity: High
 category: bug
 tags: [niagara, set-curve-keys, data-interface, curve, module-input, scale-sprite-size, scale-color, discoverability, static-switch, silent-bypass, correction]
-encounters: 6
-lastSeen: 2026-09-03T02:10:00+05:00
+encounters: 7
+lastSeen: 2026-09-03T09:40:00+05:00
 ---
 
 # `niagara.set_curve_keys` addresses parameter stores only, and stack-module curve inputs are not in one
@@ -142,3 +142,18 @@ discoverability. Left at High for the original reporter to re-judge.]
   The fix had to be made in a different dimension entirely — cutting lifetime to 0.30/0.75 s so that more of the (unreadable, unwritable) ramp elapses in the first two frames, and raising spawn count to compensate for the shorter life. That works, but it is tuning one parameter to compensate for another that the API cannot touch, and nobody reading the asset later will see why the lifetime is what it is.
   This is now the **fourth** distinct thing this one gap blocks: size-over-life (`#1`-`#4`), colour-over-life (`#1`), light-decay-over-life (`#6`), and alpha-over-life (here). Only the size one has a known workaround (the static-switch route in `#5`). **Scope of the negative result, stated precisely:** what has been proven is that no route exists through the *documented* verbs — `set_curve_keys` refuses in all three emitter-scoped stores, and neither `inspect {includeGraphs:true}` nor `nir.txt` emits the keys. The DI is a graph-local `NiagaraNodeInput` on the module stack node, so a **node- or pin-targeted `niagara.set_property`** may still reach it; that was not tried. This is "no route found through the documented surface", not "no route exists", and the distinction is what a fix should key off — if the pin route works, the gap is discoverability and documentation rather than capability. A verb that could address a graph-local curve DI — or an `asset.dump` that at least *emitted* the curve keys so they could be reasoned about — would close all four.
   Evidence: `set_curve_keys` refusals across all three scopes; the normalised NIR diff of concrete vs wood dust; before/after lifetimes and spawn counts on `E_ImpConcrete_Dust`, re-added to `NS_Impact_Concrete` (5/5) and saved.
+- `#8-read-gap-confirmed-on-a-system-asset-and-through-the-live-decompile-rpc` `OPEN` builder — **Narrowing `#7`'s negative result by one surface, and recording what the unreadable curve actually cost this time.** `#7` proves the keys are absent from `niagara.inspect {includeGraphs:true}` and from `asset.dump`'s `nir.txt`. Adding the third: **`niagara.decompile_nir` called live on a *system* asset emits them nowhere either.** On `/Game/FPS/VFX/NS_Smoke_Grenade` (UE 5.8, EAContentExamples58, port 27145, 2026-09-03) the 613 KB NIR payload contains 354 occurrences of `Curve` and zero of `Keys` or `InterpMode`. What it does publish is the complete wiring and nothing else:
+
+  ```
+  node `Scale Alpha.FloatCurve001` : NiagaraNodeInput
+  set $FloatFromCurve001.FloatCurve = %NiagaraNodeInput_1.Input
+  link `Scale Alpha.FloatCurve001`.Input -> `Map Set`_2.`FloatFromCurve001.FloatCurve`
+  link `Float from Curve 001`.Value -> `Map Set`.`ScaleColor.Scale Alpha`
+  call @FloatFromCurve (input DefaultCurve = dataInterface NiagaraDataInterfaceCurve)
+  ```
+
+  So the decompiler resolves the DI as a graph-local `NiagaraNodeInput`, names it, and links it — it simply never serialises the samples. That is the shape of the cheapest possible fix: the reader already reaches the object. `niagara.inspect {includeGraphs:true}` reports that pin as `defaultObject: ""` with `linkCount: 0`, which is actively misleading, since the NIR from the same asset shows the input node is linked and carries a real DI. And the `parameters` aspect lists `Constants.<Emitter>.FloatFromCurve001.Scale Curve = 1.0` — the scalar *multiplier* on the curve — while omitting the curve, so a caller sees a value that looks like the answer and is not.
+
+  **What it cost.** Task was to fix "no dense core" on `NS_Smoke_Grenade`: the effect reads as a thin grey smudge at 400 ms. Two causes were measurable and were fixed (a `DepthFade` at 40 uu eroding the cloud against the wall it sits on, and `SpawnBurst_Instantaneous.Spawn Count = 1` on all three emitters). The third candidate — whether `ScaleColor`'s alpha ramp suppresses alpha early in life, which decides entirely whether a burst at t=0 is visible at the 120 ms the effect is judged at — **could not be checked at all**, so the fix ships with an unquantified caveat on exactly the frame the reviewer will look at. Writing a known curve to remove the ambiguity was rejected on principle: with no read path, an overwrite of an authored curve is a blind clobber of another agent's work, which the project's parallel-agent rules forbid. That is the practical shape of a read gap on a shared asset — it does not merely slow a caller down, it converts a safe edit into an unsafe one.
+
+  **A read-only fix would close most of this ticket.** `#1`-`#7` want `set_curve_keys` to accept a module-input target. Worth noting for scoping: four of the seven consequences recorded here (`#2`'s "cannot see what the curve currently is", `#6`'s constant-light compromise, `#7`'s concrete-vs-wood diff, and this one) are blocked by the **read** half alone, and the read half is strictly easier — the decompiler already holds the object. Shipping the keys in `nir.txt` / `decompile_nir` / `inspect {includeGraphs:true}` before the write verb lands would unblock those four and make any later blind-write argument moot. Not source-confirmed: no read of the decompiler or the `set_curve_keys` handler; evidence is the three payloads above from the live editor.
