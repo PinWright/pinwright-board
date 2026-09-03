@@ -236,3 +236,24 @@ verbs without it is an inconsistency inside one namespace, not a design.
   closes the gap by the verb's own safety rule), and it prunes `CachedDefaultDataInterfaces` so they
   do not come back. Recompiling — not removing — is the remedy, and neither the `set_module_input`
   page nor the `add_emitter` page says so.
+- `#4-independent-confirmation-impact-water` `IN-REVIEW` reporter — Independent confirmation of
+  `#3` on a different system and a different emitter family, same shared FPS editor, 2026-09-03
+  04:24-04:37 UTC. **21 consecutive mutating calls** against `/Game/FPS/VFX/NS_Impact_Water`
+  (`niagara.set_module_input`, `set_static_switch`, `set_property`, `add_module`, `remove_module`,
+  `move_module`) every one returned `dataInterfaceCheck: "mismatched"`, and the payload grew
+  exactly as `#3` predicts: the first edit touched the `Column` handle and listed
+  `Column.SpawnScript` / `Column.UpdateScript` at `compiledDataInterfaces: 0` vs
+  `resolvedDataInterfaces: 2`; the first edit that touched `Crown` made it four scripts and it
+  stayed at four. `niagara.compile {force:true, wait:true}` cleared it (`status: "completed"`,
+  1.28 s) and `niagara.validate {level:"strict"}` afterwards reported
+  `dataInterfaceCheck: "consistent"` with zero Niagara errors and every script `NCS_UpToDate`.
+  So the remedy in `#3`(a) reproduces exactly. Two additions. **(a) The verb family is wider than
+  `set_module_input`.** `#3` sampled `set_module_input` only; `add_module`, `remove_module`,
+  `move_module`, `set_static_switch` and `set_property` all report it identically, which matches
+  this ticket's claim that the whole `FinalizeNiagaraEdit` family shares the ungated path.
+  **(b) The same verbs on an *emitter* asset report `dataInterfaceCheck: "unverified"`, never
+  `"mismatched"`** — 20 calls against `/Game/FPS/VFX/Emitters/E_ImpactWater_Column` and
+  `E_ImpactWater_Crown`, same edits, same modules, all `"unverified"`. So the false alarm is
+  specific to the system-asset path, and an agent doing the same work at emitter-asset level gets
+  no signal at all rather than a wrong one — worth deciding deliberately which of the two is the
+  intended behaviour when Stage 2 lands.
