@@ -1,12 +1,12 @@
 ---
 id: B-niagara-compile-wait-does-not-wait
 title: "niagara.compile wait:true holds the game thread for a hard 90 s and never observes the compile, so {compile:true, save:true} stalls the whole shared editor and then persists nothing (originally: returned compiled:true in ~10 ms without waiting)"
-status: IN-REVIEW
+status: OPEN
 severity: Critical
 category: bug
-tags: [niagara, compile, async, silent-noop, race, corrupts-saved-asset, data-interface-mismatch, editor-crash, wait-never-lands, reopened, game-thread-stall, shared-editor-outage, blocks-concurrent-agents, fix-absent-from-this-checkout]
-encounters: 4
-lastSeen: 2026-08-28T08:30:00+05:00
+tags: [niagara, compile, async, silent-noop, race, corrupts-saved-asset, data-interface-mismatch, editor-crash, wait-never-lands, reopened, game-thread-stall, shared-editor-outage, blocks-concurrent-agents, fix-absent-from-this-checkout, live-repro-post-pump-still-times-out]
+encounters: 5
+lastSeen: 2026-09-03T07:26:00+05:00
 ---
 
 # `niagara.compile` acknowledges a request and calls it a result
