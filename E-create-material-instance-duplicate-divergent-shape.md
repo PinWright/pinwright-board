@@ -4,6 +4,7 @@ title: "Two create_material_instance RPCs (asset.* legacy vs material.authoring.
 status: IN-REVIEW
 severity: Low
 category: ergonomic
+lastSeen: 2026-09-03T04:18:09Z
 tags: [material, material-instance, create_material_instance, duplicate-method, param-shape-drift, asset, docs]
 ---
 
@@ -171,3 +172,8 @@ ticket records the gap and names the pages.
   being the reflexive shape. No new code requested — this is a recurrence/evidence
   append, not a re-file.
 - `#4-repoint-citations-after-module-rename` `DONE` reporter — Citation maintenance only; **no claim in this ticket changes and the status is untouched**. The plugin module directory was renamed `Source/EditorAutomationRpcGateway/` → `Source/PinWright/` (plugin commit `8962f163`), and `Source/EditorAutomationRpcGatewayTests/` was folded into `Source/PinWright/Private/Tests/`, so every citation under the old root was an **unresolvable path** a fixer could not open — not a stale line number. The body needed no edit. 2 citations sit in history rows and are left verbatim per the append-only rule, mapping by the same rule; the mapped paths was confirmed present at HEAD too. No citation in this ticket carries a line number, so nothing here required line re-verification. Sweep-wide record, including the cases that could not be repointed: `E-module-rename-citation-sweep`.
+
+- `#N-both-complaints-now-fixed-recommend-done` `IN-REVIEW` reporter - **Both halves of this ticket are resolved on the current build; recommending DONE after a maintainer confirms.** Measured, not read off a changelog:
+1. The duplicate creator is GONE. `call('asset.create_material_instance', ...)` now returns `UNKNOWN_ACTION` with a did-you-mean list (`asset.list_material_instances`, `asset.reset_instance_parameters`, `asset.get_material_stats`, `asset.create_folder`, `asset.bulk_rename`) - none of which create an instance. So there is exactly one creator left and the list-driven-agent-lands-on-the-legacy-one failure mode cannot happen any more.
+2. The surviving verb gained the inline overrides it lacked. `material.authoring.create_material_instance` now publishes `parameters` (`{scalar, vector, texture, staticSwitch}`, the same type-keyed shape as `set_material_instance_parameters`, applied under one `FMaterialInstanceParameterUpdateContext`), so the create-and-tint round-trip this ticket asked for exists on the preferred verb. `Docs/wiki-src/material.authoring.create_material_instance.md` documents both the parameter and the removal.
+The "preferred verb is the less capable one" framing therefore no longer holds in either direction. One rough edge on this verb remains but is a different defect and is filed separately as `E-create-material-instance-rejects-instance-parent`: `parentMaterial` still refuses a `MaterialInstanceConstant` that `set_material_instance_parent` accepts. Found while wiring a viewmodel material chain on the FPS build; the two probes above were run against that editor.
