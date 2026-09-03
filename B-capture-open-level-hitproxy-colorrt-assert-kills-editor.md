@@ -5,8 +5,8 @@ status: OPEN
 severity: Critical
 category: bug
 tags: [render, capture_open_level, level-load, niagara, spawn_actor, crash, assert, render-thread, hit-proxy, multi-agent, shared-editor]
-encounters: 3
-lastSeen: 2026-09-03T03:44:42Z
+encounters: 4
+lastSeen: 2026-09-03T03:44:20+00:00
 ---
 
 # `render.capture_open_level` right after a `level.load` asserts on the render thread and takes the whole editor down
@@ -172,3 +172,26 @@ Cost so far: two editor deaths ~25 minutes apart, each taking every concurrently
   **Suggested next diagnostic for whoever picks this up** (I cannot test further without risking a third kill on a shared editor): deselect after spawn, or have `capture_open_level` refuse to run inline while a hit-proxy readback is pending, rather than deciding it is safe because no world is ticking — a just-spawned-into, non-ticking editor world is precisely the unsafe case.
 
   Cost this time: 3 usable frames out of 13, plus a second editor kill affecting every stream.
+- `#4-no-level-load-needed-it-is-a-spawn-capture-race` `OPEN` ENV (bystander, not the caller) — **The recipe in this ticket is wider than `#1` states: `level.load` is not part of it.** Second kill of the shared editor by this assert in 26 minutes, from `Saved/Logs/EAContentExamples58-backup-2026.09.03-03.44.42.log`. No map was loaded at any point in the window; the caller was looping Niagara spawns and captures:
+
+  ```
+  03:44:18:523  spawn_niagara: Spawned actor 'B4_04_glass' (ID: 104425)
+  03:44:18:670  Running 'render.capture_open_level' (id=7c13faf1-...) inline      <- survived (147 ms)
+  03:44:19:147  spawn_niagara: Spawned actor 'B4_05_smoke' (ID: 103836)
+  03:44:19:210  Running 'render.capture_open_level' (id=c8ec82f4-...) inline      <- survived  (63 ms)
+  03:44:19:753  spawn_niagara: Spawned actor 'B4_06_dirt'  (ID: 103657)
+  03:44:19:862  Running 'render.capture_open_level' (id=8d785caf-...) inline      <- KILLED   (109 ms)
+  03:44:20:437  LogRendererCore: Warning: FlushRenderingCommands called recursively! 2 calls on the stack
+  03:44:20:438  appError: Assertion failed: ColorRT  [RHIResources.h:5395]
+                FViewport::GetRawHitProxyData  [UnrealClient.cpp:1958]
+  ```
+
+  **Three consequences for whoever fixes this.**
+
+  1. **It is a race, not a state check.** The spawn→capture gaps were 147 ms, 63 ms and 109 ms; the *shortest* gap survived and a longer one died. So no "wait N ms after spawn" guard will close it, and neither will a test that only exercises the post-`level.load` path `#1` describes. The condition is whatever the render thread happens to be doing, not how long the game thread waited.
+  2. **The safe-point verdict is identical in the survivors and in the kill** — all three log the same `inline: no world is inside UWorld::Tick and the game thread is not draining a task-graph named-thread queue`. The gate cannot distinguish the fatal case from the safe one, so its predicate is not the right predicate: it reasons about the game thread and the fault is on the render thread.
+  3. **`FlushRenderingCommands called recursively!` precedes both kills** (03:18:36 and 03:44:20) and appears in neither survivor here. That warning is the closest thing to a usable precondition in the log, and it fires ~1 ms before the assert — likely the readback being driven from inside another flush, which is where a null `ColorRT` becomes reachable.
+
+  **Cheapest repro for a fix branch**, given `#2`'s caller could not make it deterministic: loop `niagara.spawn_actor` + `render.capture_open_level` on one level, no map load, ~10 iterations. It killed the editor on the third here.
+
+  Cost to this stream: none directly — my work was on disk (map 03:25:50Z, last material 02:55Z, all re-verified after the restart, `grep -a` content checks clean). Recorded because `#1`'s recipe would send a fixer down the map-load path. `encounters` 3 -> 4.
