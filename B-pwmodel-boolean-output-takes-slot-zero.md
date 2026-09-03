@@ -5,8 +5,8 @@ status: OPEN
 severity: High
 category: bug
 tags: [pwmodel, materials, slot, material-id, boolean, union, subtract, bevel, silent-wrong, no-diagnostic]
-encounters: 2
-lastSeen: 2026-09-03T03:52:00Z
+encounters: 3
+lastSeen: 2026-09-03T04:20:00Z
 ---
 
 # A boolean's output is untagged, so it resolves to whichever slot the first part in the document opened
@@ -146,3 +146,24 @@ SM_ENV_RoofLight      3 slots  2 bevels  2 subtracts
 ```
 The truck is the sharpest case and the best argument for flipping the default: its first-use slot is `Rubber`, so every bevelled edge on its paint, chassis, grille and glass renders as tyre rubber. **Nobody filed a bug about any of these**, because the failure mode is "the material looks slightly wrong along the edges" rather than an obvious fault, and every diagnostic an author can reach - `diagnosticSummary`, `materialSlotList`, `unboundSlots`, `static_mesh.describe` - reports the model as correct. That is the whole shape of this defect: it is not that authors get it wrong, it is that the correct-looking authoring produces wrong triangles and nothing in the toolchain can say so.
 This strengthens the `bevel` recommendation in the body from a nicety to the highest-value single change: **default `infer_material_id` to true**. 38 of 38 bevels written across three independent streams omitted it, which is the definition of a default set the wrong way round - not one author in the project chose the current behaviour. `material_id=0` remains available for the case that genuinely wants a fixed slot.
+
+- `#3-self_union-is-a-working-in-format-remedy-for-route-1-measured-on-two-shipped-documents` `OPEN` reporter — Route (1) has an in-format fix and it is `self_union`. `self_union` is dispatched at `PwModelCompiler.cpp:2643` as a MODIFIER, not through `RunBoolean`, so it never sets `bNested` and never touches material IDs: siblings written at part level reach `RunGenerator` with `bNested=false`, take their `material=` through `ResolveSlot`, and the resolve then merges the crossing shells while every triangle keeps the slot it arrived on. The pattern that replaces `union { A ; union { B } }` is therefore **plain siblings, each carrying its own `material=`, then ONE `self_union` before the next `subtract`** — the resolve has to precede the cut, because a boolean against a mesh whose shells still cross uses a surface that bounds nothing.
+
+  Measured end to end on `Content/FPS/Weapons/Meshes/SM_WPN_Pistol.pwmodel`, which had eleven `union` blocks and eleven `subtract` blocks and **not one `material=` tag on any of them**. Per-triangle read-back off the baked asset with `GeometryScript_Materials.get_triangle_material_id`, before:
+```
+id 0 Slide   3775 tris  x[ -2.37.. 20.40]  z[-11.09..  3.95]
+id 1 Frame    966 tris  x[ -2.11..  8.54]  z[-10.57..  0.41]
+id 2 Sights    73 tris  x[  0.80.. 19.90]  z[  2.80..  3.95]
+```
+  `Slide` (`MI_WPN_MetalPhosphate`) reaching z -11.09 is the grip's butt: the polymer frame, all 110 checkered grip studs, the magazine floorplate, the rail tang and the trigger's safety tab were rendering as phosphated steel. After hoisting every keep-geometry block to siblings + `self_union`, adding `infer_material_id=true` to all ten bevels, and splitting the slide into its own document so slot 0 becomes `Frame`:
+```
+SM_WPN_Pistol        id 0 Frame     1928  x[-2.37..14.00]  z[-11.09.. 1.40]
+                     id 1 Controls   152  x[ 5.70..11.40]  z[ -3.30.. 1.95]
+SM_WPN_Pistol_Slide  id 0 Slide     2066  x[-0.60..20.40]  z[  0.55.. 3.94]
+                     id 1 Sights     120  x[ 0.80..19.90]  z[  2.80.. 3.95]
+```
+  `health` stayed `isClosed true / boundaryEdges 0 / degenerateTriangles 0 / selfIntersections 0` on both documents through the whole change, which is the point worth carrying: it stayed clean **before** the fix too. Nothing in `health`, `materialSlotList`, `unboundSlots`, `diagnosticSummary` or `static_mesh.describe` moved when 2,800 triangles changed material. The per-triangle read-back is still the only instrument that sees this.
+
+  **Route (2) really is unfixable and now has a number.** One `subtract` survives in the split document — the rear sight's notch — and its opened walls measure exactly **12 triangles** on slot 0 (`x 0.83..1.96, z 3.50..3.94`), phosphate inside an anodised block. The only lever left is document-wide: slot 0 is whichever part tags first, so **part order is the material of every cut wall in the document**. That is a real authoring rule nothing states — `SM_WPN_Pistol` had to keep `slide` first while the slide's eight cuts lived there, and had to have `frame` first the moment they left, or the entire inside of the trigger guard turned phosphate. An author who reorders two parts for readability silently repaints every cut face in the file.
+
+  Suggestion, on top of `#2`'s `infer_material_id` default flip: let `subtract` take `material=` and apply it to the opened walls only. The tool is discarded, but the walls are *output*, and they are the one thing the author can name. Failing that, `PWMODEL_MATERIAL_ON_BOOLEAN` should name the part-order consequence instead of only refusing the tag.
