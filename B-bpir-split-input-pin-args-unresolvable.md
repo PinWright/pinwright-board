@@ -1,7 +1,7 @@
 ---
 id: B-bpir-split-input-pin-args-unresolvable
 title: "Split struct *input* pins decompile to per-sub-pin args (`NewLocation_X:`) no fresh node carries, so the graph does not recompile — and on a variable set the same blindness silently drops the wiring and emits a stale literal"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: bug
 tags: [bpir, decompile, compile_bpir, round-trip, split-pin, struct, sub-pin, silent-data-loss, write-side]
@@ -169,5 +169,47 @@ mistaken for a node's value pin.
   non-verbatim but non-compilable.
 - `F-bp-graph-replace-node-rpc` — the split-mirroring code cited as Option 2's precedent.
 
+## Fix
+
+Root cause: input emission treated hidden split parents as ordinary pins in the
+variable-set/first-input scans and emitted visible split children as raw named
+arguments. Those names do not exist on a fresh unsplit node, while variable sets
+selected the hidden parent's stale default and discarded child wiring.
+
+Option 1 is implemented. `BpirTextEmitter.cpp` now recursively groups split input
+children into deterministic standalone `make<Struct>(...)` values and passes the
+parent name/value to calls, macros, returns, make containers, generic nodes, and
+variable sets. Select options retain their false/true or enum names while using the
+same grouping. The affected scans skip hidden parents/children; invalid or orphaned
+split pins and invalid node GUIDs fail closed with the established `<unresolved>`
+value and warning, and failed nested construction rolls back generated lines and
+temporary-name state. `BpirDecompiler.cpp` adds authored positions to each generated
+line. `AppendNodeLine` consumes the emitter's explicit generated-prefix count, so only pure
+helpers use the existing compiler placement cadence (300 units left, then +80 and +130
+vertical stacking); every fan-out consumer statement retains its authored position, and
+reconvergence still maps to the prefix's first line. The split-pin contract
+pages (`docs/wiki-src/bpir.md` and `bpir.instructions.md`) now distinguish generated input
+makes from dotted/explicit-break output handling. `bpir.txt` aspect 7 was bumped to 8 and
+its pinning test was updated.
+
+Regression IDs:
+
+- `PinWright.bpir.split_input.VectorFunctionCall`
+- `PinWright.bpir.split_input.VectorVariableSet`
+- `PinWright.bpir.split_input.VectorSelect`
+- `PinWright.bpir.split_input.MalformedChild`
+
+The function-call and variable-set tests exercise the production decompiler and
+compiler in a decompile -> parse/compile round trip after their structural emitter
+assertions. `VectorFunctionCall` keeps authored positions and checks that the generated
+MakeVector is offset from its consumer.
+
+Deliberate nonchanges: no compiler or verb contract change was needed because
+standalone `make<T>(...)` already parses/compiles; Option 2 and unrelated generic
+make/break support remain out of scope. No live editor, compile, or test run was
+performed per the ticket instructions. No BPIR verb syntax changed; only its split-pin
+decompile contract documentation was corrected.
+
 ## History
 - `#1-filed` `OPEN` reporter — Found by code reading while reviewing the `B-bpir-break-struct-pin-not-named` fix, which closed the split-struct **output** path and explicitly deferred the input path. Confirmed against plugin and engine source, no editor. Two distinct modes: (A) `FormatArgs` (`Decompiler/BpirTextEmitter.cpp:779-812`, `bHidden` skip at `:793`, arg emit at `:801`) writes one arg per sub-pin under the raw `<Parent>_<Member>` name, which `ResolveTargetPin_Default` (`Compiler/BpirCompiler.cpp:712-746`) cannot resolve on a freshly created node, so `WireDataPins` (`:7157-7165`) errors and the atomic rollback at `:3517-3525` fails the whole compile — a hard blocker on the round trip; same shape in the macro-output, `make_array` and `return` emitters. (B) `EmitVariableSet` (`:2029-2064`, loop at `:2049-2058`) has no `bHidden`/`ParentPin` guard and takes the hidden parent as the value pin — the engine inserts sub-pins after the parent (`EdGraphSchema_K2.cpp:7525`) — so the wiring is dropped and a struct literal is emitted instead (`BpirDecompiler.cpp:2565-2581`, `:2042-2120`), with no warning: silent loss, same class as the parent ticket. Reach measured on the committed dump mirror: 2,340 sub-pin arg occurrences across 70 `bpir.txt` files / 64 distinct assets of 1,701 (~4%), e.g. `asset-dumps/App/Blueprints/Pawn/PW_Crane/bpir.txt:16`. The parent fix's own doc line (`docs/wiki-src/bpir.md:56-59`) now over-promises that the raw sub-pin name never appears in the IR. Fix proposed two ways — emit `make<T>` on the decompile side (no grammar or compiler change, matches the read side's design), or `SplitPin`-on-demand in the compiler (precedent at `Handlers/Blueprint/BlueprintGraphCrudHandler.cpp:1411-1428`) — with trade-offs in the Fix section; Mode B needs the hidden-parent guard either way.
+- `#2-regroup-split-inputs` `IN-REVIEW` developer — Grouped split struct input children into standalone make values, guarded hidden-parent scans, added function-call/variable-set regressions, and bumped the BPIR aspect version to 8; live verification remains for the tester.

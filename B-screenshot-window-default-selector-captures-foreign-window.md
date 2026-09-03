@@ -1,7 +1,7 @@
 ---
 id: B-screenshot-window-default-selector-captures-foreign-window
 title: "editor.screenshot_window with no window selector silently captures whatever window is active — in a shared editor that is another agent's asset editor"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: bug
 tags: [screenshot, screenshot_window, shared-editor, silent-wrong, evidence, window-selector, visual-review]
@@ -52,6 +52,24 @@ Any of, in preference order:
 `windowTitle` is already returned, which is the right raw material — the defect is that the default
 makes it a *result* instead of an *input*.
 
+## Fix
+
+The root cause was the screenshot handler forwarding its empty selector to the shared resolver, whose intentional default is the active top-level window. `editor.screenshot_window` now resolves `IMainFrameModule::GetParentWindow()` when no effective selector is supplied, rejects an unavailable, hidden, or minimized main frame with `WINDOW_NOT_FOUND`, preserves the shared resolver for explicit selectors, and returns the actual captured window's `windowTitle` and `windowType` through the same production type mapping as `drive.list_windows`.
+
+Files changed:
+
+- `Source/PinWright/Private/Handlers/Editor/EditorWindowHandlers.h`
+- `Source/PinWright/Private/Handlers/Editor/EditorWindowHandlers.cpp`
+- `Source/PinWright/Private/Handlers/Drive/DriveEditorChrome.h`
+- `Source/PinWright/Private/Handlers/Drive/DriveEditorChrome.cpp`
+- `Source/PinWright/Private/Tests/EditorOps/TestEditorScreenshotWindowSelector.cpp`
+- `docs/wiki-src/editor.md`
+- `B-screenshot-window-default-selector-captures-foreign-window.md`
+
+Regression test: `PinWright.editor.screenshot_window.DefaultsToMainFrameWithoutSelector`.
+
+Deliberately unchanged: the shared `FDriveEditorChrome` selector defaults, every other `drive.*` and `editor.*` verb, screenshot capture/encoding/path behavior, and the response shape beyond adding `windowType`; no `selectorWasDefaulted` field was added.
+
 ## Workaround
 
 Always pass `window_title` (or `window_index`), never rely on the default, and assert the returned
@@ -64,3 +82,4 @@ resolution).
   six-agent shared editor. Five identical calls captured the main editor window; the sixth captured
   another agent's `SM_WPN_AR` asset editor at 5120x1386 and reported success. Caught only because the
   returned `width`/`height` changed; a same-size foreign window would have passed as evidence.
+- `#2-default-main-frame` `IN-REVIEW` developer — Scoped `editor.screenshot_window`'s unset-selector path to `IMainFrameModule::GetParentWindow()` while preserving explicit selectors and all shared `drive.*` selector semantics; added captured `windowTitle`/`windowType` metadata through the same exposed type formatter used by `drive.list_windows`, updated the registered and wiki contracts, and added `FEditorScreenshotWindowDefaultTargetTest`.

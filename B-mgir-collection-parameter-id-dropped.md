@@ -1,7 +1,7 @@
 ---
 id: B-mgir-collection-parameter-id-dropped
 title: "MGIR drops UMaterialExpressionCollectionParameter.ParameterId — decompile omits the FGuid and compile never resolves it from ParameterName, so any material with an MPC node fails to compile after a round trip, silently unless the node sits on a live branch"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: bug
 tags: [mgir, compile_mgir, decompile_mgir, material-parameter-collection, collection-parameter, parameterid, fguid, round-trip, data-loss, silent-failure]
@@ -121,5 +121,28 @@ Additionally, `material.compile_mgir` should reject — not silently accept — 
 not exist on it, mirroring `add_collection_parameter_node`, which already
 returns `INVALID_PARAMS` "rather than silently leaving an unbound node".
 
+## Fix
+
+The ticket is TRUE: MGIR's reflected property writer omits the non-editable
+`ParameterId`, while `FMaterialExpressionFactory::Create` applies `Collection`
+and `ParameterName` without the engine notification that derives it.
+`Source/PinWright/Private/MGIR/MGIRExpressionEmitter.cpp` now resolves the GUID
+from the fully applied `Collection`/`ParameterName` pair before registering a
+new collection-parameter expression. A missing collection or unknown name
+returns `INVALID_PARAMS` and discards the just-created expression instead of
+leaving a dead node in the graph.
+
+`Source/PinWright/Private/Tests/Material/TestMGIRCollectionParameterRoundTrip.cpp`
+adds `PinWright.material.mgir.CollectionParameter.RoundTripPreservesParameterId`
+and the `RejectsUnknownName` / `RejectsMissingCollection` rejection tests.
+`Docs/wiki-src/material.mgir.md` documents the derived GUID and refusal contract.
+The decompiler output, MGIR syntax, and `mgir.txt` dump aspect were deliberately
+not changed: `Collection` plus `ParameterName` is the human-authorable source of
+truth, and the compiler can derive the engine-only GUID exactly. Verification
+in this worker was source-only; compilation and automation execution are owned
+by the separate integration pass.
+
 ## History
 - `#1-initial-repro` `OPEN` reporter — Hit while wiring a viewmodel-FOV WPO hook into `/Game/FPS/Weapons/Materials/M_WPN_Master` from an MPC scalar. `material.compile_mgir` (Append, 80 expressions) created the `CollectionParameter` node with `Collection` and `ParameterName` set and a null `ParameterId`; `compile_material` then failed with `CollectionParameter has invalid parameter ViewmodelFOVScale`. Confirmed the decompiler never emits `ParameterId` by round-tripping a node that `material.authoring.add_collection_parameter_node` had bound correctly. First compile of the same graph reported `compileSucceeded: true` **only because** the node sat on the untaken branch of a `StaticSwitchParameter` defaulting to `false` — the error appeared solely after flipping that default to `true`. Worked around with `property.set` on `ParameterName` to trigger `PostEditChangeProperty`, which resolves the GUID; verified `compileSucceeded: true` with the branch live, then restored the default.
+- `#2-resolve-collection-parameter-id` `IN-REVIEW` developer — Resolved `ParameterId` from `Collection` plus `ParameterName` during MGIR expression emission, rejected and discarded missing/unknown bindings with `INVALID_PARAMS`, documented the contract, and added `PinWright.material.mgir.CollectionParameter.RoundTripPreservesParameterId` plus `PinWright.material.mgir.CollectionParameter.RejectsUnknownName`.
+- `#3-harden-collection-tests` `IN-REVIEW` developer — Followed independent static review: the MPC fixture now calls `PostEditChange()` after parameter insertion to mirror engine/plugin initialization, and `PinWright.material.mgir.CollectionParameter.RejectsMissingCollection` covers the null-collection `INVALID_PARAMS` branch plus dead-node cleanup.

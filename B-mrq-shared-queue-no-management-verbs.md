@@ -1,7 +1,7 @@
 ---
 id: B-mrq-shared-queue-no-management-verbs
 title: "mrq.create_job appends to the editor-global queue and mrq.run_jobs renders ALL of it — no verb lists, removes or clears a job, so a stale entry from earlier in the session silently re-renders and overwrites its outputs"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: bug
 tags: [mrq, run_jobs, create_job, queue, shared-state, movie-render-queue, destructive, missing-verb, no-workaround]
@@ -125,6 +125,39 @@ Stopgap regardless of which lands: `Docs/wiki-src/mrq.md` documents neither `que
 nor the shared queue's persistence. The namespace page mentions "the shared queue" exactly
 once, in passing, at `Docs/wiki-src/mrq.md:28`.
 
+## Fix
+
+- `MRQHandler.cpp` now registers `mrq.list_jobs`, `mrq.remove_job`, and `mrq.clear_queue`.
+  `list_jobs` reports positional `index`, `jobName`, enabled state, sequence/map paths, preset and
+  resolved configuration paths, plus the resolved output path shape. The removal and clear responses
+  report what they removed and the resulting `queueSize`; both refuse mutation during an active render.
+- `mrq.run_jobs` accepts optional `jobs: [index, ...]`. The deferred executor callback duplicates
+  the shared queue into a transient selected-only queue, enables requested copies in the supplied
+  order, removes unselected copies in reverse index order, and keeps that queue strongly referenced
+  through completion. This is required because UE 5.8's PIE executor validates disabled jobs too;
+  the shared queue is not mutated, and temporary copy state is restored on executor completion or
+  allocation failure. Invalid, duplicate, empty, and out-of-range selections are refused before a
+  ticket starts.
+- `mrq.create_job` refuses with `MRQ_RENDER_IN_PROGRESS` while an executor is active, so appending
+  cannot race the shared queue used by an in-flight render.
+- `mrq.create_job` now always returns `queuedJobs[]` for entries that existed before this call and
+  adds a warning naming their count and explaining that enabled entries among them may also be
+  rendered by an unfiltered `mrq.run_jobs`.
+- Added editor-context automation coverage in `Tests/Media/TestMRQHandlers.cpp` plus a synchronous
+  no-PIE test executor fixture:
+  `PinWright.mrq.list_jobs.ReportsQueueEntries`,
+  `PinWright.mrq.create_job.DisclosesPreviouslyQueuedJobs`,
+  `PinWright.mrq.run_jobs.RejectsEmptySelection`,
+  `PinWright.mrq.run_jobs.FiltersSelectedJobs`,
+  `PinWright.mrq.run_jobs.RestoresSelectedCopyOnCompletion`,
+  `PinWright.mrq.remove_job.RemovesIndexedEntry`, and
+  `PinWright.mrq.clear_queue.RemovesJobs` (the last skips when shared queue state is non-empty).
+  Updated `Plugins/PinWright/docs/wiki-src/mrq.md` with the shared-queue contract.
+
+Static diff/search checks passed. Live UE compilation and automation execution were skipped because
+this fix task forbids UnrealEditor-Cmd/live editor runs; the listed tests remain available for the
+tester to execute in an MRQ-enabled editor.
+
 ## Related
 
 - `B-mrq-render-result-omits-bitrate-and-size` (IN-REVIEW/High) — its `#3` states this
@@ -141,3 +174,5 @@ once, in passing, at `Docs/wiki-src/mrq.md:28`.
 
 ## History
 - `#1-initial-repro` `OPEN` reporter — `mrq.create_job` allocates into the editor-global, session-persistent MRQ queue (`MRQHandler.cpp:238` → `:244` → `Queue->AllocateNewJob` `:289`) and `mrq.run_jobs` renders **all** of it: its only parameter is `executorClass` (`:357-359`) and it calls `RenderQueueWithExecutor` (`:410`) with no job id, no job list and no filtering. No verb lists, removes or clears a job — grep for `DeleteJob`/`DeleteAllJobs`/`SetJobEnabled`/`list_jobs`/`remove_job`/`clear_queue` returns zero hits in handler code (three total, all test-fixture cleanup at `Tests/Media/TestMRQHandlers.cpp:45`, `:394`), and `REGISTER_RPC_HANDLER("mrq` returns exactly three verbs (`:205`, `:344`, `:466`). The only signal is `queueSize` (`:307-309`, emitted `:317`; repeated in the `run_jobs` started payload `:396`), which counts foreign jobs, carries no names or output paths, triggers no warning, and is documented **nowhere** — zero occurrences in `Docs/` or in `Saved/PinWright/wiki/mrq.create_job.md` / `mrq.run_jobs.md`. The hazard is already written in the source as a comment no caller can read (`MRQHandler.cpp:266-267`, "the misconfigured job would sit in the shared queue as a trap for anyone's later mrq.run_jobs"). Field evidence 2026-09-02: the `queueSize: 3` observation is RELAYED from the rendering agent and not reproduced here (read-only probes only, no MRQ runs), but it is corroborated first-hand from this checkout — `Saved/PinWright/jobs.jsonl` L67 (`17:32:28.853Z`, `python.execute`) enumerates the queue as `vid_columns_v3` / `vid_statues_v2` / `TT_Column_test12`, and L69 (`17:32:40.842Z`) records `"deleting vid_columns_v3"`, `"deleting vid_statues_v2"`, `"remaining: ['TT_Column_test12']"` — i.e. the caller had to leave the RPC surface for `python.execute` + `UMoviePipelineQueueSubsystem::DeleteJob` to make its own render safe. Had it not, the spilled response `20260902T101655Z_bdd51126-…json` shows the two stale jobs would have re-rendered and overwritten 480 frames / 254 MB in `Saved/MovieRenders/Video/src/columns/` and `.../statues/`, both of which still hold exactly 240 frames. Severity High: rubric "hard blocker with no workaround" (High or Medium), pushed to High because the failure is destructive of deliverables already on disk and silent; reach modifier argued neutral rather than negative because the queue is editor-global and never emptied, so this is the namespace's normal path from the second `create_job` of a session onward, not an edge. Asks: `mrq.list_jobs`; job selection on `run_jobs {jobs:[…]}` (preferred over `mrq.remove_job`, which makes one caller delete another's work); and `create_job` publishing `queuedJobs[]` plus a warning when the queue already holds entries, the same disclosure it already performs for the encode (`:323-335`).
+- `#2-shared-queue-management` `IN-REVIEW` developer — Implemented queue enumeration, selected-only transient run queues with temporary-copy state restoration, active-render create refusal, create-time stale-entry disclosure, and trivial queue removal/clear verbs; added no-PIE behavior coverage and updated the MRQ wiki contract. Live UE build/automation remains for tester verification.
+- `#3-queue-safety-corrections` `IN-REVIEW` developer — Corrected selected rendering for UE 5.8 PIE's all-job validation by duplicating the shared queue, retaining the transient queue through completion, and removing unselected copies; added synchronous no-PIE filtering coverage, nonempty clear behavior coverage, and registered `MRQ_RENDER_IN_PROGRESS` for the create/run/remove/clear guard.

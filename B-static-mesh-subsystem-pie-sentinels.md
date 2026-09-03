@@ -1,7 +1,7 @@
 ---
 id: B-static-mesh-subsystem-pie-sentinels
 title: "Through python.execute during another stream's PIE, StaticMeshEditorSubsystem.get_lod_count returns -1 and get_num_uv_channels returns 0 for every mesh — including /Engine/BasicShapes/Cube — with success:true and an empty error log"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: bug
 tags: [python-execute, static-mesh, StaticMeshEditorSubsystem, pie, sentinel, silent-wrong-data, false-success, multi-agent, editor-scripting-guard]
@@ -102,5 +102,48 @@ The count of these argues for a cross-cutting answer (a PIE probe every read pat
 a standard "this result may be a PIE refusal" annotation) rather than four independent patches.
 Not proposing that here; noting the pattern for whoever works the band.
 
+Current family status after wave 1: `B-asset-exists-duplicate-false-negative-in-pie` and
+`B-asset-save-pie-failure-reports-pendingflush` are `IN-REVIEW` with fixes using the shared PIE
+predicate. `B-compile-bpir-edit-lost-during-pie` and
+`B-model-compile-pie-blocked-save-unattributed` remain `OPEN`.
+
+## Fix
+
+**Verdict: TRUE.** UE 5.8 source confirms the mechanism in
+`C:\UE_5.8\Engine\Source\Editor\StaticMeshEditor\Private\StaticMeshEditorSubsystem.cpp`:
+`GetLodCount` at lines 919-936 returns `-1` when `CheckIfInEditorAndPIE` rejects the call, and
+`GetNumUVChannels` at lines 2073-2095 returns `0`. The shared predicate mirrors the engine check
+at `EditorScriptingHelpers.cpp:143-160`. One supporting inference in the report was wrong:
+`GetLodBuildSettings` is also guarded at lines 519-545, so its observed plausible output cannot
+show that the binding bypasses the guard.
+
+`PythonExecuteHandler.cpp` now samples the shared `PinWrightPieState` predicate around execution.
+When PIE is active it preserves the Python command verdict, adds `pieActive: true`, and appends a
+`Warning` log entry naming the two known sentinel-returning calls and the retry/typed-verb remedy.
+This covers file execution too because `execute_file` is a mode of `python.execute`; no separate
+`python.execute_file` RPC exists. `Docs/wiki-src/python.md` documents the conditional response
+field and warning contract.
+
+Files changed:
+
+- `Source/PinWright/Private/Handlers/System/PythonExecuteHandler.cpp`
+- `Source/PinWright/Private/Tests/Infra/TestPythonPieSentinelWarning.cpp`
+- `Source/PinWright/Private/Tests/Assets/TestStaticMeshPieSafeDescribe.cpp`
+- `Docs/wiki-src/python.md`
+
+Tests added:
+
+- `PinWright.python.execute.PieSentinelWarning`
+- `PinWright.static_mesh.describe.PieSafeNativeLodCount`
+
+Deliberately unchanged: `StaticMeshDumpBuilder.cpp` already reads
+`UStaticMesh::GetNumLODs` directly and never calls `UStaticMeshEditorSubsystem`, so
+`static_mesh.describe` and the dump sidecar remain truthful under the PIE predicate; the second
+test ratchets that route. UV-channel output was not added because it is separate feature ticket
+`F-static-mesh-uv-channel-readout`, which remains `OPEN`. The handler does not turn every Python
+call into an error during PIE because arbitrary scripts can still do valid work and PinWright
+cannot attribute an arbitrary returned value to the guarded engine API.
+
 ## History
 - `#1-filed` `OPEN` WEAPONS-critic — Measured during a WEAPONS critic review, in the shared editor, while another stream held PIE (`unreal.UnrealEditorSubsystem().get_game_world()` returned `UEDPIE_0_T_UI` at the time). Via `python.execute`: `StaticMeshEditorSubsystem.get_lod_count(mesh)` returned **-1** and `get_num_uv_channels(mesh, 0)` returned **0** for `/Game/FPS/Weapons/Meshes/SM_WPN_AR`, `/Game/FPS/Weapons/Meshes/SM_WPN_Pistol` **and for `/Engine/BasicShapes/Cube`** — an engine primitive that cannot have zero UV channels — with `success: true` and an empty error log. `get_lod_build_settings` on the same meshes in the same window returned correct data, so the handles were valid and the failure is per-binding. Root cause is an explicit GUESS, no source read: `EditorScriptingHelpers::CheckIfInEditorAndPIE` fails during PIE and the bindings return sentinel values rather than erroring, with `get_lod_build_settings` unaffected because it carries no such guard. Impact is the rubric's High band verbatim — a caller who does not cross-check reports "0 UV channels" as fact, and neither `0` nor `-1` looks impossible for a mesh in isolation. Ask: an error, not a sentinel, when the editor-scripting guard rejects the call; if the refusal is unreachable from the plugin side, document the trap on `python.execute` and expose the counts through a verb that can report the refusal (see `F-static-mesh-uv-channel-readout`). Workaround: cross-check every batch against a known-good asset in the same call and discard the batch when the known-good answer is also impossible. Same family as `B-asset-exists-duplicate-false-negative-in-pie` and `B-compile-bpir-edit-lost-during-pie`, different surface.
+- `#2-pie-sentinel-warning` `IN-REVIEW` developer — Verified the engine guard and sentinel returns in UE 5.8 source, then annotated every `python.execute` response observed during PIE with `pieActive: true` plus a warning naming the unsafe static-mesh calls. Added handler-level TGuardValue coverage, a native static-mesh describe ratchet, and the Python contract documentation; the already-native dump builder and the separate UV-readout feature were deliberately left unchanged.

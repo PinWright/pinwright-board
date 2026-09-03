@@ -1,7 +1,7 @@
 ---
 id: B-nested-gamethread-marshal-defeats-tick-gate
 title: "Eleven handler bodies still run inside a redundant AsyncTask(ENamedThreads::GameThread) marshal, which drops them out of the dispatcher's reentrancy guard and makes the SafePoint table unable to gate them — the exact shape that killed the editor on asset.reload"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: bug
 tags: [dispatch, safepoint, tick-safety, rpc-dispatcher, landscape, asset, reentrancy, render-flush, editor-crash-risk, ratchet]
@@ -157,5 +157,56 @@ Three parts. Parts 1 and 2 are separable per verb; part 3 is what stops the regr
 **Workaround:** none available to a caller. There is no in-band way to know which stack a
 marshalled body will land on, and no parameter that changes it.
 
+## Fix
+
+The finding was TRUE. `FRpcDispatcher::ProcessRequest` already enters the GameThread before the
+safe-point and reentrancy gates, but all eleven Group-1 handlers still returned after scheduling a
+second GameThread task. The fix removes those redundant continuations: the two harmless handlers
+now answer synchronously, the two hazardous handlers without cross-dispatch callers are declared
+tick-unsafe in `Dispatch/SafePoint.cpp`, and the seven hazardous handlers reachable through
+`environment.build` use `PinWrightSafePoint::RunAtSafePoint` inside the handler so direct and
+cross-dispatched calls share the same safe position.
+
+A verifier found that the first implementation moved cross-dispatched work to a safe point but
+released `bProcessingRequest` before the ticker continuation ran. `RunAtSafePoint` now routes a
+dispatcher-owned context back through `FRpcDispatcher`, which keeps the active request and modal
+probe open across the hop, parks pending drains, and releases/drains only after the last
+continuation returns. A shared lifetime sentinel drops a late callback safely if subsystem
+shutdown destroys the dispatcher first.
+
+Files changed:
+- `Source/PinWright/Private/Dispatch/SafePoint.cpp`
+- `Source/PinWright/Private/Dispatch/SafePoint.h`
+- `Source/PinWright/Private/Dispatch/RpcDispatcher.cpp`
+- `Source/PinWright/Private/Dispatch/RpcDispatcher.h`
+- `Source/PinWright/Private/Handlers/HandlerContext.cpp`
+- `Source/PinWright/Private/Handlers/HandlerContext.h`
+- `Source/PinWright/Private/Handlers/Asset/AssetManageHandler.cpp`
+- `Source/PinWright/Private/Handlers/Asset/AssetMetadataHandler.cpp`
+- `Source/PinWright/Private/Handlers/Asset/AssetWorkflowHandler.cpp`
+- `Source/PinWright/Private/Handlers/Environment/LandscapeHandler.cpp`
+- `Source/PinWright/Private/Handlers/Environment/LandscapeGrassFlushHandler.cpp`
+- `Source/PinWright/Private/Tests/Infra/TestHandlerTickSafetyRatchet.cpp`
+- `Source/PinWright/Private/Tests/Infra/TestDispatcherSafePointReentrancy.cpp`
+- `docs/arch.md`
+- `docs/rpc-design.md`
+
+Test id: `PinWright.infra.tick_safety.HandlerHazardsStayGated`. It neutralizes
+comments, proves the regex against a fixed sample, rejects any new handler-body marshal, requires
+the seven in-handler gates, requires both dispatcher-table entries, and explicitly allow-lists the
+four job-delegate continuations. The same ratchet now also carries the 59-route Blueprint compile
+gate/reporting contract; that extension does not change this ticket's marshal allow-list or
+safe-point assertions. Per the worker brief, no editor, build, MCP call, or automation run was
+performed. The four job-delegate marshals were deliberately not changed because removing them
+would make their `StartJob` work synchronous; the `render.nanite_rebuild_mesh` continuation's
+separate safe-point need remains outside this ticket.
+
+Additional test ids:
+`PinWright.infra.dispatcher.SafePointContinuationRetainsRequestScope` and
+`PinWright.infra.dispatcher.DestroyedOwnerDropsSafePointContinuation`.
+
 ## History
 - `#1-filed-the-follow-up-safepoint-promised` `OPEN` reporter — Filed from a source read alone (no editor launched, no repro attempted), as the follow-up `SafePoint.cpp:410` says is "filed separately" and that no ticket on this board turned out to carry. Confirmed the marshal is redundant at `RpcDispatcher.cpp:586` (game-thread hop) against `:696` (safe-point gate) and `:745-784` (`bProcessingRequest`), then classified all fifteen `AsyncTask(ENamedThreads::GameThread` sites under `Handlers/` by reading each deferred body. Eleven are the `asset.reload` shape; nine of those eleven pump the engine (render-state recreation, `UStaticMesh::Build`, package re-saves and deletes, `FScopedSlowTask`, GPU texture flush, forced grass regeneration) and **none** of the nine is in `GTickUnsafeMethodNames` (42 entries). The remaining four sit inside a job bind delegate, which `StartJob` invokes synchronously (`HandlerContext.cpp:627` via `SafePoint.h:138`), so for those the marshal is load-bearing and deleting it would break the ticket contract — they are listed separately so a pattern-match fix pass does not touch them. Two corrections to the finding that prompted this: `asset.validate` is NOT a hazard — `SafePoint.cpp:469-473` already adjudicates it harmless (it re-reads a resident `UObject`, no eviction, no fixup, no GC) and removing its marshal is cleanup, not a fix; and the "~17 sites" figure counts two comment lines, the real call count is 15. The named defect is `landscape.set_material` (`LandscapeHandler.cpp:1563` -> `:1600` -> `PostEditChangeProperty` at `:312`), which reaches hazard family I's engine code, whose shipped evidence is two editor kills on 2026-08-16, and which cannot be fixed by a table entry for two independent reasons — the marshal, and the `environment.build` cross-dispatch at `EnvironmentHandler.cpp:407`. Severity High: Critical impact class (editor crash) bumped down one for reach, no fault yet observed through these specific verbs.
+- `#2-removed-nested-handler-marshals` `IN-REVIEW` developer — Removed all eleven redundant handler-body GameThread continuations, kept the four `StartJob` continuations explicit, routed seven cross-dispatched hazards through `RunAtSafePoint`, dispatcher-gated `asset.fixup_redirectors` and `landscape.flush_grass`, added the shared source ratchet `PinWright.infra.tick_safety.HandlerHazardsStayGated`, and documented why a nested marshal also escapes the active request guard. Static source and diff checks only; no Unreal process, build, MCP call, or automation run.
+- `#3-extended-shared-ratchet` `IN-REVIEW` developer — Extended the already shared `HandlerHazardsStayGated` structural test with the 59-route Blueprint reporting contract while preserving this ticket's exact four-marshal allow-list, seven in-handler safe-point checks, and two dispatcher-gated methods. Static source and diff checks only; no Unreal process, build, MCP call, or automation run.
+- `#4-kept-guard-across-continuation` `IN-REVIEW` developer — Corrected the verifier-found ordering gap by retaining the dispatcher's active reentrancy scope across a cross-dispatched `RunAtSafePoint` continuation, parking queued RPCs until it returns, and safely dropping the callback if dispatcher shutdown wins. Added focused ordering, safe-point, guard-state, and lifetime tests. Static checks only; no Unreal process, build, MCP call, or automation run.

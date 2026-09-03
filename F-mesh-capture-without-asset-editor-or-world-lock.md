@@ -1,7 +1,7 @@
 ---
 id: F-mesh-capture-without-asset-editor-or-world-lock
 title: "An asset-authoring agent has no way to LOOK at the mesh it just authored: the only two static-mesh capture routes are render.capture_asset_preview, which opens a real asset editor, and render.capture_open_level, which needs the world lock - so on a shared editor every mesh agent but one is blind"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: feature
 tags: [render, capture_asset_preview, capture_open_level, static-mesh, pwmodel, world-lock, multi-agent, verification, workflow]
@@ -91,3 +91,30 @@ returns a path rather than writing an asset thumbnail, would cover most authorin
   correctly tagged and passing every gate. Both findings point the same way: for a mesh, looking is
   not a review step that can be deferred to whoever has the lock, it is an instrument with no
   substitute, and it is currently rationed to one agent at a time.
+- `#2-transient-mesh-capture` `IN-REVIEW` developer - Added `render.capture_mesh`: each RPC owns one
+  transient `FPreviewScene`, shared rig state, mesh component, `USceneCaptureComponent2D`, render
+  target, PNG readback and optional subject-coverage reference, reusing them across its shot set
+  without opening an asset editor or using the active level world. Registered it as tick-unsafe,
+  bounded rendered pixels, and added the GPU-gated cube capture regression test
+  `PinWright.render.capture_mesh.TransientCubeHasNonFlatPixels`.
+
+## Fix
+
+The ticket is PARTLY TRUE: the existing `asset.generate_thumbnail` route was already offscreen,
+but it did not provide controlled shot sets, `front_back_face`, the shared `previewScene` rig shape,
+coverage, or the capture `imageStats` contract. The root cause was that full mesh review was coupled
+to editor-owned preview viewports, while the reusable scene-capture probe only exposed float analysis
+against a supplied world; the fix adds a colour/PNG production boundary that creates one bare transient
+preview world and local rig components per RPC, reuses them across shots, serves both static and skeletal
+meshes, supports explicit poses plus `count`/`views:"sides"`, and reports the existing preview-scene,
+image-stat, flat-region, and differential-coverage evidence.
+
+Files changed: `Handlers/Render/MeshPreviewCaptureUtils.{h,cpp}`,
+`Handlers/Render/SceneCaptureProbeUtils.{h,cpp}`, `Handlers/Render/PreviewSceneRig.{h,cpp}`,
+`Handlers/Render/PreviewViewportCaptureUtils.{h,cpp}`, `Handlers/Render/RenderHandler.cpp`,
+`Dispatch/SafePoint.cpp`, `Tests/Render/TestMeshPreviewCapture.cpp`, and the render wiki source pages
+`render.md`, `render.preview-scene-rig.md`, `render.view-modes.md`, and
+`render.capture-exposure.md`. Test id:
+`PinWright.render.capture_mesh.TransientCubeHasNonFlatPixels` (not run in this worker wave by rule).
+Deliberately unchanged: the existing asset-editor capture and thumbnail contracts, active-world locking,
+and skeletal animation playback; animated poses remain the job of `render.capture_animation_preview`.

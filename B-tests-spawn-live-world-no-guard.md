@@ -1,7 +1,7 @@
 ---
 id: B-tests-spawn-live-world-no-guard
 title: "12 test files spawn actors into the live editor world through SpawnActorInActiveWorld with no FScopedEditorWorldActorGuard, so probe actors accumulate in the host's map and the selection-set fatal the guard exists to prevent stays reachable"
-status: OPEN
+status: IN-REVIEW
 severity: Medium
 category: bug
 tags: [tests, hygiene, editor-world, actor-cleanup, scoped-guard, host-safety, selection-set, fatal]
@@ -73,9 +73,11 @@ is dirty `/Game` *packages*, not leaked *actors*. So the item is currently owned
 the two files named in this session's independent audit (`TestActorDuplicateMeshIntegrity.cpp`
 and `TestActorDuplicateComponentHandler.cpp`) are 2 of the 12 above.
 
-Note the path in `B-tests-destroy-host-assets` is stale: it cites
-`PinWrightGeometry/Private/Tests/Geometry/TestActorDuplicateMeshIntegrity.cpp`; the file now
-lives at `PinWright/Private/Tests/World/TestActorDuplicateMeshIntegrity.cpp`.
+The path note in `B-tests-destroy-host-assets` is only partly stale: the current tree still has
+the end-to-end fixture at `PinWrightGeometry/Private/Tests/Geometry/TestActorDuplicateMeshIntegrity.cpp`
+and also has the pure probe/classifier coverage at
+`PinWright/Private/Tests/World/TestActorDuplicateMeshIntegrity.cpp`. The 12-file list here names
+the main-module pure test; the geometry E2E test remains outside this ticket's main-module scope.
 
 Provenance for the wider census: `B-suite-host-gc-crash-in-combined-group-run` `#4` recorded
 "11 test files spawn into the live editor world without `FScopedEditorWorldActorGuard`
@@ -114,5 +116,64 @@ brings the deselect. Consider a `TestWikiSrcOverlayStructure`-style infra lint t
 a test file calls `SpawnActorInActiveWorld` without declaring the guard — the whole class
 recurs otherwise, as it already has twice.
 
+## Fix
+
+**Verdict: STATICALLY COMPLETE WITHIN THE TICKET SCOPE.** The root cause is confirmed: the 12 named main-module test files
+either spawn into the active editor world directly or invoke a test handler that does so
+indirectly, and their probe actors were not consistently protected by
+`FScopedEditorWorldActorGuard`. The literal census overstates direct helper calls: comments in
+`TestEnvironmentDirtyFlags.cpp` and `TestCreateProceduralTerrainLabel.cpp` mention the helper,
+while the actual spawn is inside the invoked production handler. The current checkout also
+retains both duplicate-mesh files; the geometry E2E path was not moved and was not edited.
+
+The 12 named tests now declare `FScopedEditorWorldActorGuard` before their live-world fixture
+work, and the duplicate-mesh pure test no longer uses its bespoke actor-destroy scope exits.
+Three additional unguarded bodies found during review in
+`Tests/World/TestEnvironmentHandlers.cpp` are also guarded: the two tests that call the local
+`SpawnActorWithRootScene` helper and the directional-light test that calls
+`SpawnActorInActiveWorld` directly. Their manual `Actor->Destroy()` scope exits were removed
+because those ran before the world guard and prevented its deselection path from seeing the actor.
+The indirect environment/terrain tests retain their existing dirty-flag assertions while the
+guard owns actor teardown. The registered structural ratchet now parses each `RunTest` body after
+neutralizing comments and literals. It requires an active lexical
+`FScopedEditorWorldActorGuard` before each direct `SpawnActorInActiveWorld` call and each known
+local actor-spawn helper call (including `SpawnActorWithRootScene`), and it names all four
+handler-indirect `RunTest` bodies explicitly and requires the guard before their handler calls.
+Missing, unreadable, or brace-malformed source fails instead of silently reducing coverage.
+
+Changed source files:
+
+- `Plugins/PinWright/Source/PinWright/Private/Tests/Environment/TestEnvironmentDirtyFlags.cpp`
+- `Plugins/PinWright/Source/PinWright/Private/Tests/Sequencer/TestSequencerAddActorBinding.cpp`
+- `Plugins/PinWright/Source/PinWright/Private/Tests/Sequencer/TestSequencerBakeControlRig.cpp`
+- `Plugins/PinWright/Source/PinWright/Private/Tests/Sequencer/TestSequencerCameraRigBinding.cpp`
+- `Plugins/PinWright/Source/PinWright/Private/Tests/Sequencer/TestSequencerControlRigTrack.cpp`
+- `Plugins/PinWright/Source/PinWright/Private/Tests/Sequencer/TestSequencerFbxRoundtrip.cpp`
+- `Plugins/PinWright/Source/PinWright/Private/Tests/Sequencer/TestSequencerRemoveActorsNameLabel.cpp`
+- `Plugins/PinWright/Source/PinWright/Private/Tests/Sequencer/TestSequencerSectionRangeUnits.cpp`
+- `Plugins/PinWright/Source/PinWright/Private/Tests/World/TestActorDuplicateComponentHandler.cpp`
+- `Plugins/PinWright/Source/PinWright/Private/Tests/World/TestActorDuplicateMeshIntegrity.cpp`
+- `Plugins/PinWright/Source/PinWright/Private/Tests/World/TestCreateProceduralTerrainLabel.cpp`
+- `Plugins/PinWright/Source/PinWright/Private/Tests/World/TestEnvironmentHandlers.cpp`
+- `Plugins/PinWright/Source/PinWright/Private/Tests/World/TestGetComponentsLargePayload.cpp`
+- `Plugins/PinWright/Source/PinWright/Private/Tests/Infra/TestFixtureOwnershipContracts.cpp`
+
+Structural test ID: `PinWright.infra.contract.EditorWorldSpawn.GuardedTestSpawns`. It was not
+run, and no build, Unreal, MCP, or runtime verification was performed as required by the brief.
+
+Deliberate nonchanges: no production handlers, `TestWorldUtils`, `TestAssetTeardown`,
+`Utils/AssetUtils`, or `PinWrightGeometry` files were edited. The geometry E2E bespoke cleanup
+remains outside this ticket's named main-module set. This is static verification only; the
+registered ratchet and guarded tests still require compile and automation execution by review.
+
 ## History
 - `#1-twelve-unguarded-spawn-files` `OPEN` reporter — Source-only census over all eight modules; **no suite was run and no plugin source was modified** (tree is mid-verification on another wave). `grep -rl SpawnActorInActiveWorld` over `Source/` returns 17 test files and 9 handler files; `grep -rl FScopedEditorWorldActorGuard` returns 65 files; the set difference over the test files is the **12** listed above. Read the guard at `Tests/TestWorldUtils.h:58-135` and confirmed its destructor deselects from both `GEditor->GetSelectedActors()` and `GetSelectedComponents()` before `EditorDestroyActor`, and restores the persistent level's dirty flag last — and that its comment names the fatal ("Element type ID '0' has not been registered!") and the path that reaches it (`editor.save_all` content validation walking a stale typed-element handle). Widens `B-suite-host-gc-crash-in-combined-group-run` `#4`'s incidental finding of 11 files to a re-derived 12, and picks up the item `B-tests-destroy-host-assets` `#3` declined to do and mis-routed to `B-tests-leak-host-content`, whose shipped fix covers dirty packages only and not leaked actors — so the item was owned by nobody. Also corrects a stale path in `B-tests-destroy-host-assets`: `TestActorDuplicateMeshIntegrity.cpp` is now under `PinWright/Private/Tests/World/`, not `PinWrightGeometry/Private/Tests/Geometry/`. Filed separately from `B-tests-addtoroot-fixtures-never-unrooted` (the AddToRoot half of the same audit) because the mechanisms differ (world-actor teardown vs GC-root teardown), the fix sites differ, and merging would force one half to be worked at the other's priority. Severity Medium with the crash escalation condition recorded rather than pre-applied.
+- `#2-guard-live-world-spawns` `IN-REVIEW` developer — Source-only PARTLY TRUE review; guarded the 12 named main-module test files and added `PinWright.infra.contract.EditorWorldSpawn.GuardedTestSpawns` with indirect-spawn baselines. No build or test was run. The remaining handler-focused direct spawn and geometry E2E cleanup are deliberate nonchanges recorded above.
+- `#3-close-review-gaps` `IN-REVIEW` developer — Static review correction: guarded the two
+  `SpawnActorWithRootScene` callers and the direct directional-light spawn in
+  `Tests/World/TestEnvironmentHandlers.cpp`, removing their earlier manual destroy exits so the
+  guard owns deselection and teardown. Replaced the whole-file count ratchet with registered
+  per-`RunTest` lexical guard-before-spawn coverage in `TestFixtureOwnershipContracts.cpp`;
+  unreadable/malformed files and missing explicit indirect bodies fail closed. Corrected the
+  duplicate-mesh path evidence: both the main-module pure test and geometry E2E test exist. No
+  build, Unreal, automation, MCP, or runtime verification was run.

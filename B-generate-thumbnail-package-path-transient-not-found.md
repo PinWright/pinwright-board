@@ -1,7 +1,7 @@
 ---
 id: B-generate-thumbnail-package-path-transient-not-found
 title: "EditorAssetLibrary existence and listing helpers intermittently answer \"does not exist\" for assets that do, in a shared editor under concurrent writes — asset.generate_thumbnail surfaces it as ASSET_NOT_FOUND, and a false negative here invites a caller to re-create and clobber a live asset"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: bug
 tags: [thumbnail, asset-path, asset-registry, shared-editor, false-negative, editor-asset-library]
@@ -51,10 +51,15 @@ Context that may matter: this is a shared editor with six other agent streams li
 failing window was immediately after a batch of `model.compile` and `asset.nanite_rebuild_mesh`
 writes on neighbouring assets, so async asset compilation was in flight.
 
-## Workaround
+## Prior workaround (retracted)
 
-Pass the object path (`/Package/Name.Name`) whenever a package path returns `ASSET_NOT_FOUND`
-for an asset that exists; it resolved on the first attempt every time.
+History #4 proved that switching to `/Package/Name.Name` is not reliable: the global PIE gate rejects package and object forms alike. Before this fix the only dependable response was to stop PIE or bypass `UEditorAssetLibrary` with the registry plus `load_package`/`find_asset`; no path spelling repaired the wrapper.
+
+## Fix
+
+The per-asset and residency theories were red herrings. Unreal's `UEditorAssetLibrary` wrappers first call `EditorScriptingHelpers::CheckIfInEditorAndPIE()`, which rejects every lookup when a PIE world exists; that one global gate explains the simultaneous false results from `does_asset_exist`, `load_asset`, `does_directory_exist`, and `list_assets`, including the resident object in history #4. `asset.generate_thumbnail` now resolves and loads through the shared registry plus `FindObject`/`LoadObject` resolver, so both package and object paths bypass the play-mode gate; a real miss is `ASSET_NOT_FOUND`, while an existing asset that cannot load is `LOAD_FAILED`.
+
+Files changed: `Source/PinWright/Private/Utils/AssetUtils.h/.cpp`, `Source/PinWright/Private/Handlers/Asset/AssetWorkflowHandler.cpp`, `Source/PinWright/Private/Tests/Assets/TestAssetPieSafeResolution.cpp`, and `docs/wiki-src/asset.md`; the shared migration also covers the other Asset handler read gates named by the companion ticket. Tests: `PinWright.Assets.AssetResolution.RegistryAndLoadAvoidEditorAssetLibrary` and `PinWright.Assets.AssetResolution.AssetHandlersAvoidPieBlockedLibraryReads`. Deliberately unchanged: thumbnail rendering and camera/readiness logic, because the defect was in the pre-render existence/load gate, not rendering.
 
 ## History
 - `#1-filed` `OPEN` reporter — Observed 2026-09-03, UE 5.8, PinWright at this checkout's HEAD, building the FPS compound map (map as forcing function; host `CLAUDE.md` § "What this project is for"). `asset.generate_thumbnail` with `assetPath: "/Game/FPS/Env/Meshes/SM_ENV_Truck"` returned `[ASSET_NOT_FOUND] Asset not found` twice while the same asset resolved through `does_asset_exist`, `load_asset` and the asset registry in the same second, and while the identical call on `/Game/FPS/Env/Meshes/SM_ENV_Barrier_Jersey` in the same batch succeeded. The object-path form `/Game/FPS/Env/Meshes/SM_ENV_Truck.SM_ENV_Truck` succeeded immediately; a package-path retry a minute later also succeeded, so the state cleared on its own. Not reproducible on demand — `collect_garbage()` did not unload the mesh and later package-path calls all succeeded — so this is recorded as evidence rather than as a repro, with the working hypothesis that the package-path branch resolves only already-resident objects while the object-path branch loads. Filed rather than dropped because a false `ASSET_NOT_FOUND` is indistinguishable, to a caller, from an asset that was never written, which is exactly the confusion this build was in the middle of (three prior tickets on this project turned on writes that reported success and did not land).
@@ -129,3 +134,4 @@ for an asset that exists; it resolved on the first attempt every time.
   Third distinct asset (`MPC_ENV_Hero_4K`, `LS_ENV_Hero`, now `SM_ENV_RoofBallast`), third distinct directory reported non-existent (`/Game/FPS/Env/Cine`, `/Game/FPS/Env/Materials`, `/Game/FPS/Env/Meshes`) while the registry lists all of them.
 
   **Only reliable route left, and the one now in force on this build:** `unreal.find_asset('<package>.<name>')`, after `unreal.load_package('<package>')` if it returns None. Any PinWright verb that resolves a caller's asset path should do the same; none of `does_asset_exist`, `load_asset`, `does_directory_exist` or `list_assets` can be trusted as a gate.
+- `#5-shared-pie-gate-fixed` `IN-REVIEW` developer — Source review found one deterministic cause for every fingerprint in this ticket: all four `UEditorAssetLibrary` helpers reject work through the same global play-mode guard. Migrated `asset.generate_thumbnail` and the companion Asset handler gates to the new registry/object/package resolver, preserving both package and object path forms and separating true not-found from load failure. Added structural/unit coverage and wiki contract notes; no live editor, build, or suite run was performed under this worker brief.

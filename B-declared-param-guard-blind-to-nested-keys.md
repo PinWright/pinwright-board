@@ -1,7 +1,7 @@
 ---
 id: B-declared-param-guard-blind-to-nested-keys
 title: "Keys nested inside an object/array parameter are validated by nothing and checked by no test in either direction: 325 of 1218 verbs carry the surface, only 2 close it, and five hand-confirmed verbs accept a documented nested key and silently discard it"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: bug
 tags: [dispatcher, unknown-params, undeclared-parameter, param-spec, nested-object, schema, silent-drop, test-coverage, guard-blind-spot, response-honesty]
@@ -313,6 +313,57 @@ an unqualified success (predicted from source, not observed), and whether
 `material.authoring.create_material_instance` with a mis-nested `parameters` really returns
 `applied:[]`/`failed:[]` alongside `success`. Neither changes the fix.
 
+## Fix (implemented)
+
+**Root cause.** The generic dispatcher gate that landed in `#3` closed only parameters with a
+machine-readable `NestedKeys` schema. Three confirmed cases remained outside that mechanism:
+`animation.create_state_machine` advertised state fields it never read, Blueprint/Networking pin
+parsers skipped non-object array elements, and EQS parsed one branch while accepting fields from
+the others. The recursive Image/Music/Synth schema parsers also carried three copies of the same
+unknown-key walk with different public error policies.
+
+**Files.** `Utils/JsonUtils.h/.cpp` now owns the policy-driven unknown-key collector; ImageOps,
+PwMusicScore and PwSynthRecipe keep thin formatting/path adapters so their ordering, recursion and
+error text and case matching do not change. `Handlers/Animation/AnimationHandler.cpp` makes `states[]` a closed
+`{name,isEntry}` schema. `Handlers/Blueprint/BlueprintHandlerUtils.h/.cpp`,
+`BlueprintFunctionHandler.cpp`, and `Handlers/Networking/NetworkingHandler.cpp` share and call an
+exact `{name,type}` element-shape validator before load/busy state. `Handlers/AI/EQSHandler.cpp`
+rejects discriminator conflicts, missing or wrong-typed branch values, and unknown/off-branch
+fields before query load, then writes only the selected branch. Contract changes are documented in
+`Docs/rpc-design.md` and `Docs/wiki-src/{animation,blueprint,networking,eqs}.md`.
+
+**Tests.** Added `PinWright.core.json.reject_unknown_keys.PoliciesPreserveOrdering`,
+`PinWright.infra.dispatcher.NestedInputClosure.ConfirmedCasesRefuseBeforeLoad`,
+`PinWright.infra.declared_params.DeclaredParamsHaveSourceUse`, and
+`PinWright.infra.declared_params.DeclaredParamSourceUseScannerBlanksDeclarations`; the last directly
+checks that declaration blanking removes a declaration-only literal but preserves a body use. Extended
+`PinWright.infra.dispatcher.NestedParamKeyGate.AdoptionSetIsRatcheted` for animation and
+`PinWright.infra.declared_params.NestedKeysMatchTheirParameterDescriptions` to compare every
+production adopter's `NestedKeys` against the first documented outer `{...}` schema,
+case-insensitively in both directions with a non-vacuity floor. Extended production-parser
+regressions in `Tests/Media/TestPwMusicScore.cpp`
+(`PinWright.audio.music.score.FieldPath`) and `Tests/Media/TestPwSynthRecipe.cpp`
+(`PinWright.audio.synth.recipe.StrictVocabulary`) to pin case-insensitive known-key behavior.
+
+**Deliberately not changed.** Option A remains rejected: nested reads were not mixed into the
+top-level `RPC_PARAMS` scan. `RpcDispatcher.cpp`, `ParamSpec.h`, `NestedParamKeyCheck.h`, and
+`ErrorCodes.h` were left alone because the existing generic gate is sufficient. The other
+object/array parameters were not adopted in bulk; each remaining closed schema is a separate
+compatibility-reviewed follow-up.
+
+**Step 3 follow-up.** `DeclaredParamsHaveSourceUse` now checks every accepted spelling from the
+live registration: the canonical `Spec.Name`, every untyped `Spec.Aliases` entry, and every
+`Spec.TypedAliases[].Name`. Findings retain the existing canonical `method:name` format and report
+aliases as `method:canonical/alias`; no alias is added to the justified baseline.
+
+The first full-suite run exposed three production contract defects, all fixed without weakening
+the assertion or adding a baseline. The hard-disabled `ai.add_composite_node` and
+`ai.add_task_node` routes now declare no inputs instead of requiring ignored `compositeType` /
+`taskType` values. `networking.configure_movement_prediction` now parses and validates
+`networkSmoothingMode`, then applies it to `UCharacterMovementComponent::NetworkSmoothingMode`
+alongside the two distance settings. The namespace docs and asset-free regression coverage pin
+both decisions.
+
 ## History
 - `#1-nested-keys-unguarded-both-directions` `OPEN` reporter — Source-read only; no editor, no
   build, no test run (a suite was live against the DLL). **Exclusion verified in three places:**
@@ -487,3 +538,20 @@ an unqualified success (predicted from source, not observed), and whether
   could be re-pointed from descriptions to `NestedKeys` for the adopters — not attempted.
   **NOT COMPILED and NOT RUN** — the orchestrator owns the build and the suite. Plugin source left
   dirty and uncommitted by instruction; only this board file is committed.
+- `#4-closed-confirmed-nested-inputs` `IN-REVIEW` developer — Completed option C then the cheap B'
+  and independent step 3: consolidated deep unknown-key collection without changing Image/Music/
+  Synth error behavior, closed animation state fields, rejected malformed Blueprint/Networking pin
+  elements and branch-inert EQS fields before asset load, added production-dispatch and source-scan
+  regressions, ratcheted the adopter/description contracts, and updated the affected wiki pages.
+  Option A and broad adoption remain deliberately excluded. Statically inspected only; not built
+  or run.
+- `#5-accepted-spelling-source-use-follow-up` `IN-REVIEW` developer — Extended
+  `PinWright.infra.declared_params.DeclaredParamsHaveSourceUse` to cover canonical names, untyped
+  aliases, and typed-alias names outside `RPC_PARAM_*` declaration spans. Added the focused
+  counterfactual coverage to `PinWright.infra.declared_params.DeclaredParamSourceUseScannerBlanksDeclarations`;
+  static source review found no unused accepted alias spelling, so no alias baseline exemption was
+  added. Static-only follow-up; not built or run.
+- `#6-fixed-first-source-use-findings` `IN-REVIEW` developer — Removed the ignored input contracts
+  from the two hard-disabled AI routes, wired and validated the live networking smoothing-mode
+  input, and documented and covered both outcomes without allow-listing any finding. Static-only
+  follow-up; not built or run.

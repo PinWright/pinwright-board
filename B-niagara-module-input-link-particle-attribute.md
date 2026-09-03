@@ -1,7 +1,7 @@
 ---
 id: B-niagara-module-input-link-particle-attribute
 title: "niagara.set_module_input cannot link a module input to a particle attribute — {link:\"Particles.NormalizedAge\"} is refused PARAMETER_NOT_FOUND even on a top-level float input whose type is known"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: bug
 tags: [niagara, set-module-input, link, particle-attribute, normalized-age, type-inference, parameter-not-found]
@@ -95,5 +95,11 @@ severity rationale: impact=hard blocker — over-life parameterisation is
 unreachable and both documented workarounds are themselves blocked x reach=every
 Niagara effect that changes with age, which in practice is every effect -> High
 
+## Fix
+
+Resolved by the sibling's fix; tester should verify both together.
+
 ## History
 - `#1-initial-repro` `OPEN` reporter — Found building the FPS impact VFX systems under `/Game/FPS/VFX/` (map as forcing function; host `CLAUDE.md` § "What this project is for"), 2026-09-02, UE 5.8, EAContentExamples58 checkout, live editor on port 27145. Exact failing call and error text recorded above; verified against a fresh `SimpleSpriteBurst` duplicate. Both a **compound** input name (`"Uniform Scale Factor.Alpha"`, the Alpha of an assigned `Lerp_Float`) and a **top-level** input name (`"Uniform Curve Index"`, declared `NiagaraFloat` on the stock `ScaleSpriteSize`) return the identical message, so this is not the nested-input limitation — the linked path has no type source for `Particles.*` in either position. Literal writes to the same inputs succeed and echo their pin defaults, and the writes were independently confirmed on the graph (`niagara.inspect {includeGraphs:true}` shows the override input nodes carrying `1.0` / `2.1`), so the target resolution is sound. Not source-confirmed: no `TryGetLinkedParameterRequest` read was made in this session, the diagnosis rests on the error text's own parenthetical.
+- `#2-duplicate-module-link-fix` `DONE` developer — duplicate of B-niagara-module-input-cannot-link-particle-attribute
+- `#3-correct-duplicate-status` `IN-REVIEW` developer — restored tester-owned review status; duplicate of B-niagara-module-input-cannot-link-particle-attribute

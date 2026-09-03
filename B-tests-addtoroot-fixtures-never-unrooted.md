@@ -1,7 +1,7 @@
 ---
 id: B-tests-addtoroot-fixtures-never-unrooted
 title: "Six test files AddToRoot their fixtures and never RemoveFromRoot — five Niagara tests plus AnimAuthoringTestFixtures.h — so those objects and their packages stay GC-immortal for the rest of the editor process while sibling files use an RAII root guard"
-status: OPEN
+status: IN-REVIEW
 severity: Low
 category: bug
 tags: [tests, hygiene, garbage-collection, addtoroot, fixture-teardown, niagara, memory, raii-guard]
@@ -72,5 +72,118 @@ matching `RemoveFromRoot` (or a small guard of the same shape) to the two sites 
 source lint pairing `AddToRoot` against `RemoveFromRoot`-or-guard per file would stop the class
 recurring, and is cheap because the shape is file-local.
 
+## Fix
+
+**Verdict: PARTLY TRUE (source-verified).** The five Niagara tests did not each leak on their
+normal and existing error paths: `NIRTestFixtures::DestroyFixture` already removes the rooted
+system and emitters. The original file-local census missed that indirect teardown and the
+caller-owned contract of the animation factories. It did find a real gap: eight post-setup early
+returns in `TestNIRGraphDataflow.cpp` skipped teardown, and that helper redundantly called
+`AddToRoot`.
+
+**Root cause.** Root ownership was split between shared fixture construction, explicit
+`DestroyFixture`, and caller-owned animation factories without a source-level ownership guard.
+The source-only set difference therefore over-reported normal-path leaks and could not see the
+dataflow null-node returns that actually bypassed cleanup.
+
+**Files changed.**
+
+- `X:\src\unreal\unreal-fpv-dev\Plugins\PinWright\Source\PinWright\Private\Tests\Niagara\TestNIRGraphDataflow.cpp`
+- `X:\src\unreal\unreal-fpv-dev\Plugins\PinWright\Source\PinWright\Private\Tests\Niagara\TestNIRGraphLinkCoverage.cpp`
+- `X:\src\unreal\unreal-fpv-dev\Plugins\PinWright\Source\PinWright\Private\Tests\Niagara\TestNiagaraGetModuleInputs.cpp`
+- `X:\src\unreal\unreal-fpv-dev\Plugins\PinWright\Source\PinWright\Private\Tests\Niagara\TestNiagaraMoveModule.cpp`
+- `X:\src\unreal\unreal-fpv-dev\Plugins\PinWright\Source\PinWright\Private\Tests\Niagara\TestNiagaraResetModuleInput.cpp`
+- `X:\src\unreal\unreal-fpv-dev\Plugins\PinWright\Source\PinWright\Private\Tests\Assets\AnimAuthoringTestFixtures.h`
+- `X:\src\unreal\unreal-fpv-dev\Plugins\PinWright\Source\PinWright\Private\Tests\Assets\TestAnimSequenceCreate.cpp`
+- `X:\src\unreal\unreal-fpv-dev\Plugins\PinWright\Source\PinWright\Private\Tests\Assets\TestAnimSequenceDumpBuilder.cpp`
+- `X:\src\unreal\unreal-fpv-dev\Plugins\PinWright\Source\PinWright\Private\Tests\Format\TestPwAnimCompiler.cpp`
+- `X:\src\unreal\unreal-fpv-dev\Plugins\PinWright\Source\PinWright\Private\Tests\Assets\NiagaraEditTestUtils.h`
+- `X:\src\unreal\unreal-fpv-dev\Plugins\PinWright\Source\PinWright\Private\Tests\Niagara\TestNIRFixtures.cpp`
+- `X:\src\unreal\unreal-fpv-dev\Plugins\PinWright\Source\PinWright\Private\Tests\Infra\TestFixtureOwnershipContracts.cpp`
+
+The five Niagara tests now use `FAuthorableSystemRoots` for the system and first emitter, while
+their existing `DestroyFixture` calls remain. Dataflow's eight null-node returns now explicitly
+destroy the fixture; the direct helper `AddToRoot` was removed. The animation header keeps its
+intentional two factory roots behind move-only `FScopedAnimAssetRoot`; all 13 calls to those two
+factories construct that owner as the next statement, so early returns cannot skip unrooting.
+`BuildEmptySystemWithEmitter` now destroys the already-rooted system if emitter construction
+fails. `FAuthorableSystemRoots` is move-only, transfers ownership on move, and clears both owned
+pointers after release so copying cannot cause a second unroot.
+
+The Python-only scanner and its Python unit test were removed. Registered Unreal test
+`PinWright.infra.contract.AddToRoot.ScopedFixtureOwnership` now reads every `.cpp` and `.h` under
+`Source/PinWright/Private/Tests`, checks exact evidence-derived file/count allow-lists for raw
+`AddToRoot` and the four known rooted producers, and verifies every `RunTest` producer call.
+Niagara calls require `FAuthorableSystemRoots` unless their exact file/function/count is in the
+legacy caller allow-list; animation calls require immediate `FScopedAnimAssetRoot` ownership in
+the same lexical scope. Unreadable or missing expected files, changed counts, and new bypass files
+all fail.
+
+**Test IDs covered.**
+
+`PinWright.niagara.decompile_nir.GraphOp`,
+`PinWright.niagara.decompile_nir.GraphParameterMapGet.GetLineFormat`,
+`PinWright.niagara.decompile_nir.GraphParameterMapGet.MetadataType`,
+`PinWright.niagara.decompile_nir.GraphParameterMapSet.SetLineFormat`,
+`PinWright.niagara.decompile_nir.GraphExplicitLink`,
+`PinWright.niagara.decompile_nir.GraphFunctionCall`,
+`PinWright.niagara.decompile_nir.GraphInput`,
+`PinWright.niagara.decompile_nir.GraphOutput`,
+`PinWright.niagara.decompile_nir.GraphParameterMapGet.AddPinSuppressed`,
+`PinWright.niagara.decompile_nir.GraphParameterMapSet.AddPinSuppressed`,
+`PinWright.niagara.decompile_nir.GraphLinkCoverage`,
+`PinWright.niagara.ModuleInputsSchema`,
+`PinWright.niagara.move_module.Registration`,
+`PinWright.niagara.move_module.RelayoutsNodePosY`,
+`PinWright.niagara.reset_module_input.HandlersRegistered`,
+`PinWright.niagara.reset_module_input.FindOverrideNodeNullGraph`, and
+`PinWright.niagara.reset_module_input.DynamicInputResetKeepsStackChain`.
+
+The animation factory callers are covered by `PinWright.Assets.AnimSequenceCreate.KeyCountMismatchIsRefused`,
+`PinWright.Assets.AnimSequence.DumpBuilder.Shape`,
+`PinWright.Assets.AnimSequence.AssetDump.WritesAnimSequenceAspectFile`,
+`PinWright.Assets.AnimSequence.DumpBuilder.SyncMarkerMoveAppearsInDiff`,
+`PinWright.Assets.AnimSequence.DumpBuilder.BoneTracksReadback`,
+`PinWright.Animation.Compiler.BakesDenseReferencePoseTracks`,
+`PinWright.Animation.Compiler.HeldPoseTrackCompilesAsOneKey`,
+`PinWright.Animation.Compiler.ReportsSkeletonAndLoopDiagnostics`,
+`PinWright.Animation.Compiler.PropagatesLoopFlag`,
+`PinWright.Animation.Compiler.SyncMarkersAreIdempotentAndRefreshDerivedState`, and
+`PinWright.Animation.Compiler.ProvenanceRefusalIsNotABadValue`.
+
+The new registered structural coverage is
+`PinWright.infra.contract.AddToRoot.ScopedFixtureOwnership`. Existing functional test IDs above
+were not renamed.
+
+**Verification.** Static source review only. No build, Unreal process, automation test, MCP call,
+or Python scanner was run. No production handler, engine, outer project, Config, or Saved file
+was edited.
+
 ## History
 - `#1-six-unrooted-fixtures` `OPEN` reporter — Source-only census over all eight modules; **no suite was run and no plugin source was modified** (tree is mid-verification on another wave). Derived as `comm -23` between the sorted list of test files containing `AddToRoot` and those containing `RemoveFromRoot` across `Source/*/Private/Tests/`: exactly the six files listed. Per-file counts corroborate — the five Niagara files carry 1 `AddToRoot` and 0 `RemoveFromRoot` each; `AnimAuthoringTestFixtures.h` carries 2 and 0. Confirmed `FAuthorableSystemRoots` exists at `Tests/Assets/NiagaraEditTestUtils.h` and is used by ten sibling files, five of them in the same `Tests/Niagara/` directory as the offenders, so the fix is adoption of an in-tree idiom and not a design. Independently re-derives the incidental finding on `B-suite-host-gc-crash-in-combined-group-run` `#4`; the set matches that note exactly. Filed separately from `B-tests-spawn-live-world-no-guard` (the world-actor half of the same audit) rather than merged into one test-hygiene ticket: different mechanism (GC-root teardown vs editor-world actor teardown), different fix sites, and different honest severities (Low vs Medium) — merging would force the Low half to be worked at Medium priority or the Medium half at Low, and the picker orders by severity. Severity Low, with the cross-test-contamination escalation condition recorded as an untested hypothesis rather than a claim.
+- `#2-source-verified-partial-fix` `IN-REVIEW` developer — Verdict **PARTLY TRUE** in
+  `X:\src\unreal\unreal-fpv-dev\Plugins\PinWright`: the original same-file census was too
+  coarse. `NIRTestFixtures::DestroyFixture` already removes the rooted system and emitters on
+  the existing normal/error paths in the five Niagara files, and every current caller of the
+  animation factories already removes the returned root. The real gap was the six post-setup
+  early returns in `TestNIRGraphDataflow.cpp`; its setup also redundantly called `AddToRoot`.
+  The five Niagara tests now use `FAuthorableSystemRoots` (system plus first emitter), retain
+  `DestroyFixture`, and cover those early returns. `AnimAuthoringTestFixtures.h` now documents
+  its deliberate caller-owned root contract. Added the stdlib-only
+  `Content\Python\check_test_roots.py` source ratchet and focused
+  `Content\Python\tests\test_root_teardown_scan.py`; the ratchet scans 870 PinWright test
+  sources and reports CLEAN. No build, Unreal run, automation suite, MCP, or Git operation was
+  run per the ticket brief.
+- `#3-registered-root-ownership-ratchet` `IN-REVIEW` developer — Review correction: the
+  dataflow patch covers eight post-setup early returns, not six. Fixed the separate
+  `BuildEmptySystemWithEmitter` failure after system rooting, made `FAuthorableSystemRoots`
+  move-only, removed the two task-created Python scanner files, and added registered Unreal test
+  `PinWright.infra.contract.AddToRoot.ScopedFixtureOwnership` with per-`RunTest` Niagara ownership
+  and receiver-specific animation caller checks. Static source review only; no build, Unreal,
+  automation, MCP, or Python test was run.
+- `#4-whole-tree-root-ratchet` `IN-REVIEW` developer — Follow-up fixes the verifier gaps:
+  `ScopedFixtureOwnership` now scans every main-module test `.cpp`/`.h`, requires exact
+  evidence-derived raw-root and rooted-producer allow-lists plus exact legacy Niagara caller
+  entries, and fails on unreadable/missing sources or new bypasses. Animation factory callers now
+  use move-only `FScopedAnimAssetRoot` immediately after all 13 calls, replacing the unsafe
+  later-`RemoveFromRoot` check. Static source review only; no build or automation run.

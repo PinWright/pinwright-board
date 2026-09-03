@@ -1,7 +1,7 @@
 ---
 id: B-compile-bpir-edit-lost-during-pie
 title: "A compile_bpir edit made while PIE is running can be lost with no trace: compiled:true is returned, the package is later NOT dirty, and save_all reports nothing to save"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: bug
 tags: [blueprint, compile_bpir, pie, save, silent-data-loss, save_all, multi-agent]
@@ -64,7 +64,7 @@ instanced into the running tree.
 ## Expected
 
 - If PIE is going to discard in-memory Blueprint edits, `compile_bpir` should refuse while a PIE
-  session is active (`BLOCKED_BY_PIE`, the way `editor.save_all` already refuses with
+  session is active (`PIE_ACTIVE`, the way `editor.save_all` already refuses with
   `"reason":"BlockedByPie"`), or persist the edit before PIE can reclaim it.
 - Failing that, `compile_bpir` should report `pieActive: true` in its response so a caller can
   re-verify, and `save_all`'s `totalDirty` must not silently shrink between a successful edit and
@@ -82,6 +82,22 @@ severity rationale: impact=silent data loss on a normal path, with every readbac
 work succeeded x reach=every multi-agent session (any other stream's PIE run overlaps ordinary
 authoring) -> High
 
+## Fix
+
+The handler had no general play-mode preflight: its live-generated-class survey only covered instances that might be reinstanced after the Blueprint was loaded, so `GIsPlayInEditorWorld` could still reach BPIR compilation and mutation. `compile_bpir` and both `insert_bpir_*` verbs now check `PinWrightPieState::IsPlayInEditorActive()` after path/code validation and before Blueprint loading, pre-compilation, transactions, or graph changes, returning `ErrorCodes::ERR_PIE_ACTIVE`; the `allowReinstancing` opt-in cannot bypass this refusal.
+
+Files changed:
+
+- `Plugins/PinWright/Source/PinWright/Private/Handlers/Blueprint/BpirCompilerHandler.cpp`
+- `Plugins/PinWright/Source/PinWright/Private/Handlers/ErrorCodes.h`
+- `Plugins/PinWright/Source/PinWright/Private/Tests/Blueprint/TestBpirCompilePieGuard.cpp`
+- `Plugins/PinWright/Source/PinWright/Private/Tests/Core/TestErrorCodeRegistry.cpp`
+- `Plugins/PinWright/Docs/wiki-src/blueprint.md`
+
+Regression test: `PinWright.blueprint.compile_bpir.RefusesDuringPie` invokes the registered production handler with a valid BPIR payload while `GIsPlayInEditorWorld` is guarded true, asserting `PIE_ACTIVE`, response delivery, and unchanged graph/package state.
+
+Deliberate non-changes: `save_all` was not modified because its `totalDirty` value is a snapshot at invocation and is not separately proven to cause this defect; `Utils/PieState.h/.cpp` and `EditorCommandHandler` were not changed. The `ErrorCodes` ratchet was completed for the whole handler by registering only `BLUEPRINT_COMPILE_FAILED` and `INTEGRITY_FAILURE` and deleting their stale quarantine entries; no partial-adoption exception was added. Successful non-PIE BPIR authoring remains in-memory-only and is persisted through the existing `asset.save` path after PIE stops.
+
 ## History
 - `#1-filed` `OPEN` reporter — Found while adding BT task abort handlers for the FPS AI stream in a
   shared UE 5.8 editor (`EAContentExamples58`) during the WEAPONS stream's PIE run. Evidence above is
@@ -93,3 +109,4 @@ authoring) -> High
   plugin source read. Related in spirit to the project's "verify a write against disk" rule, but
   this is a tool-side gap: the plugin has the PIE information (`editor.save_all` uses it) and does
   not surface it on the authoring path.
+- `#2-pie-active-guard` `IN-REVIEW` developer — Added the pre-load `PIE_ACTIVE` refusal, structural regression coverage, and the compile_bpir contract update; no save_all change.

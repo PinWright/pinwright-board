@@ -1,7 +1,7 @@
 ---
 id: B-orphan-sweep-deletes-isolated-timeline
 title: "An isolated K2Node_Timeline is reported as an orphan and deleted by delete_orphaned_nodes, which also destroys its UTimelineTemplate — the engine roots Timelines by type and never prunes them"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: bug
 tags: [orphan-detection, find-orphaned-nodes, delete-orphaned-nodes, reachability, entry-points, k2node-timeline, auto-play, timeline-template, data-loss, false-positive, decompiler, bpir]
@@ -141,12 +141,21 @@ Node->IsA<UK2Node_Timeline>()` — a sweep-local root predicate, e.g.
 `IsOrphanSweepRootNode`, so the intent is documented at the seed rather than smuggled
 into a shared entry test. That single edit covers both consumers of the reachability
 set (the sweep and the BPIR orphan warnings), leaves `entryPoints`, the latent-root
-fallback and `EmitEntrySignature` untouched, and needs **no test changes**.
+fallback and `EmitEntrySignature` untouched. The existing timeline entry-point tests
+remain unchanged; the mixed-graph sweep regression is added below.
 `UK2Node_Timeline` lives in the always-linked `BlueprintGraph` module and is already
 included in six plugin translation units, so no optional-module guard is needed.
 
 Note the Timeline stays *reported* as a non-entry everywhere else, which is what the
 existing timeline tests pin — the sweep just stops treating it as unreachable.
+
+Implementation: `BlueprintHandlerUtils.cpp` now includes `K2Node_Timeline.h` and uses the
+sweep-local `IsOrphanSweepRootNode` predicate at the `BuildExecReachabilitySet` seed. The
+structural automation test `PinWright.blueprint.graph.find_orphaned_nodes.TimelineWithLiveEntry`
+reuses `TestExecutionFlowTimelineRoot.cpp`'s fixture, adds a live `BeginPlay` chain and a dead
+`Branch`, and asserts that only the dead Branch is reported. `IsBlueprintEntryNode`, the
+latent-root collector, `BpirTextEmitter.cpp`, and `BlueprintGraphOrphanHandler.cpp` are
+deliberately unchanged; no live PIE, build, or Unreal test run was performed.
 
 Regression test to add alongside: an auto-play-shaped Timeline (unwired exec inputs,
 `Update` wired to a `PrintString`) in a graph that ALSO has a live `BeginPlay` chain
@@ -169,3 +178,4 @@ and `blueprint.decompile` report a live, running auto-play chain as dead on ever
 
 ## History
 - `#1-split-from-enhanced-input-fix` `OPEN` reporter — Split out of `B-orphan-sweep-treats-enhanced-input-graph-as-dead` (#2), whose fix ported `UE::KismetCompiler::Private::GatherRootSet` but dropped its `UK2Node_Timeline` type clause. Confirmed by source reading at plugin `2a671efb` against UE 5.8: `UK2Node_Timeline` inherits `IsNodeRootSet() == false` (`K2Node.h:315`) and allocates six exec input pins in `AllocateDefaultPins` (`K2Node_Timeline.cpp:121-137`), so neither retained clause of `IsEngineCompileRootSetNode` (`BlueprintHandlerUtils.cpp:2238`) can reach it, while the engine roots it unconditionally by type (`KismetCompiler.cpp:114`) in the pre-expansion `PruneIsolatedNodes` pass (`:2031-2039`, `:3833-3835`). The parent's rationale — "PinWright resolves auto-play timelines via CollectLatentExecRootNodes" — fails twice: that collector's only non-test caller is `get_execution_flow` (`BlueprintGraphInspectionHandler.cpp:1383`), never the sweep, and it is gated on `EntryNodes.Num() == 0` (`:1381`) so it does not fire when the Timeline shares a graph with a live event — the exact shape in the IN-REVIEW ticket `B-decompile-orphan-pure-nodes-grafted`. Escalated above a plain false positive because `DestroyNode` on a Timeline node runs `FBlueprintEditorUtils::RemoveTimeline` (`BlueprintEditorUtils.cpp:8143-8156`), which `MarkAsGarbage()`es the `UTimelineTemplate` — curves, tracks, length, loop/autoplay flags — and the handler compiles and saves immediately after (`BlueprintGraphOrphanHandler.cpp:171-172`). Rejected the obvious fix (root by type in `IsBlueprintEntryNode`) because that predicate also drives `entryPoints`, the latent-root fallback, and BPIR entry selection, and `EmitEntrySignature` (`BpirTextEmitter.cpp:1186`) has no Timeline arm — it would regress all 10 correctly-rendered wired Timelines in this repo's dump mirror to `entry event UnknownEntry()` and fail three assertions in `TestExecutionFlowTimelineRoot.cpp`. Proposed instead a sweep-local seed in `BuildExecReachabilitySet` (`:2518-2534`), which fixes both consumers of the reachability set and needs no test changes. Dump-mirror sweep found 12 Timeline-bearing Blueprints and no confirmed isolated one in this checkout; the two Timelines flagged as orphans in `BP_ExamplePlayer` are coordinate-aligned with EnhancedInput chains and are most likely parent-ticket collateral in a pre-fix dump — not verified live.
+- `#2-timeline-sweep-root` `IN-REVIEW` developer — TRUE confirmed from `BlueprintHandlerUtils.cpp`: the orphan reachability seed now uses the sweep-local `IsOrphanSweepRootNode` (`IsBlueprintEntryNode(Node) || Node->IsA<UK2Node_Timeline>()`), so Timeline output chains remain reachable even when a graph also has a live entry. Added `Source/PinWright/Private/Tests/Blueprint/TestExecutionFlowTimelineRoot.cpp` automation test `PinWright.blueprint.graph.find_orphaned_nodes.TimelineWithLiveEntry`, which expects one planted dead Branch and excludes the Timeline plus both live PrintString chains. Deliberate non-changes: `IsBlueprintEntryNode`, `CollectLatentExecRootNodes`, `BpirTextEmitter.cpp:1186`, and `BlueprintGraphOrphanHandler.cpp` were not modified; no build, live PIE, or Unreal test execution was performed.

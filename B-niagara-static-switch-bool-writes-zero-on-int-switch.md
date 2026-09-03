@@ -1,7 +1,7 @@
 ---
 id: B-niagara-static-switch-bool-writes-zero-on-int-switch
 title: "niagara.set_static_switch coerces boolean true to \"0\" on an Integer static switch and reports success"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: bug
 tags: [niagara, set-static-switch, integer-switch, silent-wrong-data, light-attributes]
@@ -48,6 +48,28 @@ plainly intends), or refuse a boolean on an Integer switch with an `INVALID_VALU
 range — the same shape the enum path already uses. Silently mapping `true` to the falsy branch is the
 one option that cannot be right.
 
+## Fix
+
+The Integer encoder initialized its output to `0` and handled only JSON numbers and strings, so a
+JSON boolean fell through as `0`; after encoding, the handler wrote any integer without comparing it
+to the switch declaration. The encoder now maps booleans to `1`/`0`, and the handler validates the
+canonical integer against the `UNiagaraNodeStaticSwitch` option domain before opening a transaction,
+returning `INVALID_VALUE` with the valid range when the value is not selectable.
+
+Files changed:
+- `Source/PinWright/Private/Handlers/Niagara/NiagaraEditTypes.h`
+- `Source/PinWright/Private/Handlers/Niagara/NiagaraEditTypes.cpp`
+- `Source/PinWright/Private/Handlers/Niagara/NiagaraEditHandler.cpp`
+- `Source/PinWright/Private/Tests/Niagara/TestNiagaraStaticSwitchInteger.cpp`
+- `Docs/wiki-src/niagara.md`
+
+Test id: `PinWright.niagara.set_static_switch.IntegerValueValidation` (structural automation test;
+not run by this worker per the no-Unreal/no-build brief).
+
+Deliberately not changed: enum-typed switch resolution. Its existing `ResolveEnumOption` path already
+checks numeric indexes against the filtered selectable-entry table and rejects invalid values, so
+changing it would duplicate an existing fix and risk unrelated behavior.
+
 ## History
 - `#1-filed` `OPEN` reporter — Hit on EAContentExamples58 (UE 5.8, shared editor, port 27145) wiring
   `/Niagara/Modules/Light/Light_Attributes` into `/Game/FPS/VFX/Emitters/E_FPS_MuzzleAR_Light`.
@@ -61,3 +83,6 @@ one option that cannot be right.
     set_static_switch {inputName:"RadiusZzz", value:1} -> [STATIC_SWITCH_NOT_FOUND] No static switch named 'RadiusZzz' in called graph.
 
   So the switch **name** is validated and a bad one is refused with a clear code, while the switch **value** is not range-checked at all on the Integer path: `99` and `-5` are both stored and echoed verbatim. The enum path, by contrast, returns `enumOptions`/`index`/`displayName` on every write (verified in the same session on `Lifetime Mode`, `Sprite Size Mode`, `Sprite Rotation Mode`, `Mass Mode`, `Color Mode`), which is exactly the discoverability and range-checking the Integer path lacks. This widens the fix in "Fix" above: coercing `true`/`false` is necessary but not sufficient — an Integer static switch should also reject a value outside the branches its graph actually defines, with the same `INVALID_VALUE` shape the enum path uses. As filed, a typo'd `10` for `1` is unrecoverable-by-inspection and, like `#1`, compiles and validates clean at `level:"strict"`. Restored `Radius` to `1` afterwards and re-verified the emitter; no asset was left in the probed state. `encounters` bumped to 2 (distinct observation, same defect surface).
+- `#3-integer-domain-validation` `IN-REVIEW` developer — Mapped boolean values to Integer selector
+  `1`/`0` and rejected values outside the declaration's selectable option range before mutation;
+  added `PinWright.niagara.set_static_switch.IntegerValueValidation` and updated the Niagara overlay.

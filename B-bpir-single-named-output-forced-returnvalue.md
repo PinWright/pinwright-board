@@ -1,7 +1,7 @@
 ---
 id: B-bpir-single-named-output-forced-returnvalue
 title: "BPIR drops the name of a single named output: `-> (float Health01)` compiles to `ReturnValue`, so no Blueprint Interface function with one named return can be implemented"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: bug
 tags: [bpir, compile_bpir, function, entry-function, entry-override, interface, return-value, output-name]
@@ -90,5 +90,16 @@ severity rationale: impact=hard blocker with no in-language workaround (a routin
 task is impossible) x reach=BP interfaces with a named getter are common, and `compile_bpir` is the
 primary graph-authoring surface -> High.
 
+## Fix
+
+Verdict: PARTLY TRUE. Direct parsing and compilation were already correct: a parenthesized one-item output stays in `OutputParams` with its authored name, while only bare `-> type` uses `ReturnType` and the conventional `ReturnValue` pin. The actual loss was in `BpirTextEmitter.cpp`, which emitted every sole result pin as bare `-> type`; it now uses that shorthand only for `UEdGraphSchema_K2::PN_ReturnValue` and reuses the named-list form for every other sole output.
+
+Files changed: `Source/PinWright/Private/Decompiler/BpirTextEmitter.cpp`, `Source/PinWright/Private/Tests/Bpir/TestBpirSingleNamedOutput.cpp`, the stale explanation in `Source/PinWright/Private/Tests/Bpir/TestBpirMultiBranchReturn.cpp`, and `docs/wiki-src/bpir.entry-points.md` plus `docs/wiki-src/bpir.instructions.md`.
+
+Tests added: `PinWright.bpir.parser.SingleNamedOutputDistinction` guards the already-correct grammar split, and `PinWright.bpir.round_trip.SingleNamedOutputPreserved` exercises production compile, decompile, and recompile while retaining the compact conventional-return form.
+
+Deliberately unchanged: `BpirParser.cpp`, `BpirCompiler.cpp`, multi-output emission, and bare `return value` semantics. Those paths already preserve parenthesized names or intentionally target `ReturnValue`; changing them would alter a valid language contract instead of fixing the decompiler loss.
+
 ## History
 - `#1-filed` `OPEN` reporter — Hit on EAContentExamples58 (UE 5.8) implementing `BPI_HUDSource` on `/Game/FPS/UI/Test/BP_HUDTestPawn`. Four interface functions authored via `blueprint.add_function`; `blueprint.add_interface` created all four graphs; `blueprint.compile_bpir` then rejected exactly the three single-output ones with `Output name mismatch at index 0: expected '<AuthoredName>', actual 'ReturnValue'`, while the two-output `GetAmmo` (`Mag`, `Reserve`) validated fine — isolating the defect to the one-entry case of the `-> (Type Name)` grammar. `entry override` reproduces it identically, so there is no alternative entry kind. The validator prints the correct expected name, so the authored identifier is being dropped by the signature parser before validation, not mis-compared. Wiki page consulted: `bpir.entry-points` §1 (documents `-> (type Name, ...)` for functions without excluding the single-output case). Worked around by renaming the interface's single outputs to `ReturnValue`; noted that this is only possible because I own the interface.
+- `#2-preserve-named-output` `IN-REVIEW` developer — Preserved non-`ReturnValue` single-output names in BPIR decompilation, clarified the shorthand/named grammar, and added `PinWright.bpir.parser.SingleNamedOutputDistinction` plus `PinWright.bpir.round_trip.SingleNamedOutputPreserved`.

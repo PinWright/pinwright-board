@@ -1,7 +1,7 @@
 ---
 id: B-pwmodel-per-part-uv-layout-overlaps-across-parts
 title: "`uv mode=layout` / `mode=patch_builder` pack to the unit square and `uv` is a PART op, so every part of a model lands on top of every other — and Examples/pwmodel/chess_rook.pwmodel ships three parts stacked on its own LIGHTMAP channel"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: bug
 tags: [pwmodel, uv, layout, patch_builder, xatlas, lightmap, examples, chess_rook, cross-part-overlap, no-diagnostic]
@@ -93,6 +93,69 @@ severity rationale: impact=every multi-part model that packs UVs ships an unusab
 no diagnostic, and a shipped example demonstrates it on a lightmap x reach=all of `model.*`
 -> High
 
+## Fix
+
+Root cause: every part ran its packing op before `MergeParts`, so each packer saw only one part and
+could place that part in the full unit square. The compiler neither offered a merged-mesh packing
+stage nor tested populated channels for exact cross-part UV triangle overlap. UE's layout wrapper
+also discarded the UV packer's false result, so a failed global pack looked successful.
+
+The plugin source root for the paths below is
+`X:\src\unreal\unreal-fpv-dev\Plugins\PinWright`:
+
+- `Source/PinWrightGeometry/Private/Model/PwModelAst.h`, `PwModelParser.h`, and
+  `PwModelParser.cpp` add ordered model-level `uv_layout` statements, parameter-table validation,
+  multiple distinct channels, duplicate-channel rejection, and shared 2..16384 packing-resolution
+  limits.
+- `Source/PinWrightGeometry/Private/Handlers/Geometry/GeometryOps_Modeling.h` exposes the one
+  production default and range used by both part-level and model-level UV packing syntax.
+- `Source/PinWrightGeometry/Private/Handlers/Geometry/MeshInfoHandler.cpp` uses the same default
+  and 2..16384 engine range for `geometry.pack_uv_islands`; positive values outside that narrower
+  engine range retain the RPC's prior acceptance, clamp with a response warning, and echo the
+  effective value, while zero and negative values remain errors.
+- `Source/PinWrightGeometry/Private/Model/PwModelCompiler.cpp` applies each layout to the merged
+  mesh through `FDynamicMeshUVPacker::StandardPack`, explicitly enabling world-space texel-ratio
+  scaling and propagating its false result. It then detects positive-area UV triangle overlap
+  across source parts on every populated channel: ordinary channels warn and the declared
+  lightmap channel errors. It uses exact nonzero polygon area, ignores topology-connected
+  candidates, reuses the merge-time triangle-to-part map, and preserves model/part provenance.
+- `Source/PinWrightGeometry/Private/Model/PwModelDiagnostic.h` defines the stable error code
+  `PWMODEL_UV_OVERLAP_ACROSS_PARTS` plus `PWMODEL_LIGHTMAP_UV_INVALID` for a declared lightmap
+  channel which is absent, partial, or unusable.
+- `Source/PinWrightGeometry/Private/Handlers/Model/ModelCompileHandler.cpp` publishes and narrows
+  the new `uv_layout` parameter set through `model.describe_ops`.
+- `Examples/pwmodel/chess_rook.pwmodel` now creates channel-1 islands per part with
+  `patch_builder auto_pack=false`, then packs them once with
+  `uv_layout channel=1 texture_resolution=64`.
+- `Examples/pwmodel/amphora.pwmodel`, `Examples/pwmodel/oil_lamp.pwmodel`, and
+  `Examples/pwmodel/watchtower.pwmodel` add the same final merged layout before their declared
+  lightmaps, preserving the other shipped multi-part examples under the new validation.
+- `Docs/pwmodel-format.md`, `Docs/pwmodel-design.md`, `Docs/wiki-src/model.authoring.md`,
+  `Docs/wiki-src/model.md`, and `Docs/wiki-src/geometry.md` document the syntax, merge order,
+  density rule, exact overlap scope, packer range, and discovery contract.
+- `Source/PinWrightGeometry/Private/Tests/Model/TestPwModelParser.cpp`,
+  `TestPwModelCompiler.cpp`, and `TestModelHandlers.cpp` cover parser, compiler, diagnostic, and
+  handler behavior. `Source/PinWrightGeometry/Private/Tests/Geometry/TestGeometryPackUVIslandsRepacks.cpp`
+  covers the shared RPC default, metadata, compatibility clamp, warning, and effective echo.
+
+Exact automation test IDs:
+
+- `PinWright.Model.Parser.UVLayoutValidatesAgainstTheParamTable`
+- `PinWright.Model.Report.PerPartLightmapUVOverlapIsReportedAcrossParts`
+- `PinWright.Model.Report.PerPartOrdinaryUVOverlapIsReportedAcrossParts`
+- `PinWright.Model.Compiler.ModelUVLayoutPacksMergedPartsAtWorldDensity`
+- `PinWright.Model.Report.IntersectingUVBoundsWithoutTriangleOverlapAreQuiet`
+- `PinWright.Model.Report.DeclaredLightmapChannelMustBeUsable`
+- `PinWright.Model.Handlers.DescribeOpsParamSetsParse`
+- `PinWright.Model.Handlers.DescribeOpsNarrowsToParamSet`
+- `PinWright.geometry.pack_uv_islands.TextureResolutionClampsToPackerBounds`
+
+Deliberately not changed: ordinary texture-channel overlap remains non-fatal, edge/point UV contact
+is accepted, part-level `uv` remains part-scoped, the diagnostic keeps the requested
+`PWMODEL_UV_OVERLAP_ACROSS_PARTS` spelling and last-contributing-`uv` anchor, and no engine source,
+configuration, generated skill, or compiled wiki output was edited. Compile and automation runs
+were deliberately not performed in this implementation pass.
+
 ## History
 - `#1-initial-repro` `OPEN` reporter — Found while replacing per-part `uv mode=box` on
   `SM_WPN_AR` and `SM_WPN_Pistol` (a review called UV0 "per-part box projection with cross-part
@@ -105,3 +168,8 @@ no diagnostic, and a shipped example demonstrates it on a lightmap x reach=all o
   `Examples/pwmodel/chess_rook.pwmodel` doing it per part on the channel its `lightmap` statement
   names. chess_rook was read from source, not compiled and measured here; the mechanism was
   measured on SM_WPN_AR.
+- `#2-merged-uv-layout-fix` `IN-REVIEW` developer — Added model-level `uv_layout` on the merged
+  mesh, exact positive-area overlap validation for the declared lightmap channel with the stable
+  requested code and source anchor, migrated `chess_rook`, published the handler contract, and
+  added parser/compiler/handler regressions. Static inspection only; compile and automation
+  execution remain for the separate tester.

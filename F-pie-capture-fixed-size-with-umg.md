@@ -1,7 +1,7 @@
 ---
 id: F-pie-capture-fixed-size-with-umg
 title: "No verb captures the PIE viewport at a caller-specified resolution, so UMG cannot be reviewed at 1080p/4K"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: feature
 tags: [ui, umg, screenshot, pie, resolution, dpi, hud, visual-review, editor, render]
@@ -70,6 +70,31 @@ This ticket is the missing capability itself.
 height, evaluate `UIScaleCurve` at that height by hand, and divide every measured pixel figure
 by the result.
 
+## Fix
+
+TRUE. The only UI-inclusive path captured the live Slate back buffer and exposed no requested
+extent, while the fixed-size render helper owned only Level Editor viewports. `editor.screenshot`
+now accepts paired `width`/`height`: for PIE it temporarily fixes the `FSceneViewport` render target,
+draws the scene at that extent, hides the scene widget while rendering the game-layer manager into a
+transparent `FWidgetRenderer` target, composites the resulting Slate/UMG layer over the scene, and
+restores both viewport size and fixed-size state before encoding. Because the game-layer manager
+reads the resized scene viewport, `UIScaleCurve` is evaluated for the requested resolution; success
+reports `captureMode`, `dpiScale`, and restoration evidence.
+
+Changed `Source/PinWright/Private/Handlers/Editor/ViewportHandler.cpp`,
+`Source/PinWright/Private/Utils/ScreenshotUtils.h/.cpp`, shared the off-screen widget renderer with
+`Source/PinWright/Private/Handlers/UI/WidgetDesignerCaptureUtil.cpp`, updated `docs/wiki-src/editor.md`,
+and added `Source/PinWright/Private/Tests/EditorOps/TestEditorScreenshotCaptureControls.cpp`. Tests:
+`PinWright.editor.screenshot.FixedSize.RejectsPartialDimensions`,
+`PinWright.editor.screenshot.FixedSize.Contract`, and the skip-without-PIE behavioural test
+`PinWright.editor.screenshot.FixedSize.PieUmgComposite` (which checks the output with
+`FlatRegionStats`, runs only when the bound viewport world is actually PIE, proves the green UMG
+marker, and rejects both a uniformly black scene and the known overlay-only failure colour).
+
+Deliberately unchanged: the native-size capture behavior when dimensions are omitted and the live
+PIE window's platform size; the exact-size path changes only the scene render target for the scoped
+draw and renders UI off screen, so 4K capture does not require a 4K desktop.
+
 ## History
 
 - `#1-filed` `OPEN` reporter — Filed while critiquing `/Game/FPS/UI/WBP_HUD` against Call of
@@ -79,3 +104,13 @@ by the result.
   cannot reach a 2160-tall viewport on a 1440-tall desktop. Every size figure in the review had
   to be back-scaled by the 0.906 DPI factor, and the 4K half of the brief could not be answered
   at all.
+- `#2-fixed-size-pie-umg-capture` `IN-REVIEW` developer — Added paired exact-size inputs to
+  `editor.screenshot`; the PIE route now renders an exact-size scene plus an off-screen Slate/UMG
+  layer at the requested UI scale, restores viewport state, and reports DPI/restoration evidence.
+- `#3-pie-only-scene-and-umg-proof` `IN-REVIEW` developer — Restricted the behavioral fixture to an
+  actual PIE viewport and changed its overlay to translucent mid-grey so it fails on all-black scene
+  pixels or an overlay-only fallback while still proving the green UMG marker and requested DPI.
+- `#4-suite-3-wiki-contract` `IN-REVIEW` developer — Suite-3 follow-up: `ViewportHandler` now fully
+  adopts `ErrorCodes` constants after `editor.screenshot` introduced registry usage; the wiki handler
+  test now uses native paired `width`/`height` plus `sceneOnlyFallback` disclosure instead of the
+  obsolete fixed-size redirect/native-resolution fallback contract.

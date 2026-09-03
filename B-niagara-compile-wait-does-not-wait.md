@@ -1,7 +1,7 @@
 ---
 id: B-niagara-compile-wait-does-not-wait
 title: "niagara.compile wait:true holds the game thread for a hard 90 s and never observes the compile, so {compile:true, save:true} stalls the whole shared editor and then persists nothing (originally: returned compiled:true in ~10 ms without waiting)"
-status: OPEN
+status: IN-REVIEW
 severity: Critical
 category: bug
 tags: [niagara, compile, async, silent-noop, race, corrupts-saved-asset, data-interface-mismatch, editor-crash, wait-never-lands, reopened, game-thread-stall, shared-editor-outage, blocks-concurrent-agents, fix-absent-from-this-checkout, live-repro-post-pump-still-times-out]
@@ -238,6 +238,64 @@ wait, a much lower default ceiling with an explicit opt-in for longer, or handin
 instead of blocking would each satisfy this ticket; silently freezing a shared editor for 90 s does
 not, even if it eventually returns `compiled: true`.
 
+## Fix
+
+The ticket is **TRUE**. The system path's result fields were already self-consistent, but its custom
+90-second loop still used the generic asset-compilation pump and returned before the measured
+143.205-second Niagara compile landed. The emitter path was a separate definite false success:
+`RequestCompileForEmitter` returns void, so the plugin discarded both the affected systems and every
+`RequestCompile` result, returned `requested:true`, then treated an empty wait as completion. The
+shared mutation finalizer also reported a compile-only request as `compiled:true` without waiting.
+
+The final fix does not enter Niagara's unbounded `WaitForCompilationComplete` API. `wait:true`
+instead advances the public `FAssetCompilingManager` (which owns the registered Niagara manager),
+polls Niagara completion, and stops at the caller's validated `timeoutSeconds` budget: 60 seconds by
+default and at most. A timeout reports `completed:false`, `compiled:false`, `timedOut:true`,
+`status:"timedOut"`, and the affected system paths in `stillCompiling`; it never false-claims a
+result. `wait:false` returns after the request, and the compact `niagara.compile_status` verb is the
+recommended shared-editor-safe polling route. Emitter requests reject the same source-less systems
+as the direct path and retain true request results separately, while their wait covers **every**
+loaded system using the emitter, including a system whose current request returned false beside an
+older active compile. Paired compile+save writes only after a real request landed with no outstanding
+CPU-script work, and all affected mutation responses use the shared `AssetSaveState` shape. Niagara's
+typed wrapper makes `pendingFlush` true only for `Deferred`, so a terminal compile refusal reports
+`saveState:"failed", pendingFlush:false` rather than suggesting a flush can fix it. The compact
+status probe treats either diagnostic VM/GPU pending flag as non-terminal, exposes its queue scope,
+and remains conservative for an emitter with no affected loaded system. Mixed known/unknown and
+`NCS_Dirty` script statuses remain `unverified` instead of becoming a premature pass.
+
+Files changed:
+
+- `Handlers/Niagara/NiagaraCompileWait.{h,cpp}`, `NiagaraCompileHandler.cpp`,
+  `NiagaraCompileVerdict.{h,cpp}`, `NiagaraEditTypes.{h,cpp}`, `NiagaraHandler.cpp`, and the stale
+  wait comment in `NiagaraInspectHandler.cpp`; the now-orphaned Niagara-ceiling reference in
+  `Handlers/Material/MaterialCompileErrorCollector.h` was made self-contained.
+- `Tests/Niagara/TestNiagaraCompileWait.cpp`, `TestNiagaraCompileSave.cpp`,
+  `TestNiagaraCompileQuiesce.cpp`, and `TestNiagaraValidateScriptCompileError.cpp`.
+- `Docs/wiki-src/niagara.md`.
+
+Automation coverage:
+
+- `PinWright.niagara.CompileWait.CompletionIsMeasuredNotAssumed`
+- `PinWright.niagara.CompileWait.BoundedPumpCompletesTransientSystem`
+- `PinWright.niagara.CompileWait.UsesBoundedCompilePump`
+- `PinWright.niagara.CompileStatus.NonBlockingProbeContract`
+- `PinWright.niagara.CompileSave.ReportsAssetSaveState`
+- `PinWright.niagara.CompileSave.CustomEmitterMutationsGatePersistence`
+- `PinWright.niagara.CompileQuiesce.KillsLiveInstancesBeforeRecompile`
+- `PinWright.niagara.validate.CompileVerdictReader`
+
+Deliberately unchanged: engine source; `Utils/AssetCompilePump.h` itself and its material callers;
+GPU-shader completion; the unrelated `EncodePinDefault`; and `Dispatch/SafePoint.cpp`. The legacy
+all-callers `AddAssetSaveReport` pendingFlush behavior in `Utils/AssetUtils.cpp` also remains
+unchanged; Niagara narrows it only where a typed state is available. The safe-point
+route can move a handler off the named-thread pump, but it cannot make a synchronous wait
+non-blocking; `wait:false` plus `compile_status` is the explicit shared-editor-safe contract. UE 5.8
+contains no `FNiagaraSystemCompileRequest` symbol, so the implementation uses the public per-system
+`RequestCompile` result. No build, automation suite, editor, or live repro was run under this ticket's
+constraints; the new transient-fixture test is behavioral code but remains unexecuted, so it cannot
+prove a live editor's compile completes through the bounded pump until the suite is run.
+
 
 ## History
 - `#1-initial-repro` `OPEN` reporter — Found while authoring `/Game/Atlantis/VFX/NS_Plankton_Drift`
@@ -327,3 +385,22 @@ not, even if it eventually returns `compiled: true`.
   inline budget (14.5k and 15.2k chars) purely to read two booleans — a `niagara.compile_status`
   read-only probe, or `parametersOnly`-style projection for the compile aspect, would remove the file
   round-trip this workaround needs.
+- `#12-engine-owned-wait-and-status-probe` `IN-REVIEW` developer — Verdict TRUE. Replaced the
+  refuted 90-second generic asset-pump loop with Niagara's engine-owned completion path, gated it on
+  real per-system request results with matching source guards, fixed emitter and compile-only false
+  completion claims, added `wait:false` plus compact `niagara.compile_status`, gated paired saves on
+  observed completion, and threaded `EAssetSaveState` into mutation responses. The final hardening
+  pass made status terminal only after an observable queue has no VM/GPU work, made `NCS_Dirty`
+  unverified, and stopped terminal save refusals from claiming they are flushable. Added
+  structural/unit coverage listed in the Fix section. Build, tests, editor, and live repro
+  deliberately not run; verification still needs a rebuilt plugin and a real long system compile
+  plus emitter and paired-save cases.
+- `#13-bounded-wait-verifier-followup` `IN-REVIEW` developer — Independent static verification
+  rejected the unbounded engine wait and request-only emitter fan-out from #12. Replaced them with a
+  public-manager pump bounded by validated `timeoutSeconds` (default/max 60), honest
+  `completed:false, timedOut:true, stillCompiling:[...]` timeout reporting, and an emitter wait over
+  every loaded affected system while retaining separate request truth. Added the unexecuted
+  behavioral test `PinWright.niagara.CompileWait.BoundedPumpCompletesTransientSystem`, which
+  duplicates the saved stock fixture, dirties a compilable script, asserts a tiny-budget timeout
+  against `HasOutstandingCompilationRequests`, then asserts completion under the generous budget.
+  The structural ratchet remains secondary. No build, test, editor, MCP, or live repro was run.

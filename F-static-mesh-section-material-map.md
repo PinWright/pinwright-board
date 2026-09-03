@@ -1,7 +1,7 @@
 ---
 id: F-static-mesh-section-material-map
 title: "No published verb reports a static mesh's sections or the section→material-slot mapping — static_mesh.describe returns a slot list that reads clean while 98% of a mesh's triangles render on the wrong slot"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: feature
 tags: [static-mesh, static-mesh-describe, asset-dump, sections, material-slots, mesh-review, silent-clean-readback, read-only, weapons]
@@ -120,5 +120,41 @@ unfalsifiable from its own output, which holds it at High.
   produce exactly this state (geometry on the wrong section). Each of them would be caught at
   review time by this readout instead of by rendering the asset and looking at it.
 
+## Fix
+
+**Verdict: TRUE.** Source inspection confirmed `StaticMeshDumpBuilder.cpp` emitted the
+`StaticMaterials` slot list and aggregate triangle/vertex counts, but never walked
+`UStaticMesh::GetRenderData()->LODResources[*].Sections`. Because both
+`static_mesh.describe` and the `static_mesh.json` registry entry call this builder, both published
+surfaces had the same omission.
+
+The shared builder now emits a flat `sections[]` row for every LOD/section with `lodIndex`,
+`index`, `materialIndex`, `materialSlotName`, `firstIndex`, `numTriangles`, `minVertexIndex`,
+`maxVertexIndex`, `bEnableCollision`, and `bCastShadow`. It also emits `slotUsage[]`, one row per
+material slot, with aggregated `lod0TriangleCount` and `lod0TriangleFraction`. The text sidecar
+emits the same new facts, the RPC description and `Docs/wiki-src/static_mesh.md` document them,
+and the `static_mesh.json` / `static_mesh.txt` aspect versions are now 2.
+
+Files changed: `StaticMeshDumpBuilder.cpp`, `StaticMeshTextEmitter.cpp`, `AssetDumpCache.cpp`,
+`StaticMeshDescribeHandler.cpp`, `TestStaticMeshDumpSections.cpp`,
+`TestStaticMeshDescribeHandler.cpp`, and `Docs/wiki-src/static_mesh.md`.
+
+Automation coverage added: `PinWright.AssetDump.StaticMeshSections.Cube` compares the engine
+cube's single LOD0 section against raw render data and checks text parity;
+`PinWright.AssetDump.StaticMeshSections.MultiSection` builds a two-slot, three-triangle fixture
+with complete normal/tangent/UV attributes and checks section mapping, 1/3 and 2/3 slot shares,
+and the text emitter's material names/counts/fractions and UV/light-map values. The fixture uses a
+unique package path, is rooted for the test, and is unrooted and cleaned on every exit. Existing
+`PinWright.static_mesh.describe.ReturnsDumpShape` now checks that the RPC carries the new arrays.
+Tests were not run in this implementation pass by instruction.
+
+Deliberately unchanged: no separate `geometry.audit_static_meshes` result field was added because
+folder dumps already use this shared sidecar; the adjacent UV ticket covers only its requested
+minimum; the section count field is `numTriangles` as required by the implementation brief even
+though the original ticket prose called it `triangleCount`; no duplicate alias was added. The
+separate Nanite documentation mismatch remains owned by `E-static-mesh-describe-doc-promises-nanite`.
+
 ## History
 - `#1-filed` `OPEN` WEAPONS-critic — Measured during a WEAPONS critic review round 2. `static_mesh.describe {assetPath:"/Game/FPS/Weapons/Meshes/SM_WPN_AR"}` returns a `materials[]` slot list and no section data at all — no `sections[]`, no per-section triangle counts, no section→slot index, at any LOD; `asset.dump`'s `static_mesh.json` sidecar carries the same shape. All four slots on the AR were bound to the right material instance, so the response read clean, and the builder concluded on that basis that the assignment was right. It was not: measured LOD0 section triangle counts are 18,559 / 460 / 2,017 / 384 (total 21,420), so the **Polymer** slot carries 460 triangles — 2.1% of the mesh — while the entire barrel + flash hider (1,342 tri) renders on the anodised-aluminium slot, 85% of the stock / 57% of the grip / 90% of the magazine floor render as metal, and on the pistol the entire polymer grip including all 110 stipple studs (672 tri) renders as phosphated steel. The verb cannot see the defect it was used to rule out, and because it returns a positive-looking result rather than an error or an omission, nothing prompts a second check. The only route that answers the question is `python.execute` + `unreal.ProceduralMeshLibrary.get_section_from_static_mesh(mesh, lod, section)` — a raw-engine escape hatch on an unrelated class, off the published surface, called once per section with the section count discovered by walking until it throws. Ask: per-LOD `sections[]` on the shared static-mesh builder so `static_mesh.describe` and `static_mesh.json` gain it together (per `E-dump-rpc-parity`) — minimum `{index, materialIndex, materialSlotName, triangleCount}`, then buffer offsets and per-section flags, plus each slot's share of the mesh's triangles (the 2.1%-vs-86.6% contrast is the finding, and the caller should not have to compute it), reachable across a folder the way `geometry.audit_static_meshes` runs. Root cause is a **guess**: the builder likely emits `materials[]` from `StaticMaterials` and never walks `RenderData->LODResources[i].Sections` — inferred from the response shape, no plugin source was opened for this ticket and no `file:line` is claimed; note that `trianglesByLod` is already the sum of the per-section counts being discarded. Severity High on the silent-wrong-data band (clean verdict over a wrong assignment, normal path, unfalsifiable from the verb's own output), held there despite mesh review not being an every-session path because this is the primary static-mesh read. Should land with `F-static-mesh-uv-channel-readout`, which asks for a different missing field in the same builder.
+- `#2-published-section-map` `IN-REVIEW` developer — Confirmed the builder omission and added all-LOD section-to-slot rows, LOD0 per-slot triangle counts/fractions, matching text output, cache invalidation, documentation, and cube/multi-section automation coverage. Tests not run by instruction.
+- `#3-hardened-section-tests` `IN-REVIEW` developer — Hardened the generated fixture with unique package lifetime cleanup and complete tangent basis, guarded material-slot indexing, and asserted exact text-sidecar slot names/counts/fractions plus UV/light-map values. Tests not run by instruction.

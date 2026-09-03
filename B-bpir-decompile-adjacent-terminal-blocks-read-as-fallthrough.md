@@ -1,7 +1,7 @@
 ---
 id: B-bpir-decompile-adjacent-terminal-blocks-read-as-fallthrough
 title: "blueprint.decompile emits two independent TERMINAL blocks adjacently, and BPIR fall-through semantics then assert an exec edge the graph does not have — reads as 'the fallback unconditionally clobbers the result' over correct dispatch logic, and invites a destructive fix"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: bug
 tags: [bpir, bpir-decompiler, blueprint-decompile, terminal-blocks, fallthrough, round-trip, lossy-ir, silent-wrong-data, meaning-inverting, weapons]
@@ -126,5 +126,45 @@ this one function; no plugin source was opened and no `file:line` is claimed.
 - `B-orphan-finder-vs-decompiler-disagree`, `B-bpir-break-struct-pin-not-named` — prior cases where
   an IR-only review of `/Game/FPS/Weapons/` reached a wrong conclusion about the graph.
 
+## Fix
+
+The ticket was **TRUE**. `FBpirDecompiler::WalkExecChain` represented a disconnected straight-line
+default exec output only by leaving its walk loop, so the next queued label appeared with no
+serialized boundary. `FBpirCompiler::WireExecPins` then correctly applied section 2.8 fall-through
+to that incomplete text by carrying `LastExecOutput` across the label, manufacturing an edge that
+was absent from the source graph. The fix adds a shared bare `end` keyword/opcode: the parser rejects
+arguments, the compiler emits no K2 node and clears both placement and wiring state, label-entry and
+reattachment searches stop at it, and the decompiler emits it after an emitted straight-line node
+whose default exec output is disconnected.
+
+Files changed:
+
+- `Source/PinWright/Private/Compiler/BpirSharedConstants.h`
+- `Source/PinWright/Private/Compiler/BpirTypes.h`
+- `Source/PinWright/Private/Compiler/BpirGrammar.cpp`
+- `Source/PinWright/Private/Compiler/BpirParser.cpp`
+- `Source/PinWright/Private/Compiler/BpirCompiler.cpp`
+- `Source/PinWright/Private/Decompiler/BpirDecompiler.cpp`
+- `Source/PinWright/Private/Tests/Bpir/TestBpirAdjacentTerminalBlocks.cpp`
+- `Source/PinWright/Private/Handlers/Asset/AssetDumpCache.cpp`
+- `Source/PinWright/Private/Tests/Utility/TestAssetDumpCache.cpp`
+- `Docs/wiki-src/bpir.instructions.md`
+- `Docs/wiki-src/bpir.pure-impure.md`
+- `Docs/bpir-compiler-internals.md`
+
+Test: `PinWright.bpir.round_trip.AdjacentTerminalBlocksPreserveNoFallThrough`. It constructs a
+transient Blueprint graph whose two branch arms end at independent `Print String` nodes, calls the
+production decompiler/parser/compiler, and verifies the compiled graph retains two disconnected
+terminal exec outputs. Its counterfactual is explicit: without decompiler emission there are no two
+bare `end` lines, without parser support the text is rejected, and without compiler state clearing
+the first terminal is linked to the second.
+
+Deliberately unchanged: `BpirTextEmitter.cpp`, the existing `return` node semantics, the overview
+`bpir.md` page (section 2.8 lives in `bpir.instructions.md`), and generated skill copies. The
+`bpir.txt` aspect remains version 8 rather than being bumped to 9 because the concurrent split-input
+change had already assigned version 8; its rationale and pin test now cover both changes. Per the
+worker brief, no editor, build, automation test, or MCP run was performed.
+
 ## History
 - `#1-filed` `OPEN` WEAPONS — Found while acting on a reported impact-sound defect in `BP_WeaponBase::ResolveImpactAssets`. The decompiled BPIR shows `@then_3: set ResolvedImpactSound = %n6.Value` with no terminator, immediately followed by `@merge_3: set ResolvedImpactSound = $FallbackImpactSound`; under BPIR section 2.8 fall-through semantics that reads as the fallback unconditionally clobbering every per-surface sound. `blueprint.graph.get_execution_flow` on the same function disproves it: the two setters are distinct nodes `B5ACB4CD495528A6CBC6C2B1FDE492F4` (source pin `Value`) and `377FEDB646A2343E99D9669D73D9410D` (source `FallbackImpactSound`), and BOTH report `execOutputs: []` — no edge between them. Branch `B09272E846071E39D05964A2F6FE7884` sends `then -> B5ACB4CD` and `else -> 377FEDB6`, and cast `AE7BD3F04B5FA6FE93085FA06505B9D2` sends `CastFailed -> 377FEDB6`. The function is correct; the IR is not. Control in the same graph: the decal path's branch `08A67D5049A61651AD50F9AE754622DA` is a genuine reconvergence (`then -> FDAF4C27 -> AE7BD3F0`, `else -> AE7BD3F0`) and IS rendered correctly with an explicit `exec -> @merge_2` — so reconvergence works and sibling-terminals do not, the difference being that terminal blocks have no successor to name and the emitter has no terminator token for that case. Distinct from the DONE `B-bpir-decompile-shared-tail-absorbed-into-branch`, which mis-labels a real join; here no join and no edge exist to mis-label, and this reproduces with that fix in. Filed High: it asserts a defect that is not present, and the obvious remediation (add the missing `exec ->` past the fallback) would rewire a correct graph and genuinely break per-surface impact audio. Real measured cost this session — the false reading was reported to the stream lead, the lead green-lit the rewrite, and it was retracted only because `get_execution_flow` was consulted before the edit; two agents accepted the IR at face value. Ask: emit an explicit end-of-chain terminator for a node with empty `execOutputs` (and have `compile_bpir` accept it, else the round-trip re-adds the phantom edge), plus a `bpir.md` section 2.8 note that adjacent blocks imply fall-through only when the preceding block's last node actually has an exec successor. Root cause is an inference from the two surfaces' behaviour; no source was opened and no `file:line` is claimed.
+- `#2-explicit-end-terminator` `IN-REVIEW` Developer — Added shared bare `end` syntax, node-less compiler terminator semantics, decompiler emission for disconnected default exec outputs, cache/docs updates, and production-backed `PinWright.bpir.round_trip.AdjacentTerminalBlocksPreserveNoFallThrough` round-trip coverage; source-only review is complete and the shared compile/suite is pending.

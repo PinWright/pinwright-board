@@ -1,7 +1,7 @@
 ---
 id: B-blueprint-mutators-compile-ungated-tick-unsafe
 title: "59 registered verbs run FKismetEditorUtilities::CompileBlueprint on the handler's own stack while family K in the tick-unsafe table lists 2 — the shipped editor-kill mechanism rides every structural Blueprint mutation, and 55 of them do not even report the reinstance"
-status: OPEN
+status: IN-REVIEW
 severity: Critical
 category: bug
 tags: [blueprint, safepoint, tick-gate, reinstance, editor-crash, dispatch, shared-editor, multi-agent, coverage-gap, scs, networking, game-framework]
@@ -168,5 +168,76 @@ the owning worlds, so calling it first is a usable pre-flight for the other 59.
   `blueprint.reparent`, `blueprint.compile_bpir` and the BPIR inserts, which are the ones that
   rebuild placed actors people are looking at.
 
+## Fix
+
+The finding was TRUE. All 59 registered verbs resolved from the full-compile call sites were
+absent from the tick-unsafe table even though the same reinstancing queue flush already justified
+the two existing Blueprint entries. The position fix adds the complete verified verb set to
+`GTickUnsafeMethodNames`; registration-time declaration was deliberately not introduced because
+it would require a broader registry migration while the existing table provides complete gating
+with no cross-dispatch exceptions for this family.
+
+Every non-test handler full compile now routes through
+`BlueprintHandlerUtils::CompileBlueprintWithDiagnostics`; the only remaining direct production
+calls are that chokepoint and the two explicitly allow-listed `RegenerateSkeletonOnly` BPIR
+compiler calls. The three BPIR verbs now preserve the pre-Widget-compile survey and emit it, and
+the structural minimum named by the ticket — all six compiling `blueprint.scs.*` verbs,
+`blueprint.modify_scs`, `blueprint.reparent`, `blueprint.compile_bpir`, and both BPIR inserts —
+advertises `allowReinstancing`, refuses before mutation without consent, and reports the same
+pre-compile survey on success. All 59 routes now emit the shared compile result whenever they
+actually compile: `compiled`, `status`, their established error/warning array names, and
+`reinstanced` when the pre-compile survey found live instances. Conditional or idempotent paths
+that do not compile keep their existing response shape without synthetic compile fields.
+
+Files changed:
+- `Source/PinWright/Private/Dispatch/SafePoint.cpp`
+- `Source/PinWright/Private/Handlers/Blueprint/BlueprintReinstancingGuard.h`
+- `Source/PinWright/Private/Handlers/Blueprint/BlueprintReinstancingGuard.cpp`
+- `Source/PinWright/Private/Handlers/Blueprint/BpirCompilerHandler.cpp`
+- `Source/PinWright/Private/Handlers/Blueprint/SCSHandler.cpp`
+- `Source/PinWright/Private/Handlers/Blueprint/SCSComponentDuplicateHandler.cpp`
+- `Source/PinWright/Private/Handlers/Blueprint/BlueprintComponentHandler.cpp`
+- `Source/PinWright/Private/Handlers/Blueprint/BlueprintReparentHandler.cpp`
+- `Source/PinWright/Private/Handlers/Blueprint/BlueprintVariableCleanupHandler.cpp`
+- `Source/PinWright/Private/Handlers/Blueprint/BlueprintGraphOrphanHandler.cpp`
+- `Source/PinWright/Private/Handlers/Blueprint/BlueprintPropertyHandler.cpp`
+- `Source/PinWright/Private/Handlers/Blueprint/BlueprintEventHandler.cpp`
+- `Source/PinWright/Private/Handlers/Blueprint/BlueprintFunctionHandler.cpp`
+- `Source/PinWright/Private/Handlers/AI/AIHandler.cpp`
+- `Source/PinWright/Private/Handlers/Interaction/InteractionHandler.cpp`
+- `Source/PinWright/Private/Handlers/Networking/NetworkingHandler.cpp`
+- `Source/PinWright/Private/Handlers/Physics/ChaosVehicleHandler.cpp`
+- `Source/PinWright/Private/Handlers/Systems/GASHandler.cpp`
+- `Source/PinWright/Private/Handlers/Systems/GameFrameworkHandler.cpp`
+- `Source/PinWright/Private/Handlers/UI/WidgetEventBindingHandler.cpp`
+- `Source/PinWright/Private/PinWright_SCSHandlers.h`
+- `Source/PinWright/Private/PinWright_SCSHandlers.cpp`
+- `Source/PinWright/Private/Tests/Infra/TestHandlerTickSafetyRatchet.cpp`
+- `Source/PinWright/Private/Tests/Bpir/TestBpirCompilePreexistingErrorsRepair.cpp`
+- `docs/wiki-src/blueprint.md`
+- `docs/wiki-src/blueprint.scs.md`
+- `docs/wiki-src/vehicle.md`
+
+Test id: `PinWright.infra.tick_safety.HandlerHazardsStayGated`. The shared ratchet verifies all
+59 method names remain tick-unsafe, holds direct compile calls to the diagnostics chokepoint and
+the two skeleton-only exceptions by explicit file/count allow-list, verifies each exception's
+compile option, requires the structural consent sites, and resolves every one of the 59 registered
+handler bodies to either a direct diagnostics emitter or one of the two explicitly checked shared
+reporting seams. Per the worker brief, no editor, build, MCP call, or automation run was performed.
+`E-tick-unsafe-declared-at-registration` remains OPEN and unchanged. Consent and response-shape
+migration remain intentionally separate: consent is limited to the ticket's eleven required
+structural mutators, while reporting now covers all 59 compile routes. Registration-time safety
+metadata remains the broader follow-up; the complete table is the accepted stopgap here.
+
+A verifier follow-up closed two response holes in that migration. All three BPIR
+`BLUEPRINT_COMPILE_FAILED` paths now retain the already-populated compile/reinstance payload, and
+`vehicle.set_suspension` aggregates every distinct wheel Blueprint compile into both the existing
+top-level diagnostics and a per-asset `compileResults` array; any failed compile now makes the RPC
+fail with `COMPILE_FAILED` instead of returning success from whichever result happened
+to be retained.
+
 ## History
 - `#1-counted-59-ungated-verbs` `OPEN` reporter — Filed from the known-gap note in `E-compile-reinstances-live-instances-no-guard`'s Fix section and `Dispatch/SafePoint.cpp:512-519`. Verified by source reading, no editor run. Counted every non-test `FKismetEditorUtilities::CompileBlueprint(` call site in `Plugins/PinWright/Source` and resolved each to its registered verb, following four shared helpers to their callers (`FSCSHandlers::FinalizeBlueprintSCSChange`, `InteractionHandler::CompileAndGetDefaultObject`, `AIHandler::AssignObjectDefaultToControllerCDO`, `GameFrameworkHandler::SetBPVarDefaultValueGF`): 59 registered verbs across 8 namespaces, all full compiles, none safe-point gated, none refusing. Corrected the parent's reporting claim — `AddCompileDiagnosticsToJson` has five non-test callers, so only `blueprint.add_function`, `blueprint.add_dispatcher`, `blueprint.add_interface` and `blueprint.remove_interface` emit `reinstanced`; the other 55 report nothing, and the three BPIR verbs compute the survey and discard it. Confirmed no cross-dispatch caller for any of the 59 and excluded four false positives (two `RegenerateSkeletonOnly` compiles, one dead call site behind an uninstantiated macro, two non-compiling verbs). Checked the family for duplicates — `B-compile-material-not-tick-gated` (different verb family), `B-niagara-compile-while-live-component-vectorvm-assert` (Niagara, DONE), `B-bpir-macro-recompile-orphans-caller-instances` (macro identity, DONE), `B-safepoint-tick-gate-inert-on-simpletickobjects-path` (the gate's own predicate, DONE), `B-compile-bpir-edit-lost-during-pie` (save, not reinstancing) — none covers this; filed NEW.
+- `#2-gated-all-blueprint-compile-mutators` `IN-REVIEW` developer — Added all 59 verified verbs to the dispatcher tick-unsafe family, routed every handler full compile through `CompileBlueprintWithDiagnostics`, adopted the existing live-instance guard on the ticket's eleven structural mutators, and added the shared `PinWright.infra.tick_safety.HandlerHazardsStayGated` source ratchet. Kept registration-time declarations and the other 48 verbs' consent/response migrations outside this fix. Static source and diff checks only; no Unreal process, build, MCP call, or automation run.
+- `#3-completed-compile-response-migration` `IN-REVIEW` developer — Completed the ticket's reporting half for all 59 routes: every actual full compile now emits `AddCompileDiagnosticsToJson` directly or through an explicitly checked shared reporter, while conditional no-compile paths remain unchanged. Extended the ratchet to bind every registered route to that reporting contract and kept `allowReinstancing` refusal at the requested eleven structural mutators. Static source and diff checks only; no Unreal process, build, MCP call, or automation run.
+- `#4-preserved-all-failure-diagnostics` `IN-REVIEW` developer — Retained the populated diagnostics payload on all three BPIR Blueprint-compile failures and changed `vehicle.set_suspension` to return per-asset plus aggregate diagnostics and fail when any touched wheel Blueprint fails compilation. Extended the existing BPIR behavior coverage and shared structural ratchet. Static checks only; no Unreal process, build, MCP call, or automation run.

@@ -1,7 +1,7 @@
 ---
 id: B-no-way-to-capture-pie-pixels
 title: "No verb can capture what a running PIE session renders: editor.screenshot returns an all-black game viewport, and after editor.eject the level viewport shows PIE but render.capture_open_level refuses it with VIEWPORT_WORLD_MISMATCH"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: bug
 tags: [render, capture_open_level, editor-screenshot, pie, eject, viewport, world-mismatch, visual-review]
@@ -85,6 +85,35 @@ variables — proves *that* things happen but can never show what they look like
 severity rationale: impact=hard blocker with no workaround for the whole class of runtime-only work
 (the documented acceptance gate cannot be satisfied) x reach=every stream that runs PIE -> High
 
+## Fix
+
+TRUE in the narrowed `#3` form. `editor.screenshot` had no exposure input and its game-viewport
+readback inherited the possessed camera's final post-process blend; separately,
+`render.capture_open_level` rejected every viewport/editor world mismatch without distinguishing an
+intentional PIE world after eject. The screenshot handler now accepts the shared fixed-EV100
+`exposure` contract through a draw-scoped, last-priority view extension. The extension sets the
+view family's native fixed-EV100 override and matching finalized scene-view fields after camera and
+other post-process blends, reports the measured application, and releases without changing
+persistent camera state. The open-level handler now has a
+default-off `allowPieWorld` exception that passes only for an `EWorldType::PIE` viewport whose map
+matches the editor map after PIE-prefix removal, with typed mismatch reasons for every refusal.
+
+Changed `Source/PinWright/Private/Handlers/Editor/ViewportHandler.cpp`,
+`Source/PinWright/Private/Handlers/Render/RenderHandler.cpp`,
+`Source/PinWright/Private/Handlers/Render/OpenLevelCapture.h`,
+`Source/PinWright/Private/Utils/ScreenshotUtils.h/.cpp`,
+`Source/PinWright/Private/Handlers/ErrorCodes.h`, `Source/PinWright/Private/Tests/TestWorldUtils.h`,
+editor/render wiki overlays, and tests. Tests:
+`PinWright.editor.screenshot.Exposure.FixedEv100PostProcess`,
+`PinWright.editor.screenshot.FixedSize.Contract`,
+`PinWright.editor.screenshot.FixedSize.PieUmgComposite`, and
+`PinWright.render.capture_open_level.AllowPieWorldGuardContract`.
+
+Deliberately unchanged: the native-size `editor.screenshot` surface and its strict all-zero
+`BLANK_CAPTURE` rule; history `#3` established that this readback works once camera exposure is
+controlled. The PIE-world exception is explicit and same-map only rather than trusting any
+`UEDPIE_` package name.
+
 ## History
 - `#1-filed` `OPEN` reporter — Hit at the end of the FPS AI stream's only world-lock slot, on UE 5.8 /
   `EAContentExamples58`. Sequence and verbatim responses above. The black frame is reproducible: two
@@ -155,3 +184,14 @@ severity rationale: impact=hard blocker with no workaround for the whole class o
   game viewport's view family and restored afterwards; failing that, `visual-review.md` should carry
   the `AutoExposureBias` recipe beside the `ShowFlag.EyeAdaptation` one, since `#2`'s show-flag route
   costs the whole window and this one does not. No plugin source read.
+- `#4-editor-screenshot-exposure-and-pie-opt-in` `IN-REVIEW` developer — Added shared fixed-EV100
+  exposure parsing, scoped local-camera application/restoration and evidence to `editor.screenshot`;
+  added a default-off `allowPieWorld` gate to `render.capture_open_level` that accepts only a real PIE
+  viewport world while preserving the stale-world refusal for every other mismatch.
+- `#5-final-view-exposure-and-same-map-guard` `IN-REVIEW` developer — Moved the game-viewport EV100
+  pin to finalized scene views so later post-process blends cannot override it; extracted and
+  behaviorally tested the world guard, including same-map PIE acceptance and another-map refusal.
+- `#6-suite-3-handler-registry` `IN-REVIEW` developer — Suite-3 follow-up: `ViewportHandler` now
+  fully adopts `ErrorCodes` constants after `editor.screenshot` introduced registry usage; the wiki
+  handler test now uses native paired `width`/`height` plus `sceneOnlyFallback` disclosure instead
+  of the obsolete fixed-size redirect/native-resolution fallback contract.

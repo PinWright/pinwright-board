@@ -1,7 +1,7 @@
 ---
 id: B-pwmodel-bevel-after-cut-arris-self-intersects
 title: "pwmodel `bevel` on a mesh whose polygroup edges a boolean has already CUT THROUGH produces a self-intersecting surface, and the only signal is a model-wide PWMODEL_SELF_INTERSECTING_SURFACE with line -1 that never names bevel"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: bug
 tags: [pwmodel, model.compile, model.validate, bevel, boolean, self-intersection, silent-wrong-geometry, no-diagnostic, health-gate]
@@ -122,6 +122,22 @@ severity rationale: impact=silent broken surface that passes every other health 
 documented gate's first two terms x reach=`bevel` after a boolean is the ordinary way to break
 edges on any hard-surface model -> High
 
+## Fix
+
+The fix preserves the engine's supported internal open spans, including spans ending at mesh-boundary vertices. It validates each selected topology edge by its group-edge ID and ordered mesh-edge span (never by the non-unique adjacent-group pair), skips only invalid spans, spans containing an actual mesh-boundary edge that `FMeshBevel` drops, and output groups made by an earlier bevel. A measured bevel that increases self-intersections is rolled back to the input mesh and emits a line- and part-anchored warning. Prior-bevel history and first-offender attribution now also run inside boolean tool blocks, while collision hull blocks remain excluded. Per-op self-intersection measurement is limited to booleans and operations capable of folding, reconnecting, or adding triangles within one shell; affine transforms and attribute-only/deletion operations no longer rebuild AABB trees. `FMeshBevel::NumSubdivisions` and `RoundWeight` are guarded to UE 5.4+, the first installed version that provides them.
+
+Changed files:
+
+- `X:\src\unreal\unreal-fpv-dev\Plugins\PinWright\Source\PinWrightGeometry\Private\Handlers\Geometry\GeometryOps_Modeling.cpp`
+- `X:\src\unreal\unreal-fpv-dev\Plugins\PinWright\Source\PinWrightGeometry\Private\Handlers\Geometry\GeometryOps_Modeling.h`
+- `X:\src\unreal\unreal-fpv-dev\Plugins\PinWright\Source\PinWrightGeometry\Private\Handlers\Geometry\MeshOpsHandler.cpp`
+- `X:\src\unreal\unreal-fpv-dev\Plugins\PinWright\Source\PinWrightGeometry\Private\Model\PwModelCompiler.cpp`
+- `X:\src\unreal\unreal-fpv-dev\Plugins\PinWright\Source\PinWrightGeometry\Private\Model\PwModelParser.cpp`
+- `X:\src\unreal\unreal-fpv-dev\Plugins\PinWright\Source\PinWrightGeometry\Private\Tests\Model\TestPwModelBevelSafety.cpp`
+- `X:\src\unreal\unreal-fpv-dev\Plugins\PinWright\docs\wiki-src\model.md`
+
+Structural test IDs: `PinWright.Model.Bevel.AfterThroughCutWarnsAtBevelLine`, `PinWright.Model.Bevel.AfterBevelWarnsAtSecondBevelLine`, `PinWright.Model.Bevel.CleanBoxRemainsSafe`, `PinWright.Model.Bevel.OpenSpanBoundaryEndpointRemainsEligible`, and `PinWright.Model.Bevel.NestedBooleanTracksPriorBevel`. Deliberately unchanged: all engine source and unrelated UV work. Tests and runtime/editor verification were not run under the ticket brief.
+
 ## History
 - `#1-initial-repro` `OPEN` reporter — Found while adding 0.1-0.15 uu edge breaks to
   `SM_WPN_AR` and `SM_WPN_Pistol` under `Content/FPS/Weapons/Meshes/`. Minimal case reduced to
@@ -149,3 +165,7 @@ part magazine     3.2 x 4.6 x 18.6 body bevelled, then a filtered bevel on a 3.8
   **Scale decides it, not the filter box.** On a large first solid the corner patches are far from any small second solid's box and nothing happens — the same pattern on this model's 20 x 6 x 5.1 upper receiver, its 9.3 x 5 x 4.8 stock body and its 1.24-diameter magazine-catch boss is clean at 0 crossings. It bites when the FIRST solid is small enough that its patches fall inside the second solid's extent. The magazine case is recoverable by emitting the larger solid first so the smaller one's box excludes its arrises; `bolt_catch` is not, and both its sub-solids shipped with no edge break because of it.
 
   Two notes for whatever fix lands. `bevel` could skip an edge whose two adjacent faces are both already bevel output, which is knowable from the polygroup ids it assigned itself. And the diagnostic gap is the expensive half of this on both triggers: three separate parts here each returned `success: true` with a broken shell, and finding which op did it took a per-part `model.validate` sweep of an 19-part document because `line: -1` names nothing.
+
+- `#3-bevel-preflight-attribution` `IN-REVIEW` developer — Changed PinWright bevel dispatch to preflight and skip open, non-manifold, interrupted, or earlier-bevel polygroup edges, warn at the bevel's line and part, and attribute the first self-intersection to the operation. Added structural coverage for through-cut, bevel-on-bevel, and a clean-bevel control; verification is pending and was not run under the implementation brief.
+
+- `#4-verifier-follow-up` `IN-REVIEW` developer — Reworked the rejected preflight around exact group-edge IDs/spans, retained engine-supported boundary-ended open spans, and rolled back only bevel output that measurably adds crossings. Extended prior-bevel and first-offender tracking into boolean tool blocks, gated expensive per-op intersection checks to capable operations, guarded 5.4-only bevel members, and strengthened structural coverage. Verification remains pending; no build, automation, editor, or runtime run was permitted.

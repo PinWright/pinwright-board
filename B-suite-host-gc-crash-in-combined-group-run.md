@@ -418,6 +418,33 @@ archived logs under `Saved\PinWright\test-runs\`, and `Saved\Crashes\`.
 archive, and the two PDS data points cited for it are unattributable. That argues for a re-score,
 left to re-triage rather than changed here.
 
+## Fix
+
+**Status: OPEN. No crash fix is claimed.** The audit findings were split into three child tickets
+so their independent hygiene work could be reviewed without pretending it explains the parent
+host termination:
+
+- `B-tests-spawn-live-world-no-guard` is `IN-REVIEW` and statically complete within its stated
+  main-module scope, including the later `TestEnvironmentHandlers.cpp` review gaps and registered
+  lexical source coverage.
+- `B-tests-addtoroot-fixtures-never-unrooted` is `IN-REVIEW` and statically complete for the
+  identified Niagara/animation ownership gaps, including the rooted-system construction failure
+  and registered source coverage.
+- `B-test-teardown-force-delete-migration` is back `OPEN`: 25 confirmed never-saved transient
+  assets in eight BPIR files were migrated and now have registered teardown coverage, but the
+  current full census is 881 `CleanupTestAsset` calls across 214 files (727 in the main module and
+  154 in satellite modules). Those 881 current sites remain unclassified, so the ticket's full
+  migration Ask is incomplete.
+
+None of those source-only changes reproduces, attributes, or fixes the original combined-run
+crash/truncation. Future repeat-run evidence must repeat the exact combined filter and record the
+effective case-insensitive full-test-path group order and exact last-started cutoff. For every run,
+capture test counts (`found`, `started`, `succeeded`, `failed`, `skipped`, `performed`), run
+duration, sampled/peak RSS, GC activity and settings, `ForceDeleteObjects` call count and last
+site, process exit code, the `N tests performed` plus `TestExit` drain markers, and any crash
+artifact (or an explicit checked-none result). Compare those measurements across repeated runs;
+do not infer a fix from one clean drain or from zero recorded test failures.
+
 
 ## History
 - `#1-initial-repro` `OPEN` verifier — 2026-08-28, UE 5.8, PinWright rebuilt at `b79ba53e`. Found
@@ -443,3 +470,17 @@ left to re-triage rather than changed here.
 - `#3-truncated-run-observed-on-pds` `OPEN` reporter — "A full-suite PDS run on 2026-08-28 stopped at 4312 of 4625 tests with 0 failures, 0 crash markers and NO `TestExit: Automation Test Queue Empty` line — a truncated run that reads as green on a Result={Fail} count alone. Contradicts the same-day bisection note that PDS always drains: PDS can truncate too, just far later in the queue than the EAContentExamples58 runs. An immediate re-run of the identical filter drained fully (4625 performed, TestExit present), so it is nondeterministic here as well. Practical consequence: the `N tests performed` + TestExit pair is the only sound drain check; grepping for the literal 'Automation Test Queue Empty' also matches the -TestExit command-line echo and yields a false positive."
 - `#4-gc-elimination-hypothesis-refuted` `OPEN` developer — "Audited the teardown idiom and REFUTED the gc.GarbageEliminationEnabled=False explanation on two independent grounds. Engine semantics: reflected references to a garbage-marked object are either KillReference'd to null (elimination on, GarbageCollection.cpp:3055-3097) or keep the object alive (off, MayKill :2997), and Class/Outer/ExternalPackage go through HandleImmutableReference with bAllowReferenceElimination=false (FastReferenceCollector.h:1018-1023, :799-802) so they are never killed and always mark the referent reachable - so a package marked garbage whose child survives is kept alive by that child's own Outer, and the 'class's package purged' candidate is structurally impossible; that test also already destroys the spawned instance first (TestSpawnMaterialSurvivesConstructionScript.cpp:238-241). Empirics: Saved/Crashes holds 71 non-ensure reports from June-August 2026 and ZERO mention DrainValidated / CollectReferencesForGC / TReferenceBatcher / FastReferenceCollector, so the fault has never occurred on PDS at all. Also corrected History #2: batch4 and batch5 carry no crash marker, no Fatal and NO crash report (the only reports in their windows are IsEnsure=true), and both end on a complete line inside ObjectTools::ForceDeleteObjects - they are the truncated-log class, not GC crashes, so two of the three 'nondeterministic' data points are unattributable. Audit numbers: 75 MarkAsGarbage() call sites in 27 files (32 in Tests/, 13 marking a UPackage); 18 test sites sit in the seven mark-then-collect helpers; EXPOSED SITES = 0 - CollectGarbage is the last statement in every helper, every marked object is a function-local, all seven RemoveFromRoot() first, and the plugin owns no FGCObject or AddReferencedObjects. Separate real defects found: 11 test files spawn into the live editor world without FScopedEditorWorldActorGuard (including a second actor-group file, TestActorDuplicateComponentHandler.cpp, which the earlier note missed); five Niagara test files plus AnimAuthoringTestFixtures.h AddToRoot fixtures with no RemoveFromRoot; and ForceDeleteObjects (535/331/599 calls per full run) is where both PDS truncations stopped, with a safe replacement idiom already shipping in PwTestAssetTeardown::DiscardCreatedAssetByObjectPath. NO CODE CHANGED - the premise for a fix does not hold and nothing could be compiled or run during the parallel wave; status stays OPEN."
 - `#5-incidental-findings-carved-into-three-tickets` `OPEN` reporter — **Status unchanged; no code touched and no suite run.** The three "separate real defects" `#4` recorded on its way to refuting this ticket's GC-elimination hypothesis are now their own `OPEN` tickets, because a finding held only in another ticket's history is never selected by the fix picker: **`B-tests-spawn-live-world-no-guard`** (Medium), **`B-tests-addtoroot-fixtures-never-unrooted`** (Low) and **`B-test-teardown-force-delete-migration`** (Medium). Each was independently re-derived over all eight modules this pass; two counts changed and one matched exactly. **Corrections to `#4`'s numbers:** the unguarded-spawn set is **12** files, not 11 — set difference between the 17 test files calling `SpawnActorInActiveWorld` and the 65 files declaring `FScopedEditorWorldActorGuard`. The `AddToRoot`-without-`RemoveFromRoot` set matches `#4` exactly at six files (`TestNIRGraphDataflow`, `TestNIRGraphLinkCoverage`, `TestNiagaraGetModuleInputs`, `TestNiagaraMoveModule`, `TestNiagaraResetModuleInput`, `AnimAuthoringTestFixtures.h`). New for the teardown finding: `CleanupTestAsset(` is called at **818 sites across 195 files** against **29 sites across 9 files** for the safe `PwTestAssetTeardown::DiscardCreatedAssetByObjectPath`, and the two helpers are **not** interchangeable (package path + on-disk removal vs object path + transient-rename-and-GC, correct only for never-saved fixtures) — so that migration is per-call-site triage rather than a mechanical sweep, which is spelled out on the child ticket. **`#4`'s per-run call counts 535/331/599 were NOT re-measured** — that needs a suite run, which was not permitted this pass — and the child ticket quotes them as such rather than asserting them. It also rates **Medium, not this ticket's High**, on the ground `#4` itself established: the two truncated runs ending inside `ObjectTools::ForceDeleteObjects` carry no crash marker, no `Fatal` and no crash report, so they are correlation and `#4` calls them unattributable. **This ticket keeps the truncation itself** — its cause is still open, and none of the three children close it.
+- `#6-child-fixes-do-not-close-parent` `OPEN` developer — The three audit children are now
+  `IN-REVIEW`, but only the live-world and AddToRoot scopes are statically complete. The
+  force-delete child covers 25 never-saved transient assets in eight BPIR files and leaves 727
+  sites unclassified. Parent stays `OPEN`: no combined run, crash reproduction, attribution, or
+  runtime verification was performed. Added the required repeat-run evidence contract for exact
+  order/cutoff, test counts, duration, RSS, GC, `ForceDeleteObjects`, exit/drain markers, and crash
+  artifacts.
+- `#7-child-followup-corrections` `OPEN` developer — Returned the force-delete child to `OPEN`
+  because its full-site triage Ask is incomplete; corrected the current census to 881 calls in
+  214 files (727 main-module plus 154 satellite-module calls). Added registered coverage for the
+  25-site BPIR teardown path, expanded the AddToRoot/Niagara ratchet across the whole main-module
+  test tree, and made all 13 animation factory callers use an immediate move-only scoped root
+  owner. Static review only; no build, Unreal process, automation run, MCP call, or runtime crash
+  evidence was produced, so this parent remains `OPEN`.
