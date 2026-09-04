@@ -1,7 +1,7 @@
 ---
 id: B-data-table-set-row-partial-mutation-on-error
 title: "data_table.set_row deserializes directly into an existing row, so a late conversion error leaves earlier fields mutated despite an error response"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: bug
 tags: [data-table, set-row, rollback, partial-mutation, json, false-failure]
@@ -36,5 +36,15 @@ the commit point.
 After any `INVALID_ROW_VALUES`, reload or rewrite the full row from a known-good snapshot before
 saving the table.
 
+## Fix
+
+`data_table.set_row` now copies the existing row into initialized scratch memory, applies the
+JSON conversion there, and only after success calls `Modify`/change notifications and copies the
+validated row back to the live allocation. A late conversion error therefore leaves the live row
+and package state untouched. Added automation coverage in
+`PinWright.data_table.set_row.AtomicOnLateConversionFailure` with a valid early-field update and
+an invalid late enum, asserting `INVALID_ROW_VALUES` and byte-identical row storage.
+
 ## History
 - `#1-pattern-scan` `OPEN` reporter — Source-only confirmation against UE 5.8 converter code; no editor, build, test, or RPC run was performed.
+- `#2-atomic-scratch-row` `IN-REVIEW` developer — Changed `DataTableAuthoringHandler.cpp` to validate existing-row values in scratch memory before the commit point; added the late-conversion byte-identity regression test. Unreal/build/automation verification was not run per task brief.

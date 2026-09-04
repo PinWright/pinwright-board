@@ -1,7 +1,7 @@
 ---
 id: B-suite-host-gc-crash-in-combined-group-run
 title: "A multi-group `Automation RunTests` run kills its own host in garbage collection at ~305 tests — 304 succeeded, 0 failed, no terminal marker, and every group passes clean when run on its own"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: bug
 tags: [tests, suite, automation, garbage-collection, crash, host-stability, cross-test-contamination, false-green, scoped-runs]
@@ -420,7 +420,7 @@ left to re-triage rather than changed here.
 
 ## Fix
 
-**Status: OPEN. No crash fix is claimed.** The audit findings were split into three child tickets
+**Prior audit result: no crash root-cause fix was claimed.** The audit findings were split into three child tickets
 so their independent hygiene work could be reviewed without pretending it explains the parent
 host termination:
 
@@ -444,6 +444,36 @@ duration, sampled/peak RSS, GC activity and settings, `ForceDeleteObjects` call 
 site, process exit code, the `N tests performed` plus `TestExit` drain markers, and any crash
 artifact (or an explicit checked-none result). Compare those measurements across repeated runs;
 do not infer a fix from one clean drain or from zero recorded test failures.
+
+**Verdict: PARTLY TRUE.** The recorded host termination/truncation risk is real, but history #2 and
+#4 refute a stable combined-group GC cause on this host and no source-owned dangling reference was
+identified. This fix therefore isolates the failure boundary and closes the false-green path; it
+does not claim to repair an unknown GC root cause.
+
+`system.run_tests` now accepts filter-only `isolateGroups:true`. It splits a `+`-joined filter and
+runs each group sequentially in a fresh `UnrealEditor-Cmd` process, retaining one log per group. The parent
+job accepts a group only when the log has UE's real queue-drain marker after the final test record
+and all four found/started/finished/performed counts are present and reconcile; a missing `Found`
+line, command-line marker echo, stale marker,
+fatal banner, missing log, failed test, non-zero exit, or truncated log fails the job. Changed
+`Handlers/System/SystemControlHandler.cpp`, `Handlers/System/RunTestsSupport.h/.cpp`,
+`Handlers/ErrorCodes.h`, `PinWrightSubsystem.cpp`, `State/PluginState.cpp`,
+`Tests/EditorOps/TestSystemHandlers.cpp`, and `Docs/wiki-src/system.md`. Isolated children suppress
+PinWright HTTP/wiki startup side effects and use a private job-monitor log, so they cannot wipe or
+append to the host editor's monitor file. A child that emits
+`PINWRIGHT_ASSERTIONS_SKIPPED` is reported as `COMPLETED_WITH_SKIPS`, never green.
+Coverage: `PinWright.system.run_tests.SchemaIncludesIsolateGroups`,
+`PinWright.system.run_tests.IsolatedGroupCommandLines`, and
+`PinWright.system.run_tests.IsolatedChildStateBoundary`, and
+`PinWright.system.run_tests.TruncatedLogIsNotGreen`, plus
+`PinWright.system.run_tests.FakeSleepingChildTimesOut`. Every isolated child now has a
+`childTimeoutSeconds` wall-clock budget (3600 default, clamped to 1-14400); expiry terminates the
+owned process tree and returns `TEST_RUN_TIMEOUT` with `timedOut` and the group, while job
+cancellation terminates the active child and releases the lease. Isolation deliberately remains
+opt-in: history #2/#4 found no stable host-side reproduction, so defaulting it on would add an
+editor startup and a separate process environment per group without evidence that ordinary runs
+need that cost. The three child-ticket scopes were also left unchanged. No build, Unreal run, MCP
+call, process launch, or live crash reproduction was performed under this worker brief.
 
 
 ## History
@@ -484,3 +514,18 @@ do not infer a fix from one clean drain or from zero recorded test failures.
   test tree, and made all 13 animation factory callers use an immediate move-only scoped root
   owner. Static review only; no build, Unreal process, automation run, MCP call, or runtime crash
   evidence was produced, so this parent remains `OPEN`.
+- `#8-isolated-groups-fail-closed` `IN-REVIEW` developer — Added opt-in per-group process
+  isolation for `system.run_tests` and a production log verdict that refuses zero-failure
+  truncations unless a real terminal queue-drain marker follows reconciled counts. Added the
+  isolateGroups schema/command/state-boundary tests and
+  `PinWright.system.run_tests.TruncatedLogIsNotGreen`.
+  Isolated children use private job-monitor logs, suppress shared HTTP/wiki startup side effects,
+  and preserve the existing non-green verdict for skipped assertions; no GC root-cause claim,
+  build, Unreal run, MCP call, or live reproduction.
+- `#9-isolated-child-watchdog` `IN-REVIEW` developer — Added a bounded 3600-second default and
+  14400-second hard maximum per isolated child, kill-tree timeout handling with the timed-out
+  group in the terminal result, and real job cancellation that terminates the active child and
+  releases the generation lease. Tightened the log verdict so a missing `Found` count cannot be
+  green and added the fake-sleeping-child timeout regression. Kept isolation opt-in because the
+  host fault has no stable reproduction and process-per-group startup/environment costs are not
+  justified for every run. Static verification only; no build, test, Unreal, MCP, or child run.

@@ -1,7 +1,7 @@
 ---
 id: B-material-remove-incomplete
 title: "material.graph.remove_node removes only the collection entry and leaves live wires and parameter bookkeeping behind"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: bug
 tags: [material, graph, remove-node, dangling-connection, bookkeeping, false-success]
@@ -41,6 +41,24 @@ the graph rather than trusting `removed:true`.
 
 - `B-material-graph-no-transaction`
 
+## Fix
+
+The mutation helper previously removed only the expression-collection pointer and reported success, leaving surviving wires, material root inputs, parameter bookkeeping, and a live object behind. It now validates ownership and collection membership, delegates material and function deletion to UE's exported `UMaterialEditingLibrary` helpers, and returns success only after the expression is gone and marked with the internal `EInternalObjectFlags::Garbage` state.
+
+Files changed:
+- `X:\src\unreal\unreal-fpv-dev\Plugins\PinWright\Source\PinWright\Private\Handlers\Material\MaterialFinders.h`
+- `X:\src\unreal\unreal-fpv-dev\Plugins\PinWright\Source\PinWright\Private\Handlers\Material\MaterialGraphHandler.cpp`
+- `X:\src\unreal\unreal-fpv-dev\Plugins\PinWright\Source\PinWright\Private\Tests\Material\TestMaterialGraphRemoveNode.cpp`
+- `X:\src\unreal\unreal-fpv-dev\Plugins\PinWright\Source\PinWright\Private\Tests\Material\MaterialTestHelpers.h` (shared fixture/count helpers)
+- `X:\src\unreal\unreal-fpv-dev\Plugins\PinWright\Docs\wiki-src\material.graph.md`
+
+Exact tests:
+- `PinWright.material.graph.remove_node.CleansUpMaterialExpression`
+- `PinWright.material.graph.remove_node.CleansUpMaterialFunctionExpression`
+
+Deliberate non-changes: the native helper's contract does not promise clearing the deleted node's own inputs or execution begin/end links; `removed:true` means graph deletion, not shader compilation. No copied engine cleanup, engine-source edits, builds, live PIE, or commits were made.
+
 ## History
 - `#1-source-scan` `OPEN` reporter -- Compared current PinWright deletion with UE 5.8's exported
   material and material-function deletion implementations; source-only under scan constraints.
+- `#2-native-delete-path` `IN-REVIEW` developer -- Routed remove_node through native material/function cleanup with focused RPC regression coverage; static verification only.

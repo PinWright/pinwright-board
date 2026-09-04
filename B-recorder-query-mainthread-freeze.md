@@ -1,7 +1,7 @@
 ---
 id: B-recorder-query-mainthread-freeze
 title: "`recorder.query` executes unrestricted caller Python synchronously on the editor main thread with no timeout or cancellation"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: bug
 tags: [recorder, python, game-thread, unbounded-wait, editor-freeze]
@@ -48,5 +48,23 @@ large materialization.
 - `B-python-execute-reentrant-gc-crash` — covers nested GC through Python,
   including this surface, but not unbounded execution.
 
+## Fix
+
+Root cause: `recorder.query` passed unrestricted caller code directly to the editor's embedded Python interpreter through synchronous `ExecPythonCommandEx`, so `maxRows` could only apply after a loop returned. The handler now writes the same wrapper to a temporary file, launches it in the engine-provided isolated Python child process, tracks it with `FHandlerContext::StartJob`, and drains output on the core ticker. Timeout and cancellation dispatch process-tree termination to a background worker holding a pre-opened process handle; the run remains alive until worker cleanup is safe. Timeout results expose `timedOut: true`, and `terminationConfirmed` is true only when both child exit and worker completion are observed before the hard cutoff. If the cutoff wins, `cleanupIncomplete: true` reports the bounded cleanup state without claiming eventual cleanup.
+
+Files changed:
+- `Plugins\PinWright\Source\PinWright\Private\Handlers\Recorder\RecorderQueryHandler.cpp`
+- `Plugins\PinWright\Source\PinWright\Private\Handlers\ErrorCodes.h`
+- `Plugins\PinWright\Source\PinWright\Private\Tests\Recorder\TestRecorderQuerySafety.cpp`
+- `Plugins\PinWright\Docs\wiki-src\recorder.md`
+
+Test IDs:
+- `PinWright.recorder.query.DeclaresBoundedTimeout` — real dispatcher timeout job with a 1-second sleep and `timeoutSeconds: 0.5`; latent registry assertion checks terminal `timedOut: true`.
+- `PinWright.recorder.query.ResolvesSessionsUnambiguously` — real dispatcher ambiguity/error candidate assertions and exact-filename query completion.
+
+Deliberately not changed: the pure-stdlib `Content\Python\recorder_query.py` surface and the shared structured-verb `RecorderResolver` behavior. No live editor, compile, or automation run was performed.
+
 ## History
 - `#1-source-scan-unbounded-query` `OPEN` reporter — Source-only scan confirmed unrestricted caller code reaches synchronous `ExecPythonCommandEx` on the main thread and that the only bound is a post-execution result-row cap. No build, test, editor, MCP call, or plugin edit was performed.
+- `#2-bounded-query-job` `IN-REVIEW` developer — Replaced synchronous embedded execution with a cancellable child-process job bounded by `timeoutSeconds` and a 60-second hard maximum, with deadline-first classification, exit-confirmed cleanup, and explicit `terminationConfirmed` reporting for the bounded termination phase. Static source/registration ratchets were added. No compile or test run was performed.
+- `#3-worker-owned-cleanup-and-behavior-tests` `IN-REVIEW` developer — Corrected UE 5.8 mutable process-handle usage, moved recursive process-tree termination to a worker-owned pre-opened handle, kept the run alive through cleanup, and added `cleanupIncomplete` for the hard cutoff. Replaced source-grep checks with real dispatcher/job behavior tests. No compile or test run was performed.

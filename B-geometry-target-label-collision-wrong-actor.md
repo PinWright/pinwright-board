@@ -1,7 +1,7 @@
 ---
 id: B-geometry-target-label-collision-wrong-actor
 title: "GeometryTarget resolves only the first matching non-unique actor label, so geometry mutators can edit the wrong mesh and cannot address the intended duplicate"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: bug
 tags: [geometry, actor-resolution, duplicate-label, wrong-target, destructive-mutation, ambiguity, silent-success]
@@ -41,5 +41,53 @@ labels only.
 `E-actor-name-resolution-label-collision` documents how `actor.*` callers can use the unique object
 name. It does not cover this separate resolver, where that collision-safe identifier is rejected.
 
+## Fix
+
+TRUE. `GeometryTarget` used first-hit display-label scans, while direct loft, sweep, spline,
+boolean-trim, and asset-reuse callers could discard the resolver's ambiguity distinction. The fix
+adds resolver policies: geometry accepts exact object path, exact internal object name, then exact
+display label, with no label-substring tier; DynamicMesh label candidates are class-filtered, while
+an exact non-mesh path/name is treated as the explicitly requested identity. `reuseExisting` uses
+an exact-label-only policy so a create label cannot be stolen by another actor's path or name.
+Every ambiguity uses the typed `AMBIGUOUS_ACTOR_NAME` payload with `matchedBy`, a bounded-to-emitted
+`candidateCount`, and candidate label/name/path/class records; object-name ambiguity recommends full
+paths, while label ambiguity recommends unique names or paths. Resolver output is cleared before
+failure, source/target errors precede spline errors, and existing-target mutators preserve the
+request echo while adding canonical resolved path/name fields qualified as needed (`target`,
+`tool`, `trim`, `source`, and `spline`). Static-mesh source-actor loads now retain the resolved
+source pointer and emit `sourceActorPath`/`sourceActorObjectName`; the wiki response shapes name
+those fields. No parseable GUID input contract exists in the plugin, so GUID matching was not
+fabricated.
+
+Files changed: `Source/PinWright/Private/Utils/ActorUtils.h`,
+`Source/PinWright/Private/Utils/ActorUtils.cpp`,
+`Source/PinWright/Private/Handlers/Actor/ActorNameParamUtils.h`,
+`Source/PinWrightGeometry/Private/Handlers/Geometry/GeometryTarget.h`,
+`Source/PinWrightGeometry/Private/Handlers/Geometry/GeometryTarget.cpp`,
+`Source/PinWrightGeometry/Private/Handlers/Geometry/GeometryUtils.h`,
+`Source/PinWrightGeometry/Private/Handlers/Geometry/GeometryUtils.cpp`,
+`Source/PinWrightGeometry/Private/Handlers/Geometry/AdvancedMeshOpsHandler.cpp`,
+`Source/PinWrightGeometry/Private/Handlers/Geometry/BooleanHandler.cpp`,
+`Source/PinWrightGeometry/Private/Handlers/Geometry/BulkEditHandler.cpp`,
+`Source/PinWrightGeometry/Private/Handlers/Geometry/GeometryTransformHandler.cpp`,
+`Source/PinWrightGeometry/Private/Handlers/Geometry/LODCollisionHandler.cpp`,
+`Source/PinWrightGeometry/Private/Handlers/Geometry/MeshMeasureHandler.cpp`,
+`Source/PinWrightGeometry/Private/Handlers/Geometry/MeshInfoHandler.cpp`,
+`Source/PinWrightGeometry/Private/Handlers/Geometry/MeshOpsHandler.cpp`,
+`Source/PinWrightGeometry/Private/Handlers/Geometry/MeshIOHandler.cpp`,
+`Source/PinWrightGeometry/Private/Handlers/Geometry/MeshAssetIOHandler.cpp`,
+`Source/PinWrightGeometry/Private/Handlers/Geometry/SkeletalMeshAssetIOHandler.cpp`,
+`Source/PinWrightGeometry/Private/Tests/Geometry/TestGeometryTargetResolution.cpp`, and
+`Docs/wiki-src/geometry.md`.
+
+Test id: `PinWright.geometry.target.DuplicateLabelReturnsAmbiguousCandidates` (added; not run by
+the source-only constraint). It covers duplicate DynamicMesh labels, a same-label non-mesh actor,
+substring rejection, nullable-wrapper refusal, structured ambiguity fields/count, exact name/path
+selection, a real mutator identity response, and boolean-trim error ordering. Deliberately not
+changed: GUID input support without an established contract, global actor substring behavior,
+global candidate-array bounding, the small shared-resolver duplicate-scan optimization, unrelated
+handlers, outer repositories, engine, Config/Saved, commits, and runtime/editor/build state.
+
 ## History
 - `#1-source-pattern-scan` `OPEN` reporter — Both geometry resolvers return the first exact display-label match; UE documents labels as non-unique and the module's own spawn helper preserves duplicate labels. Source-only; no actor was created or mutated.
+- `#2-geometry-target-resolution` `IN-REVIEW` developer — Verified TRUE and routed geometry actor targets through deterministic path/name/label resolution with typed ambiguity candidates; added the regression test and updated the geometry identifier contract.

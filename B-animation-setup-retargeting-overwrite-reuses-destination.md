@@ -1,7 +1,7 @@
 ---
 id: B-animation-setup-retargeting-overwrite-reuses-destination
 title: "animation.setup_retargeting overwrite=true reuses the old destination instead of replacing it with the source animation"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: bug
 tags: [animation, retargeting, overwrite, collision, corruption, false-success]
@@ -22,6 +22,16 @@ Use the catalog's safe replacement shape: produce the genuinely retargeted sourc
 - Catalog: `unsafe-output-replacement-or-collision`, `wrong-target-identity-or-fallback`, `terminal-success-before-completion-or-invariant`
 - `B-animation-setup-retargeting-does-not-retarget`
 
+## Fix
+
+**Verdict: TRUE.** The overwrite branch reused the loaded destination and never duplicated the selected source. `AnimationHandler.cpp` now creates a uniquely named source-derived stage, assigns the target Skeleton, verifies and saves that stage to disk before touching the old destination, then transactionally publishes and force-saves it. The old object is deleted only after the new destination is durable; rename/save failures restore the original identity and report `RENAME_FAILED` or `SAVE_FAILED` with the observed disk state.
+
+Files: `Source/PinWright/Private/Handlers/Animation/AnimationHandler.cpp`, `Source/PinWright/Private/Tests/Animation/TestSetupRetargetingContract.cpp`, and `Docs/wiki-src/animation.md`. Regression ID: `PinWright.animation.setup_retargeting.OverwriteStagesSourceBeforeReplacement`.
+
+Deliberately unchanged: this legacy verb still does not perform IK retargeting; the response discloses that separate contract instead of calling the output retargeted.
+
 ## History
 
 - `#1-pattern-scan` `OPEN` reporter — Source-confirmed the existing-destination overwrite branch never duplicates the chosen source and instead changes/marks dirty the old destination; no editor, build, or test was run.
+- `#2-staged-overwrite-replacement` `IN-REVIEW` developer — Changed `AnimationHandler.cpp` to validate a source-derived staged copy before replacing an existing destination, retain a rollback backup during publish, and report the non-IK operation honestly; added structural regression coverage under `Tests/Animation`.
+- `#3-verifier-hardening` `IN-REVIEW` developer — Made staging durable before publication, delayed old-object deletion until the replacement save succeeds, added tick-safety classification for the GC-capable verb, and replaced source-grep coverage with success and rollback handler tests.

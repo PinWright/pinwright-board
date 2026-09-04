@@ -1,7 +1,7 @@
 ---
 id: B-material-abstract-expression
 title: "Material graph creation accepts abstract expression classes and reaches UObject's abstract-allocation ensure"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: bug
 tags: [material, expression, abstract-class, ensure, validation, persistence]
@@ -39,6 +39,24 @@ class name directly.
 
 - `F-search-api-material-expressions`
 
+## Fix
+
+The factory previously performed lineage validation but passed flagged expression classes into property reflection and `NewObject`; the fix now rejects `CLASS_Abstract`, `CLASS_Deprecated`, and `CLASS_NewerVersionExists` first with the typed `CLASS_NOT_INSTANTIABLE` error. Both material and material-function paths share this guard, and the handler verbs inherit it without changing `ResolveExpressionClass` discovery behavior.
+
+Files changed:
+- `X:\src\unreal\unreal-fpv-dev\Plugins\PinWright\Source\PinWright\Private\Material\MaterialExpressionFactory.cpp`
+- `X:\src\unreal\unreal-fpv-dev\Plugins\PinWright\Source\PinWright\Private\Handlers\ErrorCodes.h`
+- `X:\src\unreal\unreal-fpv-dev\Plugins\PinWright\Source\PinWright\Private\Tests\Material\TestMaterialExpressionFactorySafety.cpp`
+- `X:\src\unreal\unreal-fpv-dev\Plugins\PinWright\Source\PinWright\Private\Tests\Material\MaterialTestHelpers.h` (shared fixture/count helpers)
+- `X:\src\unreal\unreal-fpv-dev\Plugins\PinWright\Docs\wiki-src\material.graph.md`
+
+Exact tests:
+- `PinWright.material.graph.factory.RejectsNonInstantiableExpressionClasses`
+- `PinWright.material.graph.factory.HandlersRejectNonInstantiableExpressionClasses`
+
+Deliberate non-changes: flagged classes remain resolvable for discovery; no truly abstract base is allocated; `create_nodes` retains its per-node `failCount` batch contract; unrelated MRQ edits, engine source, builds, live PIE, and commits were untouched.
+
 ## History
 - `#1-source-scan` `OPEN` reporter -- Concrete input is the abstract base class itself; engine
   failure behavior and persistence warning were verified from UE 5.8 source without running it.
+- `#2-class-instantiation-guard` `IN-REVIEW` developer -- Added pre-allocation class-flag rejection and structural factory/handler coverage; static verification only.

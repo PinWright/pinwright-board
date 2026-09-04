@@ -1,7 +1,7 @@
 ---
 id: B-run-tests-concurrent-jobs-cross-complete
 title: "Concurrent system.run_tests jobs share one automation controller and can change or complete each other's selection and result"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: bug
 tags: [system, automation, jobs, concurrency, global-state, false-success]
@@ -49,7 +49,38 @@ second request cannot alter or complete the first.
 - `B-system-run-tests-no-completion-signal` — added job completion but does not isolate concurrent jobs.
 - `F-system-run-tests-multiple-names` — introduced the exact-name controller path.
 
+## Fix
+
+**Verdict: TRUE.** Both execution paths used the same process-global automation controller and
+multicast completion delegate without an owner token, so one controller broadcast could finish
+two unrelated PinWright job tickets.
+
+`RunTestsSupport.h/.cpp` now provides a process-wide lease with a monotonic generation. The handler
+acquires it before creating any run; a concurrent request is synchronously refused with the
+registered `AUTOMATION_RUN_IN_PROGRESS` code. Exact-name and filter jobs bind their own delegate
+handles, check their generation before acting, remove every handle on completion/error, and release
+only the matching generation, so a stale completion cannot release or complete a newer job.
+
+Changed `Handlers/System/SystemControlHandler.cpp`, `Handlers/System/RunTestsSupport.h/.cpp`,
+`Handlers/ErrorCodes.h`, `Tests/EditorOps/TestSystemHandlers.cpp`, and `Docs/wiki-src/system.md`.
+Regression coverage: `PinWright.system.run_tests.ConcurrentJobLease`. Queueing was deliberately not
+added: the API refuses the second caller so ownership and retry timing remain explicit. The test
+now starts a real exact-name handler job under a controller hold, verifies its two controller
+delegates are the only active bindings, submits and observes rejection of a second real handler
+job, then completes the first through production cleanup and verifies both handles were removed.
+No build, Unreal run, MCP call, or live concurrent reproduction was performed under this worker brief.
+
 ## History
 - `#1-shared-controller-cross-completion` `OPEN` reporter — Source-read both selection paths and
   confirmed they share one controller and its multicast completion delegate with no active-owner
   guard. No automation run was started.
+- `#2-generation-lease-refusal` `IN-REVIEW` developer — Added one process-wide generation lease
+  across exact, filter, and isolated test jobs; concurrent requests now return
+  `AUTOMATION_RUN_IN_PROGRESS`, per-job delegates are removed on terminal paths, and stale
+  generations cannot release newer owners. Added `PinWright.system.run_tests.ConcurrentJobLease`;
+  static verification only, with no build or Unreal run.
+- `#3-real-two-job-delegate-coverage` `IN-REVIEW` developer — Replaced the manual process-lease
+  occupancy check with two actual `system.run_tests` handler requests. The first binds two real
+  controller delegates under a test-only hold, the second is refused with
+  `AUTOMATION_RUN_IN_PROGRESS` without adding a binding, and production completion removes both
+  first-job handles. Static verification only; no build, automation, Unreal, or MCP run.

@@ -1,7 +1,7 @@
 ---
 id: B-animation-setup-retargeting-does-not-retarget
 title: "animation.setup_retargeting reports assets as retargeted after only copying them and changing their Skeleton pointer"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: bug
 tags: [animation, retargeting, skeleton, false-success, wrong-result, verification]
@@ -21,6 +21,16 @@ Route the verb through a real IK Retargeter export/batch operation, using the ex
 
 - Catalog: `terminal-success-before-completion-or-invariant`, `request-echo-not-result-readback`, `incomplete-validator-false-green`
 
+## Fix
+
+**Verdict: TRUE.** UE 5.8's real `UIKRetargetBatchOperation::RunBatchRetarget` requires a source SkeletalMesh, target SkeletalMesh, and configured `UIKRetargeter`, while this RPC accepts only Skeletons. `UAnimationAsset::SetSkeleton` still only assigns the Skeleton/GUID, so the feasible fix within the existing signature is an honest compatibility-copy contract: the result now reports `retargeted: false`, `duplicatedWithSkeletonSwap`, `duplicatedAssets`, and truthful save fields, and the registry description and wiki say that tracks are not remapped.
+
+Files: `Source/PinWright/Private/Handlers/Animation/AnimationHandler.cpp`, `Source/PinWright/Private/Tests/Animation/TestSetupRetargetingContract.cpp`, and `Docs/wiki-src/animation.md`. Regression ID: `PinWright.animation.setup_retargeting.OverwriteStagesSourceBeforeReplacement`.
+
+Deliberately unchanged: no new source-mesh, target-mesh, or IK Retargeter parameter was added, and no IK batch export is attempted. The method name and legacy `_Retargeted` suffix remain for compatibility, but no response field claims that the tracks were retargeted.
+
 ## History
 
 - `#1-pattern-scan` `OPEN` reporter — Source-confirmed the RPC reaches only duplicate + SetSkeleton + mark-dirty, and engine SetSkeleton does not retarget tracks; no editor, build, or test was run.
+- `#2-honest-skeleton-swap-contract` `IN-REVIEW` developer — Replaced the false retarget-success contract with explicit duplicate-plus-Skeleton-swap fields, documented the required IK batch inputs from UE 5.8 source, and added structural response coverage.
+- `#3-verifier-hardening` `IN-REVIEW` developer — Replaced source-text assertions with a handler-harness test that verifies `retargeted:false`, `duplicatedWithSkeletonSwap:true`, the source-derived data GUID, target Skeleton, and durable output file.

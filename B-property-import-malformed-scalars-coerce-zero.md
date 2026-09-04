@@ -1,7 +1,7 @@
 ---
 id: B-property-import-malformed-scalars-coerce-zero
 title: "Generic reflected-property writes accept malformed scalar strings and report success after coercing them to zero or false"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: bug
 tags: [property, reflection, coercion, false-success, property-import]
@@ -43,6 +43,23 @@ handler-level negative tests with independent property readback proving the old 
 
 **Workaround:** For reflected numeric and boolean properties, send native JSON numbers/booleans and read the property back.
 
+## Fix
+
+`Utils/JsonUtils.h/.cpp` now exposes strict reflected-scalar conversion helpers using the
+existing literal policy, `FDefaultValueHelper`, and `LexTryParseString`, with finite,
+integral, and range checks. `Utils/PropertyImport.cpp` routes top-level bool, float/double,
+signed/unsigned integer, byte, and numeric-enum writes through one strict direct-conversion
+helper, with locals and commits only after conversion succeeds. Its `ImportText_Direct` fallback imports into initialized scratch storage,
+requires the returned pointer to consume the complete input, and copies only after success.
+`Tests/Utility/TestPropertyImportMalformedScalars.cpp` covers malformed, fractional,
+overflowing, negative-unsigned, non-finite, and trailing-input values while asserting old
+values survive. Handler-level property.set, array.set, map.set, and set.add regressions assert
+exact errors, unchanged values/sizes, and no object-modified notifications. Non-scalar
+container mutation rollback remains in its related ticket. Additional coverage:
+`PinWright.property.set.MalformedArrayScalarNoMutation`,
+`PinWright.container.array.append.MalformedScalarNoMutation`, and
+`PinWright.container.array.insert.MalformedScalarNoMutation`.
+
 ## Related
 
 - Catalog: `coercion-slot-unit-direction-drift`, `accepted-parameter-silent-noop`
@@ -53,3 +70,10 @@ handler-level negative tests with independent property readback proving the old 
 - `#1-malformed-scalars-write-fallbacks` `OPEN` reporter — Traced each in-scope Utility call through
   the shared importer and its unconditional Atoi/Atod/boolean fallback. Root cause is outside the
   assigned area and was not scanned beyond this call path. No RPC was executed.
+- `#2-strict-scalar-import` `IN-REVIEW` developer — Added shared strict scalar parsing and
+  scratch/full-consumption ImportText fallback in `Utils/JsonUtils.h/.cpp` and
+  `Utils/PropertyImport.cpp`; routed generic scalar writes through one direct helper; staged
+  `property.set`, `container.array.set`, `container.map.set`, and `container.set.add` before
+  `Modify`; and added `Tests/Utility/TestPropertyImportMalformedScalars.cpp` regressions proving
+  malformed scalar inputs are refused without changing values, sizes, or modification
+  notifications.

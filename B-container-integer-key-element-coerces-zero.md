@@ -1,7 +1,7 @@
 ---
 id: B-container-integer-key-element-coerces-zero
 title: "Container map keys and set elements use unchecked Atoi conversions, so malformed values can overwrite, add, or remove integer zero"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: bug
 tags: [container, map, set, coercion, integer, false-success]
@@ -41,6 +41,12 @@ rather than maintaining another Atoi path.
 
 **Workaround:** Use canonical integer strings for integer map keys and native whole JSON numbers for integer set elements; read back the container after mutation.
 
+## Fix
+
+Implemented the root-cause fix in `X:\src\unreal\unreal-fpv-dev\Plugins\PinWright\Source\PinWright\Private\Handlers\Utility\UtilityPropertyHandler.cpp`: integer map keys and set elements now consume the shared strict scalar parser from `X:\src\unreal\unreal-fpv-dev\Plugins\PinWright\Source\PinWright\Private\Utils\JsonUtils.h/.cpp` before allocation, `Modify()`, mutation, or scanning. Malformed, fractional, overflowing, and non-scalar values return `INVALID_PARAMS` instead of targeting integer zero, and successful map responses use canonical integer keys.
+
+Regression coverage is in `X:\src\unreal\unreal-fpv-dev\Plugins\PinWright\Source\PinWright\Private\Tests\Utility\TestContainerIntegerScalarCoercion.cpp`, using fixture `X:\src\unreal\unreal-fpv-dev\Plugins\PinWright\Source\PinWright\Private\Tests\Utility\TestContainerIntegerScalarCoercionHost.h` and automation id `PinWright.container.IntegerScalarCoercion`. Float container coercion, array rollback behavior, and unrelated handlers were deliberately left unchanged.
+
 ## Related
 
 - Catalog: `coercion-slot-unit-direction-drift`, `wrong-target-scope-or-identity`, `request-echo-not-result-readback`
@@ -51,3 +57,4 @@ rather than maintaining another Atoi path.
 - `#1-atoi-targets-zero` `OPEN` reporter — Source-read map set and the set add/remove/contains
   family and confirmed malformed values reach key/element zero with no parse verdict. No container
   was mutated during the scan.
+- `#2-checked-integer-containers` `IN-REVIEW` developer — Reused the shared strict scalar conversion for map keys and set elements, validating before Modify/mutation/scan and returning canonical values; added `PinWright.container.IntegerScalarCoercion` regression coverage.

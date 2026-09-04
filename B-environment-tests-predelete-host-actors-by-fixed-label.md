@@ -1,7 +1,7 @@
 ---
 id: B-environment-tests-predelete-host-actors-by-fixed-label
 title: "Environment spawn tests delete pre-existing host actors by fixed display label before creating their fixtures"
-status: OPEN
+status: IN-REVIEW
 severity: Critical
 category: bug
 tags: [tests, environment, host-safety, actor-label, wrong-target, teardown, data-loss]
@@ -70,6 +70,32 @@ tracked map content from version control.
 - `B-tests-spawn-live-world-no-guard` — same guard is reusable, but its current census/fix does not cover these five bodies and a guard alone cannot restore actors explicitly pre-deleted here.
 - `B-tests-wipe-host-map-foliage` — sibling shared-world destructive-test hazard.
 
+## Fix
+
+The root cause was that the environment fixtures treated a display-label match as
+proof of test ownership, so their pre-clean could destroy an unrelated actor that
+was already present in the host editor world. The five affected tests now create
+GUID-suffixed labels, declare `FScopedEditorWorldActorGuard` before the spawn call,
+and leave teardown to the guard; the four standard spawn verbs resolve the created
+actor through the response's canonical `actorPath`, while `create_sky_sphere` passes
+its unique `name` and verifies the single actor added after its local snapshot. The obsolete label-wide destroy helper was removed,
+and its two remaining landscape teardown users were moved to the same scoped guard.
+
+Files changed:
+- `X:\src\unreal\unreal-fpv-dev\Plugins\PinWright\Source\PinWright\Private\Tests\World\TestEnvironmentHandlers.cpp`
+- `X:\src\unreal\unreal-fpv-dev\Plugins\PinWright\Source\PinWright\Private\Tests\Infra\TestFixtureOwnershipContracts.cpp`
+
+Tests:
+- Extended `PinWright.infra.contract.EditorWorldSpawn.GuardedTestSpawns` with all five indirect environment spawn bodies.
+- Added `PinWright.infra.contract.EditorWorldSpawn.NoLabelBasedPreDelete`, which scans the test tree for the removed helper and label-selected destruction before handler calls.
+
+Deliberately unchanged: production handlers and wiki pages, because no verb contract
+changed. Broader live-world fixture gaps remain owned by
+`B-tests-spawn-live-world-no-guard`. Per the worker brief, no editor, build, or
+automation run was performed; verification here was source inspection plus
+`git diff --check`.
+
 ## History
 
 - `#1-fixed-label-preclean-destroys-host-actors` `OPEN` reporter — Source-only pattern scan of the three requested test trees. Read the helper, all five callers, the environment spawn responses, `AActor::SetActorLabel`, and `FScopedEditorWorldActorGuard` end to end. Confirmed that the helper deletes pre-existing live-world actors before the handler call and that the sky-sphere case uses the production verb's ordinary default label. Deduped against the full board: `B-tests-spawn-live-world-no-guard` covers leaked new actors/stale selection and does not cover restoring host actors deliberately deleted by this helper. No build, test, editor, Saved-file access, plugin edit, existing-ticket edit, or commit was performed.
+- `#2-scoped-guid-environment-fixtures` `IN-REVIEW` developer — Replaced label-wide pre-clean and teardown with GUID-suffixed fixtures owned by `FScopedEditorWorldActorGuard`, resolved standard spawn results through `actorPath`, passed a unique `name` to the sky-sphere test and verified its single new actor, extended the guarded-spawn contract, and added a test-tree source ratchet against label-based pre-delete. No editor, build, or automation run was performed.

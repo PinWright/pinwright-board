@@ -1,7 +1,7 @@
 ---
 id: B-asset-batch-mutators-silently-narrow-request
 title: "Asset batch mutators silently discard malformed or missing inputs and can report success for only the surviving subset"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: bug
 tags: [asset, batch, partial-success, silent-drop, checkout, submit, rename, duplicate, lod]
@@ -41,5 +41,28 @@ from post-operation readback, not the filtered request array.
 
 Resolve and operate on one asset at a time, verifying each result independently.
 
+## Fix
+
+**Fix:** The root cause was five independent handlers deriving success from filtered work arrays,
+so rejected inputs no longer existed when the response was built. `AssetBatchResult.h` now owns one
+shared per-item outcome and measured aggregate contract. `AssetWorkflowHandler.cpp` uses it for
+checkout, submit, bulk rename, and LOD generation; `AssetManageHandler.cpp` uses it for folder
+duplication; `MeshRebuildRenderGuard.h` adds a slot-preserving overload without changing existing
+callers; `ErrorCodes.h` supplies stable batch refusal codes; and `Docs/wiki-src/asset.md` documents
+the wire behavior. Regression coverage is
+`PinWright.asset.batch_mutators.PreserveItemsAndRefusePartial` in
+`TestAssetBatchMutators.cpp`; it calls the production helper and dispatches all five registered
+production handlers. The four array verbs use an engine StaticMesh plus malformed and missing rows
+to assert synchronous default refusal, complete input order, and unchanged mesh state; folder
+duplication uses a same-folder engine-content collision to exercise its production branch and
+assert every discovered child is retained and unattempted. Registration and source ratchets remain
+supplemental, including the mixed-child destination-conflict invariant.
+
+Deliberately unchanged: single-asset `asset.duplicate` keeps its existing contract, runtime
+failures do not claim transaction rollback, and the regression deliberately performs no live
+source-control operation or asset mutation. This source-only change provides no build,
+automation-run, editor-runtime, external MCP, or provider proof.
+
 ## History
 - `#1-pattern-scan` `OPEN` reporter — Grouped because all five verbs share the same request-narrowing mechanism and fix contract. Source only; no editor, build, test, or RPC run.
+- `#2-batch-outcome-contract` `IN-REVIEW` developer — "Changed AssetWorkflowHandler.cpp and AssetManageHandler.cpp to route all five asset mutators through a shared per-input outcome contract, refuse incomplete batches by default, and support explicit partial:true results."

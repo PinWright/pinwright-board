@@ -1,7 +1,7 @@
 ---
 id: B-editor-recording-false-success
 title: "`editor.start_recording` reports a replay started even when edit mode has no GameInstance and the DemoRec command does nothing"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: bug
 tags: [editor, replay, recording, world-selection, false-success]
@@ -47,5 +47,16 @@ do not treat this verb's current response as evidence.
 - `B-createpackage-unvalidated-paths-plugin-wide` — separately tracks unsafe name
   composition, not whether replay recording starts.
 
+## Fix
+
+The root cause was the edit-world fallback combined with `DemoRec`'s consumed-no-op behavior when `UWorld::GetGameInstance()` is null. `editor.start_recording` now refuses without an active PIE world and `GameInstance`, starts through `UGameInstance::StartRecordingReplay`, and returns success only when `UReplaySubsystem::IsRecording()` confirms an active recorder. The response keeps the requested name in `requestedRecordingName`, takes the actual `recordingName` from the replay subsystem, and exposes `UDemoNetDriver::GetDemoPath()` as `recordingBasePath` because it is a base directory. This is state-level confirmation of the active replay driver, not durable artifact proof.
+
+Files changed: `Source/PinWright/Private/Handlers/Editor/EditorCommandHandler.cpp`, `Source/PinWright/Private/Handlers/ErrorCodes.h`, `Source/PinWright/Private/Tests/EditorOps/TestEditorPieLifecycle.cpp`, and `Docs/wiki-src/editor.md`.
+
+Tests added: `PinWright.editor.start_recording.RequiresActiveGameWorld` and `PinWright.editor.start_recording.VerifiesReplayState`.
+
+Deliberately not changed: `editor.stop_recording` remains idempotent when no recording is active; no replay artifact or live recorder was created in this source-only worker.
+
 ## History
 - `#1-source-scan-demorec-noop` `OPEN` reporter — Source-only scan followed the edit-world fallback into UE 5.8's DemoRec handler, where a null `GameInstance` skips `StartRecordingReplay` but still consumes the command; PinWright always reports success. No build, test, editor, MCP call, or plugin edit was performed.
+- `#2-require-game-world` `IN-REVIEW` developer — Removed the edit-world `DemoRec` fallback, required PIE plus `GameInstance`, and gated success on replay recording state after the direct API call. The response now separates the requested name from the replay subsystem's active `recordingName`, labels `GetDemoPath()` as `recordingBasePath`, and adds source-contract assertions for those fields. This confirms in-memory replay state only; it does not prove a durable artifact.

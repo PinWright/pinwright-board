@@ -1,7 +1,7 @@
 ---
 id: B-recorder-query-ambiguous-session
 title: "`recorder.query` treats a session argument as a filename substring and silently reads the first matching recording"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: bug
 tags: [recorder, session, path-resolution, ambiguity, wrong-target]
@@ -42,5 +42,22 @@ canonical resolved path/session identity before or alongside every result.
 Pass an exact filename including `.ndjson`, or an absolute path, and compare the
 returned `meta.session` before using the value.
 
+## Fix
+
+Root cause: the query handler had a private substring fallback that returned immediately on the first filesystem match, while the shared resolver already provided deterministic exact path, filename, and session-id resolution. The handler now calls `RecorderResolver::ResolvePath` first, then accepts a substring only when exactly one recording matches; multiple matches are sorted and returned as `AMBIGUOUS_SESSION` candidates. The regression test now drives this through the real dispatcher with two GUID-named recordings and also verifies that an exact filename proceeds to a completed query.
+
+Files changed:
+- `Plugins\PinWright\Source\PinWright\Private\Handlers\Recorder\RecorderQueryHandler.cpp`
+- `Plugins\PinWright\Source\PinWright\Private\Handlers\ErrorCodes.h`
+- `Plugins\PinWright\Source\PinWright\Private\Tests\Recorder\TestRecorderQuerySafety.cpp`
+- `Plugins\PinWright\Docs\wiki-src\recorder.md`
+
+Test IDs:
+- `PinWright.recorder.query.ResolvesSessionsUnambiguously` — real dispatcher ambiguity response includes both candidate ids; exact filename query completes against the requested file.
+
+Deliberately not changed: `RecorderResolver::ResolvePath` and structured recorder verbs retain their exact-only semantics. No live editor, compile, or automation run was performed.
+
 ## History
 - `#1-source-scan-session-ambiguity` `OPEN` reporter — Source-only scan confirmed first-substring-match selection in the query handler and exact-only selection in the sibling shared resolver. No build, test, editor, MCP call, or plugin edit was performed.
+- `#2-exact-session-resolution` `IN-REVIEW` developer — Query resolution now prefers exact shared-resolver matches and refuses ambiguous substring matches with sorted candidates; static source/registration tests were added. No compile or test run was performed.
+- `#3-behavioral-session-resolution` `IN-REVIEW` developer — Replaced source-only resolver assertions with real dispatcher coverage: two GUID-named files produce `AMBIGUOUS_SESSION` with both candidates, while an exact filename reaches a completed query. No compile or test run was performed.

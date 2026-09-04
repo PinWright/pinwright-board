@@ -1,7 +1,7 @@
 ---
 id: B-call-nonobject-args-dispatches-defaults
 title: "The call transport replaces present non-object argument envelopes with empty objects, so malformed input can dispatch a method's destructive defaults"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: bug
 tags: [transport, call, validation, coercion, false-success, run-tests]
@@ -49,7 +49,29 @@ This is the envelope-level counterpart of the runtime `FParamSpec` gate from
   it covers unknown field names and string typing for `method`/`path`, not object typing here.
 - `B-param-type-never-validated` — per-handler value-shape gate after dispatch.
 
+## Fix
+
+The transport previously replaced every present non-object `params.arguments` and inner `args`
+value with `{}`, making malformed input indistinguishable from an omitted field. The production
+path now rejects those values with JSON-RPC `-32602` (`JsonRpc::kInvalidParams`) before wiki
+routing or dispatcher handoff; omitted fields retain the existing empty-object behavior.
+
+Changed files:
+
+- `X:\src\unreal\unreal-fpv-dev\Plugins\PinWright\Source\PinWright\Private\Transport\McpRequestCore.cpp`
+- `X:\src\unreal\unreal-fpv-dev\Plugins\PinWright\Source\PinWright\Private\Tests\Infra\TestMcpRequestCore.cpp`
+
+Regression test: `PinWright.infra.request_core.ToolsCall.ArgumentObjectType`, covering string,
+array, and null values in both argument slots and asserting an immediate error with no
+`DispatchRpc` decision.
+
+Deliberate non-changes: `JsonRpc.h`, `SocketHttpServer.cpp`, `PinWrightSubsystem.cpp`,
+`RpcDispatcher.cpp`, `SystemControlHandler.cpp`, `JsonUtils.h`, `JsonUtils.cpp`,
+`ParamTypeCheck.h`, and the separate non-object outer `params` behavior were left unchanged.
+No editor, MCP, build, or test command was run in this sprint.
+
 ## History
 - `#1-nonobject-args-default-dispatch` `OPEN` reporter — Source-read the full request path: both
   object slots substitute `{}` on wrong shape, and malformed inner args can dispatch
   `system.run_tests` as `Automation RunAll`. No RPC, build, or editor run was performed.
+- `#2-reject-nonobject-args` `IN-REVIEW` developer — Rejected present non-object outer and inner call argument envelopes with JSON-RPC invalid-params before wiki routing or dispatch; absent arguments still use the empty-object default; added request-core no-dispatch regression coverage.

@@ -1,7 +1,7 @@
 ---
 id: B-fill-holes-uvless-assert
 title: "geometry.fill_holes and bridge's one-loop fallback crash on an attribute-enabled mesh with zero UV layers when the engine projects UVs into a missing overlay"
-status: OPEN
+status: IN-REVIEW
 severity: Critical
 category: bug
 tags: [geometry, fill-holes, bridge, uvless, assertion, editor-crash, validate-before-call]
@@ -48,5 +48,32 @@ hole-filling fallback on a UV-less mesh.
 `B-convert-static-mesh-uvless-crash` covers a different MikkT build assertion. The reusable
 UV-channel guard already exists from `B-geometry-uv-gen-silent-noop`.
 
+## Fix
+
+The ticket was TRUE. Both PinWright entry points called UE's hole filler on an attributed mesh
+without first satisfying the normal and UV overlays that `FHoleFillOp` dereferences after a
+successful fill. `GeometryOps::PrepareHoleFillAttributes` now preserves attribute-free meshes,
+grows missing UV0 through `GeometryUtils::EnsureMeshHasUVChannel`, grows a missing primary normal
+layer, and returns `NO_UV_ELEMENTS` or `INVALID_NORMAL_OVERLAY` before the engine call if either
+overlay still cannot be created.
+
+Files changed:
+- `Source/PinWrightGeometry/Private/Handlers/Geometry/GeometryOps.h`
+- `Source/PinWrightGeometry/Private/Handlers/Geometry/GeometryOps.cpp`
+- `Source/PinWrightGeometry/Private/Handlers/Geometry/GeometryOps_Modeling.cpp`
+- `Source/PinWrightGeometry/Private/Handlers/Geometry/GeometryOps_Advanced.cpp`
+- `Source/PinWrightGeometry/Private/Tests/Geometry/TestGeometryOpsModeling.cpp`
+- `Source/PinWrightGeometry/Private/Tests/Geometry/TestGeometryOpsAdvanced.cpp`
+- `Docs/wiki-src/geometry.md`
+
+Regression tests:
+- `PinWright.Geometry.Ops.Modeling.FillHolesCreatesRequiredAttributeLayers`
+- `PinWright.Geometry.Ops.Advanced.BridgeHoleFillCreatesMissingUVLayer`
+
+Deliberately unchanged: bridge's established fewer-than-two-loops hole-fill fallback and its status
+wording. The fix only makes that existing branch safe; it does not redesign bridge semantics or
+assign UVs/normals to pre-existing triangles.
+
 ## History
 - `#1-source-pattern-scan` `OPEN` reporter — Both PinWright call sites omit the UV-layer precondition; UE 5.8's hole filler gates only on attributes and its projection helper then asserts that UV layer 0 exists. The reachable zero-layer state is produced by `append_buffers` without `uvs`. Source-only; no editor call was made.
+- `#2-preflight-hole-fill-overlays` `IN-REVIEW` developer — Added one shared grow-only overlay preflight for `fill_holes` and bridge's one-loop fallback, using existing typed errors if UV0 or the primary normal layer still cannot be created; added both transient-mesh regression tests and documented the contract.
