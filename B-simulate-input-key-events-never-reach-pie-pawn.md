@@ -1,12 +1,12 @@
 ---
 id: B-simulate-input-key-events-never-reach-pie-pawn
 title: "editor.simulate_input key_down/key_up report success but never reach a running PIE session — the possessed pawn's input state does not change, so no verb can drive a game under test"
-status: IN-REVIEW
+status: OPEN
 severity: High
 category: bug
 tags: [editor, simulate_input, key_down, key_up, pie, enhanced-input, slate-focus, silent-false-success]
-encounters: 1
-lastSeen: 2026-09-02T21:56:00Z
+encounters: 2
+lastSeen: 2026-09-05T21:00:00Z
 ---
 
 # Simulated key events never reach the PIE pawn
@@ -188,3 +188,21 @@ refuses with `NO_ACTIVE_SESSION` instead of degrading into an editor keystroke. 
 - `#4-verified-in-fps-build` `IN-REVIEW` reporter - **Fixed. Verified live in the FPS build, 2026-09-05 17:52Z, UE 5.8, shared editor port 27145, plugin at origin/master after the wave 4-9 rebuild.** Call: `editor.simulate_input {type:"key_down", key:"LeftMouseButton", target:"game"}` into a running standalone PIE session on `/Game/FPS/Test/T_Weapons`. Response now carries `route:"slate"`, `handled:true`, `playerInputRegistered:true`, `focusRepaired:true`, `focusInGameViewport:true`, `focusedWidget:"SViewport"`, and names `worldPath /Game/FPS/Test/UEDPIE_0_T_Weapons.T_Weapons`, `playerController PlayerController_0` and `pawn BP_WeaponTestPawn_C_0`.
   **Not taken on the response's word** - the ticket's actual claim was that the possessed pawn's state does not change, so that is what was measured. The pawn's equipped `BP_Weapon_AR_C_2` went from `AmmoInMag 30 / ShotCounter 0` to `AmmoInMag 0 / ShotCounter 30` while the key was held (auto fire at 620 rpm), and the placed `BP_EnemyCharacter_C_0` dropped from full health to `Health 22.0` from those hits. A second burst after `key_up` / `key_down` took the counter to 46. Gameplay observes the key: movement, weapon, recoil and ADS reviews all have a route now.
   Ancillary, same session: the player controller's control rotation moved from the pitch -0.19 deg set before the burst to +9.15 deg after 16 shots, so recoil applied through the real input path rather than through a scripted call.
+- `#N-returned` `OPEN` reporter — **Returning this to OPEN: the fix works for one Enhanced Input action and not for three others, and the response cannot tell them apart.** UE 5.8 / EAContentExamples58, plugin at `origin/master` post-waves-4-9, one PIE session on `/Game/FPS/Test/T_Player` owned by this stream.
+
+  Every call below returned `route: "slate"`, `handled: true`, `playerInputRegistered: true`, `focusInGameViewport: true`, `focusedWidget: "SViewport"`, and named the correct `PlayerController_0` / `BP_FPSCharacter_C_0`:
+
+  | key | action | trigger | game-side result |
+  |---|---|---|---|
+  | `LeftShift` | `IA_Sprint` | Started | **worked** — `bWantsSprint` went True |
+  | `W` | `IA_Move` | Triggered (Axis2D) | nothing — `speed` stayed `0.0`, sampled twice seconds apart |
+  | `R` | `IA_Reload` | Started | nothing — `bIsReloading` False, no montage |
+  | `LeftMouseButton` | `IA_Fire` | Started | nothing — `AmmoInMag` stayed 30, `KickAlpha` 0 |
+
+  `mouse_click` at the viewport centre was also tried for `IA_Fire`: `"Mouse click at (958, 540) was handled by a widget"` — and again nothing fired.
+
+  **The game side is proven healthy independently**, which is what makes this a delivery problem rather than a project bug: calling the weapon's `Reload` directly on the same actor in the same session gave `bIsReloading: True` and `Montage_IsPlaying: True` on the arms anim instance immediately. So the mapping context, the action assets, the handlers, the dispatchers and the montage all work; only the synthetic key fails to become an Enhanced Input trigger for three of the four actions.
+
+  Two things make this expensive to a caller. First, `playerInputRegistered: true` is reported identically for the action that fired and the three that did not, so there is no in-band way to tell a delivered key from a swallowed one — the only signal is a game-side variable the caller has to know to read. Second, it is **intermittent across sessions**: in an earlier slot the same `W` key did move the pawn several metres, and in this one it produced zero velocity, so a caller cannot even learn a stable workaround.
+
+  Suggest the response distinguish "the key was injected" from "an Enhanced Input action triggered" — the subsystem knows which actions fired on that tick, and reporting them by name would make this self-diagnosing. Workaround in use: call the gameplay method directly (`Reload`) or set the driving variable, and label such captures as not-input-driven.
