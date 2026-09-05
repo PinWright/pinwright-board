@@ -1,7 +1,7 @@
 ---
 id: B-ui-remove-wrong-instance
 title: "`ui.remove_widget_from_viewport` removes the first same-named UUserWidget from any world instead of the requested viewport instance"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: bug
 tags: [ui, widget, viewport, world-selection, wrong-target]
@@ -38,6 +38,24 @@ UI handlers. Require viewport membership and explicit world/player identity, ref
 ambiguous names, and return the owning world, player and actual object path. Verify
 the selected widget is no longer attached before success.
 
+## Fix
+
+The named branch now resolves the PIE-first runtime world and requires it to match
+the active game viewport. It collects only top-level `UUserWidget` instances that
+are in the viewport and have an owning player, so editor previews, foreign worlds,
+and unowned transients cannot satisfy the request. An exact `objectPath` is accepted
+and takes precedence over a short object name; a short-name collision returns the
+typed `AMBIGUOUS_ACTOR_NAME` error with world/player/object-path candidates. A
+successful response echoes the selected identity and is sent only after
+`RemoveFromParent` verifies the widget is no longer in the viewport.
+
+The handler-level regression test is
+`PinWright.ui.remove_widget_from_viewport.TargetsRuntimeInstance` in
+`Source/PinWright/Private/Tests/UI/TestUiRemoveWidgetFromViewportInstance.cpp`.
+It creates same-named editor and PIE instances, invokes the handler through the
+capture harness, and asserts the response identity plus the detached runtime
+instance state. No build or test run was performed, per the ticket constraints.
+
 ## Workaround
 
 Keep live widget names unique across open previews and PIE clients. The empty-key
@@ -52,3 +70,4 @@ that destructive behavior is acceptable.
 
 ## History
 - `#1-source-scan-global-widget` `OPEN` reporter — Source-only scan contrasted the game-viewport-scoped empty-key branch with the named branch's global first-name match and found no world, player, viewport, or ambiguity check. No build, test, editor, MCP call, or plugin edit was performed.
+- `#2-runtime-viewport-instance-selector` `IN-REVIEW` developer — Verified the live handler still used global `TObjectIterator<UUserWidget>` first-match selection, then scoped named removal to the PIE-first active viewport world with top-level viewport/owning-player filters, exact object-path addressing, typed ambiguity candidates, and post-removal state verification. Added the handler-level `PinWright.ui.remove_widget_from_viewport.TargetsRuntimeInstance` regression test and documented the contract in `Plugins/PinWright/Docs/wiki-src/ui.md`. No build, test, editor, or MCP run was performed.

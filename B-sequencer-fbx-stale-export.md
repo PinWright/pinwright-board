@@ -1,7 +1,7 @@
 ---
 id: B-sequencer-fbx-stale-export
 title: "sequencer.export_fbx can report success for a stale destination file after the engine ignores a failed write"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: bug
 tags: [sequencer, fbx, export, overwrite, artifact, false-success]
@@ -53,3 +53,12 @@ time or content before using it.
 
 ## History
 - `#1-filed-pattern-scan` `OPEN` reporter — Source-only scan traced the handler's direct final-path write and post-call size probe to the engine exporter, where the void `WriteToFile` API can return early after initialization failure and the wrapper still returns true. Board search found no ticket for stale FBX output or overwrite safety. No build, test, editor, MCP call, plugin edit, commit, or repro was performed.
+- `#2-staged-atomic-export` `IN-REVIEW` developer — Changed `SequencerFbxHandler.cpp` to refuse existing outputs by default, export to a unique sibling stage, verify its bytes, and publish through `AtomicFileWriter`; a failed publish leaves the destination untouched and returns an error. Added handler-level transient-sequence coverage in `PinWright.Sequencer.FbxExport.AtomicStaleDestination`; no build, editor, MCP call, or test run was performed under the worker restriction.
+
+## Fix
+
+The engine's export helper reports true after a void file-write call, and the handler previously validated the caller's final path, allowing old bytes to masquerade as the new export. The handler now exports only to a task-owned sibling path, loads and verifies the staged bytes, then publishes them through `AtomicFileWriter`; existing destinations require `overwrite:true`, publication failures preserve the old file, and success reports final size plus `replaced`.
+
+Files changed: `Source/PinWright/Private/Handlers/Sequencer/SequencerFbxHandler.cpp`, `Source/PinWright/Private/Tests/Sequencer/TestSequencerFbxOutcomeHonesty.cpp`, and `docs/wiki-src/sequencer.md`. Test id: `PinWright.Sequencer.FbxExport.AtomicStaleDestination`.
+
+Deliberately not changed: `AtomicFileWriter` itself and Unreal's FBX exporter remain untouched; the handler composes the shared stage-verify-publish contract around the engine API.

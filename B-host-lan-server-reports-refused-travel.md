@@ -1,7 +1,7 @@
 ---
 id: B-host-lan-server-reports-refused-travel
 title: "session.host_lan_server reports travelExecuted true even when UWorld::ServerTravel rejects or does not schedule the requested travel"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: bug
 tags: [session, server-travel, false-success, readback, multiplayer]
@@ -47,7 +47,35 @@ terminal readback or model the transition as a job.
 - `F-pie-status-rpc` — provides the independent world-state readback needed for a workaround.
 - `E-session-wiki-pie-prerequisite-undocumented` — prerequisite documentation, not travel outcome handling.
 
+## Fix
+
+The root cause was that the handler discarded `ServerTravel`'s boolean result and treated world
+presence as both scheduling and completion. It now evaluates the call result together with the
+pre/post pending URL and seamless-transition state, returns typed `TRAVEL_REFUSED` unless this
+request newly queued its destination, and uses the retained bounded PIE lifecycle waiter to
+re-resolve the relevant world until the requested map is observed with no pending transition.
+`travelExecuted` now mirrors only that completed readback.
+
+Exact files changed:
+- `Source/PinWright/Private/Handlers/System/SessionsHandler.cpp`
+- `Source/PinWright/Private/Handlers/System/SessionsTravelDecision.h`
+- `Source/PinWright/Private/Handlers/ErrorCodes.h`
+- `Source/PinWright/Private/Tests/EditorOps/TestSessionTravelOutcome.cpp`
+- `Docs/wiki-src/session.md`
+- `Docs/wiki-src/editor.md` — reciprocal cross-link to the session hosting contract
+- `X:/src/unreal/.pinwright-board/B-host-lan-server-reports-refused-travel.md`
+
+Regression coverage: `FSessionHostLanServerTravelOutcomeContractTest`, test id
+`PinWright.session.host_lan_server.TravelOutcomeContract`.
+
+Deliberate non-changes: no new ticker, no changes to `Utils/PieState.*`, no engine, Config, Saved,
+or outer PDS edits, and no build, editor, MCP, or live travel run in this source-only pass.
+
 ## History
 - `#1-servertravel-result-ignored` `OPEN` reporter — Source-read the handler and UE 5.8
   `UWorld::ServerTravel`; confirmed the response ignores both the false return and the
   no-new-schedule branch. No PIE or travel was started.
+- `#2-travel-outcome-contract` `IN-REVIEW` developer — Captured `ServerTravel` plus pre/post
+  pending state in `SessionsHandler.cpp`, added typed refusal and bounded destination readback,
+  documented the accepted/queued/completed contract, and added
+  `PinWright.session.host_lan_server.TravelOutcomeContract`.

@@ -1,7 +1,7 @@
 ---
 id: B-widget-create-memory-only
 title: "`widget.create_widget_blueprint` reports a created asset after only marking/registering the package, with no disk-persistence result"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: bug
 tags: [widget, create, persistence, disk, false-success]
@@ -51,5 +51,32 @@ exists on disk before performing long follow-up authoring or closing the editor.
 - `B-sequencer-create-save-no-disk-write` — established the same
   `McpSafeAssetSave`/registry-verification distinction for a creator.
 
+## Fix
+
+Root cause: `McpSafeAssetSave` only marks the package dirty and registers the
+asset; the handler treated warm-editor verification as persistence. The handler
+now defaults `save` to true, calls `SaveAssetToDiskReportingPresence`, and emits
+the shared `saveRequested` / `saved` / `pendingFlush` report with the
+`AssetSaveState` detail. `save:false` deliberately keeps the package
+memory-only and dirty.
+
+Files:
+
+- `Plugins/PinWright/Source/PinWright/Private/Handlers/UI/WidgetCreateHandler.cpp`
+- `Plugins/PinWright/Source/PinWright/Private/Tests/Media/TestUIHandlers.cpp`
+- `Plugins/PinWright/Docs/wiki-src/widget.md`
+
+Test IDs:
+
+- `PinWright.widget.create_widget_blueprint.SaveWritesToDisk` — checks disk
+  presence, registry visibility, and the save report.
+- `PinWright.widget.create_widget_blueprint.SaveFalseIsMemoryOnly` — checks the
+  not-requested state, dirty/pending-save response, and no disk file.
+
+Deliberately unchanged: existing warm-editor verification fields, other widget
+authoring verbs, and the explicit `save:false` mark-dirty semantics. No build,
+test, editor, or MCP execution was performed; this ticket is source-reviewed.
+
 ## History
 - `#1-source-scan-memory-only-create` `OPEN` reporter — Source-only scan followed widget creation through `McpSafeAssetSave`, `AddAssetVerification`, and the success response and found no package serialization or durability state. No build, test, editor, MCP call, or plugin edit was performed.
+- `#2-durable-widget-create` `IN-REVIEW` developer — Added durable default saving and the shared save-state response, plus handler-harness disk/registry coverage. No build, test, editor, or MCP execution was performed.

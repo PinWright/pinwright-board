@@ -1,7 +1,7 @@
 ---
 id: B-pcg-create-graph-no-disk-write
 title: "pcg.create_graph reports success for a graph that exists only in memory because McpSafeAssetSave never writes the package to disk"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: bug
 tags: [pcg, create-graph, persistence, no-disk-write, false-success, data-loss, mcp-safe-asset-save]
@@ -39,5 +39,26 @@ durability result before authoring against the graph.
 `B-geometry-generate-lods-no-disk-write` is the same save-helper mistake in the LOD family; its
 accepted fix is the reusable save/report shape. No existing PCG ticket covers graph durability.
 
+## Fix
+
+Root cause: `pcg.create_graph` used the mark-dirty-only `McpSafeAssetSave`, so the graph was
+registered and returned successfully without a durable package. The handler now force-saves
+through `SaveAssetToDiskReportingPresence`, emits `AddAssetSaveReport`/`AddAssetSaveSizeReport`
+with the `EAssetSaveState` contract, and returns typed `SAVE_FAILED` data instead of success when
+the package does not reach disk.
+
+Files changed:
+- `Plugins/PinWright/Source/PinWrightPCG/Private/Handlers/PCG/PCGGraphCreate.cpp`
+- `Plugins/PinWright/Source/PinWrightPCG/Private/Tests/PCG/TestPCGGraphHandlers.cpp`
+- `Plugins/PinWright/Docs/wiki-src/pcg.md`
+
+Behavioral test: `PinWright.pcg.create_graph.CreatesAsset` now checks the response's durable-save
+fields and the actual `.uasset` file after the handler response.
+
+Deliberately unchanged: the shared save helper and `AddAssetVerification` contract; graph class
+resolution, path validation, registry registration, and unrelated PCG handlers remain untouched.
+Verification is source-only in this turn; no build, editor, or automation run was performed.
+
 ## History
 - `#1-source-pattern-scan` `OPEN` reporter — The graph creation path ends in `McpSafeAssetSave` and an in-memory verification block, with no disk write or persistence fields. Source-only; no editor, build, or test was run. Fix with the shared measured save path and require disk proof.
+- `#2-durable-graph-save` `IN-REVIEW` developer — Replaced the mark-dirty-only save with the measured disk save/report contract and added handler-level disk-persistence assertions. Source-only; runtime verification remains for the tester.

@@ -1,7 +1,7 @@
 ---
 id: B-utility-widget-memory-only
 title: "`editor.create_utility_widget` reports a created asset after only marking/registering it, with no disk-persistence result"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: bug
 tags: [editor, utility-widget, create, persistence, false-success]
@@ -47,5 +47,39 @@ Run the explicit asset-save workflow immediately after creation and verify the
   persistence gap.
 - `F-editor-utility-widget` — feature ticket verifies warm creation only.
 
+## Fix
+
+Root cause: the handler's `McpSafeAssetSave` call only marked and registered the
+new Blueprint, so its warm-editor verification was mistaken for disk
+persistence. The handler now defaults `save` to true, uses
+`SaveAssetToDiskReportingPresence`, and emits the shared
+`saveRequested` / `saved` / `pendingFlush` report with `AssetSaveState` detail.
+`save:false` deliberately retains the dirty in-memory package behavior. Parent
+validation also now distinguishes unresolved from resolved-but-unusable classes
+before package creation; the canonical `UEditorUtilityWidget` root remains
+allowed even though the engine marks it abstract.
+
+Files:
+
+- `Plugins/PinWright/Source/PinWright/Private/Handlers/Editor/UtilityWidgetHandler.cpp`
+- `Plugins/PinWright/Source/PinWright/Private/Tests/EditorOps/TestEditorHandlers.cpp`
+- `Plugins/PinWright/Docs/wiki-src/editor.md`
+
+Test IDs:
+
+- `PinWright.editor.create_utility_widget.SaveWritesToDisk` — checks disk
+  presence, registry visibility, and the save report.
+- `PinWright.editor.create_utility_widget.InvalidParentRefused` — checks the
+  typed incompatible-parent error and verifies no package, registry asset, or
+  file.
+- `PinWright.editor.create_utility_widget.SaveFalseIsMemoryOnly` — checks the
+  not-requested state, dirty/pending-save response, and no disk file.
+
+Deliberately unchanged: `editor.spawn_utility_widget_tab`,
+`editor.run_utility_blueprint`, and existing assets/packages outside this create
+flow. No build, test, editor, or MCP execution was performed; this ticket is
+source-reviewed.
+
 ## History
 - `#1-source-scan-utility-persistence` `OPEN` reporter — Source-only scan followed utility-widget creation through `McpSafeAssetSave`, `AddAssetVerification`, and success and found no package serialization or durability result. No build, test, editor, MCP call, or plugin edit was performed.
+- `#2-durable-utility-widget` `IN-REVIEW` developer — Added durable default saving, typed parent validation, and handler-harness disk/registry/no-asset coverage. No build, test, editor, or MCP execution was performed.

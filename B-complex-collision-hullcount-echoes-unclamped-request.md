@@ -1,7 +1,7 @@
 ---
 id: B-complex-collision-hullcount-echoes-unclamped-request
 title: "geometry.generate_complex_collision clamps maxHullCount to 1-64 for the engine but returns the unclamped request as hullCount"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: bug
 tags: [geometry, collision, max-hull-count, clamp, request-echo, wrong-result, response-honesty]
@@ -30,5 +30,20 @@ changes the value. Cover both the lower and upper bound with a handler-level res
 
 **Workaround:** send only values in 1-64 and use `shapeCount` as the actual produced-shape count.
 
+## Fix
+
+`LODCollisionHandler.cpp` now clamps once into `effectiveMaxHullCount`, passes that value to
+Geometry Script, and reports `hullCount` from the component's built
+`BodySetup.AggGeom.ConvexElems` instead of echoing the request. The response retains both requested
+and effective budgets, always reports `clamped`, and adds `limit: 64` plus a warning when the
+request was outside `1..64`. Added handler-harness coverage for both lower (`0 -> 1`) and upper
+(`100 -> 64`) clamp responses, including measured convex-hull and total-shape counts. Updated the
+geometry wiki contract. Static/source-only verification; no Unreal build, automation, or MCP run.
+
 ## History
 - `#1-source-pattern-scan` `OPEN` reporter — The applied value is clamped at `LODCollisionHandler.cpp:77`, while the response at `:87` echoes the raw request. Source-only; no RPC was run.
+- `#2-measured-hullcount-and-clamp` `IN-REVIEW` developer — Changed `LODCollisionHandler.cpp` to
+  report measured built convex hulls, retain requested/effective budgets, and disclose clamp state,
+  limit, and warning; added `PinWright.geometry.generate_complex_collision.ReportsMeasuredHullCountAndClamp`
+  handler coverage and documented the response in `Docs/wiki-src/geometry.md`. Static/source-only;
+  no Unreal build, automation, or MCP run.

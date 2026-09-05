@@ -1,7 +1,7 @@
 ---
 id: B-widget-animation-error-mutation
 title: "Widget animation verbs mutate the MovieScene before returning WIDGET_NOT_FOUND, BINDING_NOT_FOUND, or NOT_SUPPORTED"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: bug
 tags: [widget, animation, moviescene, transactions, rollback, partial-mutation]
@@ -52,5 +52,33 @@ or undo the widget blueprint after any animation-authoring error.
 - `E-widget-anim-loop-speed-phantom-authoring-verbs` — covers the misleading verbs,
   not the `set_animation_speed` side effect.
 
+## Fix
+
+The defect was confirmed: request validation and several fallible object-creation steps ran after
+`EnsureAnimationMovieScene`, binding creation, or playback-range expansion. The track and keyframe
+handlers now resolve the target widget, validate the reflected float property and numeric inputs,
+and stage new tracks/sections plus any new possessable/binding off-asset before the transaction
+commits. Existing bindings are resolved before `EnsureAnimationMovieScene`; after it runs, track
+publication has no recoverable failure branch. The speed handler returns `NOT_SUPPORTED` without
+calling the mutating MovieScene repair helper.
+
+Files changed:
+- `X:\src\unreal\unreal-fpv-dev\Plugins\PinWright\Source\PinWright\Private\Handlers\UI\WidgetAnimationHandler.cpp`
+- `X:\src\unreal\unreal-fpv-dev\Plugins\PinWright\Source\PinWright\Private\Handlers\UI\WidgetAnimationTestHooks.h`
+- `X:\src\unreal\unreal-fpv-dev\Plugins\PinWright\Source\PinWright\Private\Tests\Widget\TestWidgetAnimationValidationAtomicity.cpp`
+- `X:\src\unreal\unreal-fpv-dev\Plugins\PinWright\docs\wiki-src\widget.md`
+
+Tests added:
+- `PinWright.widget.animation.RejectedRequestsPreserveMovieScene`
+- `PinWright.widget.animation.AttachPreflightFailureIsAtomic`
+- `PinWright.widget.animation.PropertyValidationIsAtomic`
+
+Deliberately unchanged: `widget.set_animation_loop` already rejects without touching its
+MovieScene, and no live editor/build/test run was performed under this source-only worker brief.
+
 ## History
 - `#1-source-scan-error-mutation` `OPEN` reporter — Source-only review followed all three error paths through the mutating `EnsureAnimationMovieScene` helper and the keyframe playback/binding writes. No rollback or cleanup is present before the cited error responses. No build, test, editor, MCP call, or plugin edit was performed.
+- `#2-stage-before-animation-mutation` `IN-REVIEW` developer — Confirmed the mutation ordering defect. Widget/property/numeric validation and off-asset track/section staging now precede MovieScene mutation; rejected speed calls do not repair the MovieScene, and behavioral tests snapshot pointer, name, range, bindings, and tracks across failures. Source-only verification; no Unreal run was performed.
+- `#3-preflight-track-publication` `IN-REVIEW` developer — Replaced the ineffective attach-failure cleanup with pre-commit possessable/binding staging and existing-binding resolution, leaving no recoverable failure after MovieScene repair. Expanded behavioral snapshots cover package dirtiness, possessables, sections, keys, and desired-name occupants; forced final-preflight failures exercise both track and keyframe paths. Source-only verification; no Unreal run was performed.
+- `#4-remove-test-request-param` `IN-REVIEW` developer — The full-suite declared-parameter ratchet correctly rejected the hidden JSON injection key. Moved forced attach-preflight failure control to a dev-only inline hook with scoped reset, so neither animation handler reads undeclared request data. Source-only follow-up; no build or test run was performed.
+- `#5-force-failure-before-allocation` `IN-REVIEW` developer — Scoped-run callstacks traced the zero-ensure violation to the test's abstract `UObject` name-collision fixture. Removed that invalid allocation and moved both forced attach failures immediately after the no-track predicate, before transient track, section, possessable, or binding staging; full animation snapshots remain asserted. Source-only follow-up; no new build or test run was performed.

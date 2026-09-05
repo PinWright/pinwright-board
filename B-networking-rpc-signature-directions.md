@@ -1,7 +1,7 @@
 ---
 id: B-networking-rpc-signature-directions
 title: "networking.create_rpc_function creates RPC parameter pins in the opposite graph directions"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: bug
 tags: [networking, rpc, blueprint, function-signature, pin-direction, false-success]
@@ -49,5 +49,37 @@ network flags separately, or repair the signature manually in the editor.
 These are the wave-6 function-output tickets whose grouped review exposed the shared
 RPC helper defect.
 
+## Fix
+
+The ticket was TRUE: `AddParsedPinParamsToNodes()` used the inverse of Unreal's
+function-graph parameter directions and discarded every pin-creation result. The helper now
+authors entry parameters with `EGPD_Output`, result parameters with `EGPD_Input`, reconstructs
+the nodes, and returns a failure that makes `networking.create_rpc_function` remove the new
+graph instead of reporting success.
+
+`NetworkingHandler.cpp` now maps only `Server`, `Client`, and `NetMulticast` to exactly one
+`FUNC_Net*` direction, applies `FUNC_NetReliable` only when requested, and refuses RPC return
+values, unknown directions, and non-RPC reliability edits with `INVALID_RPC_CONFIGURATION`.
+Blueprint validation enablement instead returns `UNSUPPORTED`. Unreal implements
+`FUNC_NetValidate` through a
+native thunk calling `_Validate`; a Blueprint graph cannot supply that contract, so the old flag-only
+success response was unsafe. `Docs/wiki-src/networking.md` documents the refusal contract.
+`TestNetworkingRpcSignature.cpp` adds the behavioural tests
+`PinWright.networking.create_rpc_function.DirectionReliabilityMatrix` and
+`PinWright.networking.create_rpc_function.InvalidConfigurationRefused` against transient
+Blueprints.
+
+Files changed: `Source/PinWright/Private/Handlers/Blueprint/BlueprintHandlerUtils.h`,
+`Source/PinWright/Private/Handlers/Blueprint/BlueprintHandlerUtils.cpp`,
+`Source/PinWright/Private/Handlers/Networking/NetworkingHandler.cpp`,
+`Source/PinWright/Private/Handlers/ErrorCodes.h`,
+`Source/PinWright/Private/Tests/Networking/TestNetworkingRpcSignature.cpp`, and
+`Source/PinWright/Private/Tests/Networking/TestNetworkingHandlers.cpp`, and
+`Docs/wiki-src/networking.md`. The runtime dispatch model and networking-info response shape were
+deliberately left unchanged. No engine, packaged runtime, editor, build, or automation run was
+performed; those remain for the independent compile/suite workers.
+
 ## History
 - `#1-filed-wave-6-follow-up` `OPEN` reporter — Source-only verification compared `BlueprintHandlerUtils.cpp:1535-1560` with the working `BlueprintFunctionHandler.cpp:530-567` direction contract and confirmed the networking call at `NetworkingHandler.cpp:545-559`. No RPC reproduction, build, test, editor, or MCP call was run. Severity High because the normal authoring route can report success with a silently wrong signature.
+- `#2-fixed-rpc-signature-flags` `IN-REVIEW` developer — Corrected function-entry/result pin directions with propagated failures, made RPC direction/reliability mapping explicit, and added typed pre-mutation refusals for invalid directions, return values, reliability targets, and unsupported Blueprint validation. Added transient-Blueprint behavioural coverage for all six direction/reliability combinations plus refusal atomicity. Source-reviewed only; compile and automation execution were deliberately left to the separate verification workers.
+- `#3-addressed-read-only-review-risks` `IN-REVIEW` developer — Aligned validation discovery and wiki text with the `UNSUPPORTED` runtime refusal, restored direct `FUNC_NetValidate` readback coverage for legacy functions, and added injected post-graph-creation failure coverage for rollback. Source-reviewed only; no build, automation, editor, or MCP run was performed.

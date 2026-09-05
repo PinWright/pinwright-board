@@ -1,7 +1,7 @@
 ---
 id: B-water-tests-destroy-host-lake-on-label-collision
 title: "Water tests can destroy a host lake selected by a fixed non-unique label while leaking the fixture and still passing cleanup checks"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: bug
 tags: [tests, water, host-safety, actor-label, wrong-target, teardown, false-green]
@@ -70,6 +70,23 @@ the map's dirty state after the run.
 - `B-tests-spawn-live-world-no-guard` — covers the general unguarded-spawn mechanism; this ticket owns the distinct wrong-target deletion and false-green count in the water family.
 - `B-geometry-duplicate-mesh-teardown-guard` — sibling test teardown conversion to the same scoped guard.
 
+## Fix
+
+The root cause was both fixtures treating a non-unique display label as proof of ownership, discarding the spawn response, and destroying a raw first match. `FWaterSpawnWaterBodyValidParamsTest` now snapshots the original lake pointer set, uses a GUID-suffixed label, captures and resolves the returned `actorPath`, and scopes the spawn with `FScopedEditorWorldActorGuard`; its cleanup checks require the original actor identities to remain and the fixture to be removed. `FWaterUnderwaterSettingsSilentDropTest` uses the same GUID/path/capture/guard shape and sends the canonical path to the settings handler; both raw `Destroy()` calls were removed.
+
+Files changed:
+- `X:\src\unreal\unreal-fpv-dev\Plugins\PinWright\Source\PinWright\Private\Tests\World\TestWaterHandlers.cpp`
+- `X:\src\unreal\unreal-fpv-dev\Plugins\PinWright\Source\PinWright\Private\Tests\Infra\TestFixtureOwnershipContracts.cpp`
+
+Tests:
+- `PinWright.water.spawn_water_body.SpawnsLakeAndDestroys` — now verifies canonical actor identity and guarded cleanup.
+- `PinWright.water.set_water_body_underwater_post_process.RejectsUnmatchedSettingsKeys` — now targets the captured actor path and uses guarded cleanup.
+- `PinWright.infra.contract.EditorWorldSpawn.GuardedTestSpawns` — now covers both water test bodies.
+- `PinWright.infra.contract.EditorWorldSpawn.NoLabelBasedPreDelete` — continues to reject label-based pre-delete across the test tree.
+
+Deliberately unchanged: production water handlers, `Tests/TestWorldUtils.h`, other water tests, and board tickets outside this issue. No build, editor, MCP, live PIE, or automation run was performed.
+
 ## History
 
 - `#1-label-collision-destroys-host-lake` `OPEN` reporter — Source-only pattern scan of the requested test trees. Traced both test entries through `water.spawn_water_body`, its active-world spawn, response verification, label lookup, destroy, and final assertion; verified from UE 5.8 engine source that labels may collide. Deduped against the full board: no ticket names either water test or the label-collision substitution; `B-tests-spawn-live-world-no-guard` owns generic fixture leakage, not deletion of a pre-existing same-label actor while the count test passes. No build, test, editor, Saved-file access, plugin edit, existing-ticket edit, or commit was performed.
+- `#2-guid-path-guard-water` `IN-REVIEW` developer — Replaced both fixed-label lookups with GUID-suffixed fixtures and captured canonical `actorPath` values, added scoped actor guards, changed settings targeting to the canonical path, asserted preservation of the original lake pointer set, removed raw fixture destruction, and added both bodies to the guarded-spawn contract. Static diff review only; no build, editor, MCP, live PIE, or automation run.

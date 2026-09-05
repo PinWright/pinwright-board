@@ -1,7 +1,7 @@
 ---
 id: B-asset-reset-instance-parameters-no-disk-write
 title: "asset.reset_instance_parameters clears all overrides in memory, reports success, and exposes no persistence state"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: bug
 tags: [asset, material-instance, reset, persistence, no-disk-write, false-success]
@@ -29,5 +29,10 @@ the canonical asset path plus the observed remaining override counts. If save is
 
 Call `asset.save` on the material instance immediately after the reset.
 
+## Fix
+
+The handler cleared overrides and dirtied the resident package but never attempted a disk write or measured the result. `AssetMaterialHandler.cpp` now defaults `save` to true, routes the reset through `SaveAssetToDiskReportingPresence`, returns the canonical asset/package identity and post-clear per-kind `remainingOverrideCounts`, and publishes the shared `AssetSaveState` report; `save:false` follows the shared `notRequested` contract and leaves the package dirty. `Dispatch/SafePoint.cpp` routes both parameter branches outside `UWorld::Tick` because the dispatcher cannot know whether the synchronous save path will run. `TestAssetMutationDurability.cpp` adds `PinWright.asset.reset_instance_parameters.DurableSaveRoundTrip`, which drives the registered handler, proves `save:false` is reverted by disk reload, proves a default-saved reset survives reload, and pins the safe-point route. `docs/wiki-src/asset.md` documents the new parameter and response fields. Deliberately unchanged: reset scope still matches Unreal's `ClearParameterValuesEditorOnly`; base-property overrides are not parameter values and remain outside this verb.
+
 ## History
 - `#1-pattern-scan` `OPEN` reporter — Source-only confirmation from the persistence catalog; no editor, build, test, or RPC run was performed.
+- `#2-durable-save-contract` `IN-REVIEW` developer — Added default durable saving, explicit save opt-out, post-reset override counts, shared save-state reporting, behavioral disk-reload coverage, and wiki documentation; source/static checks only, with build and automation deferred to the checkpoint agent.

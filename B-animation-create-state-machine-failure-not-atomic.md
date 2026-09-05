@@ -1,7 +1,7 @@
 ---
 id: B-animation-create-state-machine-failure-not-atomic
 title: "animation.create_state_machine can return an error after leaving a new partial state machine in the Anim Blueprint"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: bug
 tags: [animation, state-machine, rollback, atomicity, partial-mutation, false-failure]
@@ -13,9 +13,13 @@ The handler creates the state-machine node and inner graph first (`Plugins/PinWr
 
 Because `MarkBlueprintAsStructurallyModified` is reached only on success (`:811`), the error looks like a refusal even though live graph objects were already added. A later unrelated structural edit/save can persist the partial machine.
 
-Preflight every nested element and all transition endpoint names before creating the machine. Then wrap construction in the established graph transaction/snapshot rollback shape and remove/restore every created graph/node on any engine failure. A regression test should submit a valid first state plus a transition to a missing target and assert the Blueprint topology is byte-for-byte unchanged after the error.
+Preflight every nested element and all transition endpoint names before creating the machine. Then wrap construction in the established graph transaction/snapshot rollback shape and remove/restore every created graph/node on any reported construction failure. A regression test must force a failure after at least one graph mutation and assert the Blueprint topology and package dirty state are unchanged after the error.
 
 **Workaround:** validate endpoints yourself and build via the fine-grained authoring verbs; reload the package after any one-shot error.
+
+## Fix
+
+`AnimationHandler.cpp` now preflights every `states[]` and `transitions[]` element, resolves all transition endpoints before the first mutation, and wraps construction in `FScopedTransaction` plus `BlueprintGraphSnapshot` rollback. Transactional property diffs, newly-created graph topology, and the original package dirty state are restored on a reported construction or verification failure. Entry-node wiring remains best-effort as before. The handler harness adds `PinWright.animation.create_state_machine.RollbackOnMidwayFailure`; a private development-test seam forces the second state factory call to fail after the machine and first state exist, then the test compares pre/post graph snapshots and dirty state. Static source review only; no editor, build, or automation run was performed.
 
 ## Related
 
@@ -26,3 +30,5 @@ Preflight every nested element and all transition endpoint names before creating
 ## History
 
 - `#1-pattern-scan` `OPEN` reporter — Source-confirmed a missing later transition endpoint returns after graph creation with no rollback; no editor, build, or test was run.
+- `#2-atomic-preflight-rollback` `IN-REVIEW` developer — Changed `AnimationHandler.cpp` to preflight nested state/transition input and apply transaction plus graph-snapshot rollback around state-machine construction; added the handler-harness rollback regression test. Static source review only; no editor, build, or test was run.
+- `#3-post-mutation-regression` `IN-REVIEW` developer — Corrected the regression to force a second-state factory failure after real graph mutation, assert topology and package dirty-state restoration, and preserved the prior best-effort entry-wiring behavior. Static source review only; no editor, build, or automation run was performed.

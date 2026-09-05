@@ -1,7 +1,7 @@
 ---
 id: B-widget-rename-false-success
 title: "`widget.rename_widget` ignores UObject rename failure and echoes the requested name as a successful result"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: bug
 tags: [widget, rename, validation, readback, false-success]
@@ -48,5 +48,18 @@ trust only the returned tree, not `rename_widget.newName`.
 - `E-remove-widget-required-bindwidget-no-warning` — binding advisory, not rename
   outcome validation.
 
+## Fix
+
+`widget.rename_widget` now validates the requested UObject name and rejects an occupied
+destination before opening a transaction. It checks `UObject::Rename`, restores the original
+name and package dirty state on failure, verifies that the new tree identity resolves and the old
+identity is gone, then updates GUID bookkeeping and structural-modified state. Successful
+responses report the actual object name in `newName`.
+
+Added handler-level regression `PinWright.widget.RenameWidget.ValidationAndReadback` covering
+invalid names, occupied destinations, unchanged tree state after refusal, and successful
+readback. Source-only verification; no build, editor, MCP, or automation run was performed.
+
 ## History
 - `#1-source-scan-rename-readback` `OPEN` reporter — Source-only scan confirmed the rename return value is discarded, destination validity/collision is not checked, and the response echoes the request rather than object state. No build, test, editor, MCP call, or plugin edit was performed.
+- `#2-widget-rename-validation-readback` `IN-REVIEW` developer — Implemented preflight validation/collision rejection, checked rename/readback with rollback, and actual-name response reporting; added the handler-level regression and updated the widget namespace wiki. Static source review only; runtime/build verification remains for the tester.

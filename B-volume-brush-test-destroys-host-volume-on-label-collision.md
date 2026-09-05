@@ -1,7 +1,7 @@
 ---
 id: B-volume-brush-test-destroys-host-volume-on-label-collision
 title: "The blocking-volume brush test can inspect and destroy a host volume selected by a fixed non-unique label instead of its spawned fixture"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: bug
 tags: [tests, volume, host-safety, actor-label, wrong-target, teardown, false-green]
@@ -61,6 +61,22 @@ then discard any dirty map state.
 - `B-tests-spawn-live-world-no-guard` — owns the generic unguarded-spawn risk; this ticket owns the volume family's distinct wrong-target deletion.
 - `B-geometry-duplicate-mesh-teardown-guard` — sibling use of the same scoped teardown fix.
 
+## Fix
+
+The root cause was the fixture treating a non-unique display label as proof of ownership and discarding the handler's canonical actor identity. `FVolumeCreateBlockingVolumeBrushGeometryTest` now uses a GUID-suffixed label, captures `volume.create_blocking_volume`, resolves the returned `actorPath` before geometry assertions, and declares `FScopedEditorWorldActorGuard` before the handler call; the raw `Spawned->Destroy()` was removed so the guard owns teardown, deselection, and dirty-state restoration.
+
+Files changed:
+- `X:\src\unreal\unreal-fpv-dev\Plugins\PinWright\Source\PinWright\Private\Tests\World\TestVolumeHandlers.cpp`
+- `X:\src\unreal\unreal-fpv-dev\Plugins\PinWright\Source\PinWright\Private\Tests\Infra\TestFixtureOwnershipContracts.cpp`
+
+Tests:
+- `PinWright.volume.create_blocking_volume.BuildsBrushGeometryWithCollision` — updated to exercise the canonical response path and scoped fixture.
+- `PinWright.infra.contract.EditorWorldSpawn.GuardedTestSpawns` — now covers the volume brush test body.
+- `PinWright.infra.contract.EditorWorldSpawn.NoLabelBasedPreDelete` — continues to reject label-based pre-delete across the test tree.
+
+Deliberately unchanged: production volume handlers, `Tests/TestWorldUtils.h`, other volume tests, and board tickets outside this issue. No build, editor, MCP, live PIE, or automation run was performed.
+
 ## History
 
 - `#1-fixed-label-volume-teardown` `OPEN` reporter — Source-only pattern scan of the requested test trees. Traced the test through `volume.create_blocking_volume`, `SpawnVolumeActor`, `AddActorVerification`, first-label lookup, geometry assertions, and destroy; verified the engine's non-unique-label contract. Deduped against the full board: no ticket names this test/fixed label, and the generic live-world-spawn ticket does not cover wrong-target destruction after discarding an available actor path. No build, test, editor, Saved-file access, plugin edit, existing-ticket edit, or commit was performed.
+- `#2-guid-path-guard-volume` `IN-REVIEW` developer — Replaced the fixed-label lookup with a GUID-suffixed fixture label and the captured response's canonical `actorPath`, declared `FScopedEditorWorldActorGuard` before the handler call, removed raw fixture destruction, and added the test body to the guarded-spawn contract. Static diff review only; no build, editor, MCP, live PIE, or automation run.

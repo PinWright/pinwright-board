@@ -1,7 +1,7 @@
 ---
 id: B-container-array-conversion-failure-leaves-element
 title: "container.array.append and insert leave a new default element in the target array when value conversion returns an error"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: bug
 tags: [container, array, rollback, partial-mutation, property-import]
@@ -42,6 +42,21 @@ before and after.
 
 **Workaround:** Read the property after any append/insert error and undo or reload the asset before retrying.
 
+## Fix
+
+PARTLY TRUE. At source commit `b4329838`, `container.array.append` and
+`container.array.insert` already stage values before mutation, and whole-array
+`property.set` stages replacement through `ApplyJsonValueToArrayDirect`. No
+`container.array.resize` verb is registered. This change stages a complete copy of
+the existing element before `container.array.set` applies JSON, then copies it into
+the live array only after conversion succeeds; failures clean up the scratch value and
+return `UNSUPPORTED_TYPE` without `Modify()` or notification. Added
+`PinWright.container.array.set.MalformedStructNoMutation` alongside the existing
+append/insert scalar tests. Changed files: `UtilityPropertyHandler.cpp`,
+`TestPropertyImportMalformedScalars.cpp`,
+`TestPropertyImportMalformedScalarsHost.h`, and `docs/wiki-src/container.md`.
+No live, build, or test run was performed by this update.
+
 ## Related
 
 - Catalog: `partial-mutation-without-complete-rollback`, `partial-nonatomic-success`
@@ -52,3 +67,8 @@ before and after.
 - `#1-error-leaves-array-slot` `OPEN` reporter — Source-read append and insert from handler entry
   through their error exits and confirmed both mutate before conversion with no rollback. No asset
   was modified during this scan.
+- `#2-stage-array-element` `IN-REVIEW` developer — PARTLY TRUE: fixed the remaining
+  `container.array.set` set-at-index partial-struct mutation by staging a complete existing
+  element; append/insert and whole-array replacement were already fixed at `b4329838`, and no
+  `container.array.resize` verb exists. Added `PinWright.container.array.set.MalformedStructNoMutation`
+  plus the existing scalar tests; no live/build/test run performed.

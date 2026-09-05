@@ -1,7 +1,7 @@
 ---
 id: B-sequencer-fbx-import-noop
 title: "sequencer.import_fbx reports success when no FBX node matches a target binding and no animation keys are written"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: bug
 tags: [sequencer, fbx, import, bindings, no-op, false-success]
@@ -52,3 +52,12 @@ target tracks and keys after import instead of trusting the success flag.
 
 ## History
 - `#1-filed-pattern-scan` `OPEN` reporter — Source-only scan followed the handler through the engine's exact-name loop, unmatched-node warning, and unconditional true return, confirming a valid no-match FBX produces no mutation but a green RPC. Board search found no ticket for this mechanism. No build, test, editor, MCP call, plugin edit, commit, or repro was performed.
+- `#2-measured-import-outcome` `IN-REVIEW` developer — Changed `SequencerFbxHandler.cpp` to snapshot MovieScene track, section, key, and signed-object state before and after the engine import, cancel and return `NOTHING_IMPORTED` when unchanged, and report the measured counts on both failure and success. Added handler-level transient-sequence coverage in `PinWright.Sequencer.FbxImport.NoOpRejected`; no build, editor, MCP call, or test run was performed under the worker restriction.
+
+## Fix
+
+The engine's import helper returns true after warning that no FBX nodes matched, so the handler's boolean was not evidence of a mutation. The handler now measures all MovieScene root, camera-cut, and binding tracks around the call, including track/section counts, authored key counts, and signed-object identities; an unchanged result cancels the transaction and returns `NOTHING_IMPORTED` with before/after counts, while success carries the same measurements.
+
+Files changed: `Source/PinWright/Private/Handlers/Sequencer/SequencerFbxHandler.cpp`, `Source/PinWright/Private/Handlers/ErrorCodes.h`, `Source/PinWright/Private/Tests/Sequencer/TestSequencerFbxOutcomeHonesty.cpp`, and `docs/wiki-src/sequencer.md`. Test id: `PinWright.Sequencer.FbxImport.NoOpRejected`.
+
+Deliberately not changed: PinWright does not parse the FBX node map itself because that state is private to the engine importer; post-call MovieScene measurement covers exact-name and fallback matching without duplicating Unreal's FBX parser.
