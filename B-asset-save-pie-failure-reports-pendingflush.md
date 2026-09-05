@@ -1,12 +1,12 @@
 ---
 id: B-asset-save-pie-failure-reports-pendingflush
 title: "asset.save reports pendingFlush:true with no saveState when PIE blocks the write, so a hard failure reads as a retryable throttle"
-status: IN-REVIEW
+status: OPEN
 severity: High
 category: bug
 tags: [asset-save, pie, savestate, pendingflush, silent-false-signal, diagnostics, multi-agent]
-encounters: 7
-lastSeen: 2026-09-03T00:15:00Z
+encounters: 8
+lastSeen: 2026-09-05T19:26:00Z
 ---
 
 # `asset.save` presents a PIE-blocked failure as a pending flush
@@ -224,3 +224,11 @@ pieWorlds [{pieInstance:0, mapName:"T_Weapons", worldPath:"/Game/FPS/Test/UEDPIE
 sizeBytes 30611   sizeBytesIsStale true
 ```
   The failure mode this ticket was filed for is gone: `saveState:"failed"` states the outcome, `saveDetail` says explicitly that retrying the flush will not help, `pieActive`/`editorMode`/`pieWorlds` name the cause and who holds it, and `sizeBytesIsStale` stops the byte count being read as evidence of a write. `pendingFlush:true` is still present but is now qualified rather than being the only signal, so it can no longer be mistaken for a retryable throttle. Seven encounters' worth of that misreading in this project.
+
+- `#10-returned` `OPEN` reporter - **The `asset.save` half is fixed; the "~90 un-threaded save-flag verbs" half is not.** FPS VFX stream, same shared editor (port 27145), 2026-09-05 22:22-22:26 local, PIE held by another stream on `T_AI`. Two calls, minutes apart, against the same material instance:
+  - `material.authoring.set_material_instance_parameters {assetPath:"/Game/FPS/VFX/Materials/MI_FPS_Water_Crown", scalar:{EdgeSharpness:1.2, SoftEdge:1.0}, save:true}` returned `applied:[{scalar EdgeSharpness},{scalar SoftEdge}]`, `failed:[]`, `existsOnDisk:true` - and **no save fields whatsoever**: no `saved`, no `saveRequested`, no `pendingFlush`, no `saveState`, no `pieActive`, no `pieWorlds`. Nothing was written; `ls --time-style=full-iso` gave mtime `2026-09-05 21:00:34` at 22:25:43, i.e. 85 minutes stale.
+  - `asset.save {assetPath:<same>, force:true}` on the very next call returned the full fixed payload: `saveState:"blockedByPie"`, `saveDetail` naming the refusal and saying force/save_all cannot help, `pieActive:true`, `editorMode:"PIE"`, `pieWorlds:[{pieInstance:0, mapName:"T_AI", worldPath:"/Game/FPS/Test/UEDPIE_0_T_AI.T_AI"}]`, `sizeBytes:11036` with `sizeBytesIsStale:true`.
+
+  So the chokepoint knows, and `asset.save` reports it correctly - `#9`'s verification stands and this stream reproduces it. What does not hold is the `## Fix` section's claim that `AddAssetSaveReport` / `AddMarkDirtySaveReport` "fixes the ~90 un-threaded save-flag verbs (`material.authoring.*`, `audio.synth.export`, ...) without touching them", and its verification step 5 ("call a `save:true` verb that threads no state (e.g. `material.authoring.set_material_instance_parameters`) and confirm it now carries `pieActive` / `pieWorlds` beside its `pendingFlush`"). Run today, that verb carries neither, and it carries no `pendingFlush` either - it emits no save report at all, which suggests its handler does not route through `AddAssetSaveReport` and so the shared-chokepoint fix never reaches it. Step 5 should be re-run before this ticket leaves IN-REVIEW; passing it on `asset.save` alone does not cover the class the Fix says it covers.
+
+  Cost here was small only because CLAUDE.md's "verify a write against disk, not against the object you just wrote" rule made me `ls` the mtime anyway. A caller who trusts `applied[]` + `existsOnDisk:true` + a defaulted `save:true` has no field in the response that disagrees with "it saved" - which is the same silent-false-signal this ticket was opened for, still live on the verbs that never had a save report to fix.
