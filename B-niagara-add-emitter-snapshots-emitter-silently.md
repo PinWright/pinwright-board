@@ -5,8 +5,8 @@ status: IN-REVIEW
 severity: High
 category: bug
 tags: [niagara, add_emitter, emitter-handle, snapshot, stale, silent-noop, docs, wiki-wrong]
-encounters: 3
-lastSeen: 2026-09-03T09:40:00+05:00
+encounters: 4
+lastSeen: 2026-09-05T20:55:00+03:00
 ---
 
 # A system built with `add_emitter` freezes the emitter at add time, and every published signal says it is current
@@ -250,3 +250,39 @@ it.
   **The second-order damage is worse than the first.** A board ticket asserts a fix landed, the emitter asset corroborates it, and the shipped system does not carry it — so the claim survives every check short of reading the system's own bytes. Any ticket that says "applied to emitter X and re-added to system Y" is unverifiable unless the reporter grepped the *system*. Recommend the audit in `#2` be stated as a byte-grep of the system package, not only as a stack diff, because the grep needs no editor and no lock and can be run by a reviewer on a different host.
 
   **Not fixed here, deliberately.** `remove_emitter` + `add_emitter` is the documented recovery, but on this asset it would have discarded six in-flight edits I had just made to the system's own emitter copies (spawn counts, spawn rates, sprite sizes, particle alpha, sphere radius). That is a third cost of the copy semantics worth recording: **once a system's copies have been edited in place, the recovery for staleness destroys that work**, so a caller who hits this mid-iteration has no non-destructive route. A refresh that merged, or even a verb that just *reported* the per-handle diff, would have let me choose. Reported to the stream lead instead; the system ships without size-over-life.
+
+- `#4-the-refresh-verb-cannot-reach-any-system-built-before-the-rebuild` `IN-REVIEW` builder — **The
+  rebuild's `refresh_emitter` closes this defect going forward but is structurally unreachable for
+  every system already on disk, and nothing offers a migration.** Measured on
+  `/Game/FPS/VFX/NS_Impact_Water` (UE 5.8, EAContentExamples58, live editor port 27145,
+  2026-09-05), after pulling and rebuilding the plugin.
+
+  `niagara.inspect {includeProperties:true}` reports `versionedEmitterData.parent` on all five
+  handles — `Droplets`, `Column`, `Crown`, `Mist`, `Ring` — as `{"inherited": false}`, on both the
+  `emitters[]` and `system.emitterHandles[]` projections. The system was assembled with the
+  pre-rebuild `add_emitter`, which had no `inherit` parameter and always took the unlinked
+  snapshot. Per `refresh_emitter`'s own contract, a system with nothing inherited is
+  `EMITTER_NOT_INHERITED` — an error, not a zero-item success — so the non-destructive route `#3`
+  asked for exists only for handles added after the rebuild. The route for older ones is still
+  `remove_emitter` + `add_emitter`, which still destroys the system's in-place edits, which is
+  still exactly what `#3` reported.
+
+  **What is missing is a re-parent, not a refresh.** `add_emitter {inherit}` decides the link at add
+  time and there is no verb that attaches a parent to an existing handle (the editor's inverse of
+  *Remove Parent Emitter*). One would let a project migrate handle by handle without discarding
+  work; today the only migration is the destructive re-add the ticket already documents.
+
+  A second-order obstacle worth stating before someone attempts that migration: these emitters were
+  duplicated from stock Niagara templates, and the same fix's notes record that stock templates ship
+  `bIsInheritable = false` and refuse `inherit: true` with `EMITTER_NOT_INHERITABLE`. So a
+  re-add-to-migrate needs `property.set bIsInheritable` on each emitter asset first. Not attempted
+  here — the system's copies held the only correct version of the water velocity and shape work, and
+  the brief for this slot forbade the destructive route.
+
+  **How the reconcile was done instead, offered as the pattern for anyone else stuck on a
+  pre-rebuild system.** Apply the edits *forward* onto the stale emitter asset by hand so asset and
+  system agree, and verify both against the file: read the system's values with
+  `niagara.inspect {includeStack:true}` grouped by `entryKey` owner, re-issue them onto the asset
+  with `set_module_input` / `set_static_switch`, then byte-check the `.uasset`. Slower than a merge
+  and it does not scale, but it never puts the only correct copy at risk. (The save leg of that
+  pattern hits a separate defect — `B-niagara-emitter-save-guard-deadlocks-unused-emitter`.)
