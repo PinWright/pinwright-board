@@ -360,3 +360,15 @@ TOTALS  before  0(Alpha)=208 1(Beta)=12 2(Gamma)=48 3(Delta)=42 4(Epsilon)=48 5(
   **One generated wiki page is stale and contradicts the fix.** `Saved/PinWright/wiki/model.describe_ops.md:22` still says *"Boolean ops have `acceptsMaterial: false`: they discard their tool, and `material=` is an error."* - false in all three clauses now, and it is the page an author reads before writing an op. Its source overlay under `Docs/wiki-src/` was missed when `model.authoring.md` was updated. Separately, `PWMODEL_BOOLEAN_MATERIAL_AMBIGUOUS` and `PWMODEL_BOOLEAN_MATERIAL_UNUSED` appear on exactly one wiki page (`model.authoring.materials.md`) and on neither `model.compile.md` nor `model.validate.md`.
 
   Not verified here, deliberately: `SM_WPN_AR.pwmodel` from its pre-workaround revision (`#5` step 3) - the live rifle and pistol sources are other agents' working files and were not touched. Triangles-per-slot on the `model.compile` response is still absent, as `#5` scoped it; that is why this entry's evidence had to come from a Python read-back rather than from any response field.
+
+  **Recovered on real content, not just on the probe.** Both weapon documents were recompiled under the fixed compiler with their sources unchanged, and the fix returns the `subtract`-opened walls this ticket had recorded as unreachable by any tag:
+
+```
+SM_WPN_AR      old compiler                       fixed compiler
+  Receiver     17059  75.4%  x[-26.20.. 54.20]    16783  74.1%  x[-26.20.. 33.80]
+  Polymer        428   1.9%                         666   2.9%
+  Barrel        4751  21.0%                        4819  21.3%
+  Optic          384                                384
+```
+
+  **`Receiver`'s forward reach drops from x 54.20 to 33.80** — the 157 flash-hider port-wall triangles moving onto `Barrel` where they belong, plus 238 stock bore-wall triangles onto `Polymer`. Those are the walls the ticket's "Workaround, and why it is not a fix" section named as the residue no in-format authoring could reach; they are correct now with the source untouched. The muzzle crown, which is the one surface a player looks at straight down its own axis, was anodised receiver aluminium before this fix and is phosphated barrel after it.
