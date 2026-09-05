@@ -115,6 +115,50 @@ LogNiagaraCompiler: Error: 1 errors encountered compiling Vector VM shaders
   **Confirmed fix and confirmed diagnosis in one step:** removing the `ScaleSpriteSize` module from the five affected emitters (`E_Explosion_Shockwave`, `E_Explosion_DustRing`, `E_Smoke_Smoke`, `E_Smoke_Core`, `E_Smoke_Wisps`), recompiling and re-adding each to its system took `compile.valid` from `false` to `true` and all six `NS_Smoke_Grenade` particle scripts from `NCS_Error` to `NCS_UpToDate`, with no new VM compile errors in the log. That confirms the nested chain was the sole cause.
   **Two asks on top of `#1`'s.** (a) `niagara.compile` should report the compile's own error list rather than `status:"completed"` when the VM shader compile produced errors — it already has them, they are in the log it wrote. (b) The nested-dynamic-input write should be refused at the point of the `set_module_input` call, since the resulting HLSL is unconditionally invalid; refusing costs nothing and the current behaviour ships a dead asset that four verbs call healthy.
   Evidence: log lines quoted above; before/after `compile.scripts[].compileStatus` on both systems; `NS_Explosion` 1452799 b and `NS_Smoke_Grenade` 772447 b re-saved after the fix.
+- `#4-verified-in-fps-build` `IN-REVIEW` VFX — **`niagara.validate` now fails on `NCS_Error`, at
+  both levels, with the compiler's own text. Direct route retried once per PLAN rule 2; leaving
+  `IN-REVIEW` for the tester.** Live editor port 27145, UE 5.8, EAContentExamples58, 2026-09-05,
+  on a scratch system built for this and deleted after.
+
+  **Reproducing an `NCS_Error` no longer goes through `#3`'s nested-dynamic-input route** — that
+  write is now refused outright (see `B-niagara-module-input-dotted-subinput-silent-noop` `#5`), so
+  a different break was used: link an emitter-scope module input to a particle attribute, which
+  the compiler cannot read from that namespace.
+  `niagara.set_module_input {assetPath:".../NS_TR_Broken", emitter:"Bad",
+  entryId:"Bad:68A8CD574D62C54866BE778FB68D9342", inputName:"Spawn Count",
+  value:{link:"Particles.NormalizedAge"}}` -> `success:true, linked:true`, then
+  `niagara.compile {force:true, wait:true}` -> `status:"completed"`.
+
+  `niagara.validate {level:"basic"}` -> **`valid: false`**, `scriptCompileCheck: "failed"`, and one
+  top-level `errors[]` entry:
+  `NIAGARA_SCRIPT_COMPILE_ERROR` — *"Script 'NS_TR_Broken.SystemUpdateScript' is at NCS_Error: its
+  last compile failed, so the engine refuses to instance this system and nothing renders. Compiler
+  said: Variable Particles.NormalizedAge is in a namespace that isn't valid for reading - Node: Map
+  Get - | Error compiling input for set node. - Node: Map Set Pin: SpawnBurst_Instantaneous.Spawn
+  Count - ."* — carrying `scriptUsage`, `scriptPath`, `compileStatus:"NCS_Error"` and
+  `compileErrors[]`. `niagara.validate {level:"strict"}` returned a **byte-identical** verdict, so
+  the code is genuinely not level-escalated, which is what `#1`'s *"`basic` should raise it too"*
+  asked for. The nested `compile.valid` is `false` and the top-level `valid` now agrees with it —
+  the disagreement that defined this ticket is gone.
+
+  **Regression floor.** The healthy sibling system in the same folder, compiled the same way,
+  returned `valid:true`, `errors:[]` and `dataInterfaceCheck:"consistent"`; `scriptCompileCheck`
+  read `"unverified"` there, never `"failed"`, so the promotion does not fire on a healthy asset.
+
+  **`#3`(a) is still open and should not be closed with this.** `niagara.compile {force:true,
+  wait:true}` on the broken system returned `{"status":"completed","compiled":true,
+  "completed":true,"timedOut":false}` with no error field, for a compile that produced two errors
+  and left a script at `NCS_Error`. The compile verb is still optimistic; only validate is honest
+  now. **The new `niagara.compile_status` is honest and is the cheap probe `#3`(a) wanted**:
+  `niagara.compile_status {assetPath:".../NS_TR_Broken"}` -> `{"status":"failed",
+  "completed":true,"successful":false,"scriptCompileCheck":"failed","failedScriptCount":1}` in a
+  ~350-byte response, no file spill. A caller should branch on `compile_status`, not on
+  `compile`'s `status`.
+
+  **Not verified: nothing visual, and no activation check.** `#1`'s correlation (`NCS_Error` =>
+  `effect.activate_niagara` returns `active:false` => zero pixels) was not re-measured — capture
+  and level work are owned by the VFX lead on this stream. `componentActivation` read
+  `no_components` throughout because nothing places these scratch systems.
 
 ## Fix
 
