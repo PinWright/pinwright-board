@@ -5,8 +5,8 @@ status: IN-REVIEW
 severity: Critical
 category: bug
 tags: [niagara, vectorvm, data-interface, compile, presave, autosave, sequencer, set-playhead, editor-kill, game-thread-hang, delayed-fault, shared-editor, latent-corruption]
-encounters: 3
-lastSeen: 2026-08-28T09:22:00+05:00
+encounters: 4
+lastSeen: 2026-09-05T22:37:00+03:00
 ---
 
 # A data-interface count mismatch is logged as a Warning and detonates later as an `appError`
@@ -252,3 +252,40 @@ logs are UTC+0, machine UTC+5). Log: `Saved/Logs/EAContentExamples58.log:4421-44
   (b) **`#4`'s autosave route is untouched and was reproduced as a state, not as a crash.** `niagara.add_emitter {compile:false, save:true}` returned `saved: true` with `dataInterfaceCheck: "consistent"`, persisting a package whose compiled scripts are stale — precisely the primer `#4` describes, with nothing in the response telling the caller the autosave clock is running. `#4`'s suggested fix (a) / (b) / (c) remains undone.
   (c) **`#3`'s cure now fails in a new way, and `#3` was right that the two tickets must be verified together.** The compile/save race IS closed — the save is refused when the compile has not landed, so nothing invalid is written. But the wait it depends on never lands: `{compile:true, save:true}` wedges the game thread for the full 90 s ceiling and returns `compiled:false, saved:false`, while the identical edit with `save:false` compiles in 0.07-1.09 s with a 0.028 s stall. So the protection works by never persisting anything, at a cost of 90 s of dead shared editor per call. **The cause is that `B-niagara-compile-wait-does-not-wait` `#6`'s fix is absent from this checkout** — no `AdvanceAsyncCompilationOnGameThread`, no `FAssetCompilingManager`, no `ProcessAsyncTasks` anywhere in the plugin source at `b79ba53e`. Measurements in that ticket and in `B-niagara-compile-while-live-component-vectorvm-assert` `#4`.
   **What would close this ticket:** a fixture that puts a system into the 0-compiled / 2-resolved state deliberately, so the refusal branch can be taken once, live. `#5` asked for the same thing for the test; the same fixture serves both. Until it exists the guard is unfalsifiable here and the ticket should not be marked DONE.
+
+- `#7-the-missing-fixture-exists-on-disk-in-this-checkout` `IN-REVIEW` reporter — plugin rebuilt
+  2026-09-05, editor gateway port 27145, UE 5.8, `EAContentExamples58`. **`#5` and `#6` both close
+  with "needs a fixture that puts a system into the 0-compiled / N-resolved state". One is sitting
+  in this checkout, produced by ordinary use, not by a test.**
+  **The system.** `/Game/FPS/VFX/NS_Blood`, four emitters (`Drips` / `Spray` / `Mist` / `Burst`),
+  last written by a previous agent's pass. Every one of twelve `niagara.set_module_input` calls I
+  made against it before compiling returned `success: true` **and** `dataInterfaceCheck:
+  "mismatched"`, with `mismatchedScripts` naming concrete counts:
+  `NS_Blood:Drips.SpawnScript` and `.UpdateScript` at `compiledDataInterfaces: 0` /
+  `resolvedDataInterfaces: 3`; `Spray.SpawnScript`/`.UpdateScript` and `Mist.SpawnScript`/
+  `.UpdateScript` at `0` / `2`. That is this ticket's state exactly, on a real authored asset.
+  **It is not a load artifact.** `niagara.validate {level:"basic"}` on the sibling
+  `/Game/FPS/VFX/NS_Impact_Concrete` — same folder, same tooling, saved three days earlier, also
+  never compiled in this session — returns `dataInterfaceCheck: "consistent"`. Same session, same
+  uncompiled-since-load condition, opposite verdict, so the check discriminates and `NS_Blood` was
+  genuinely persisted primed.
+  **Narrows `#6`(a).** `#6` measured the gate as reachable from `add_emitter` / `remove_emitter`
+  only, with `set_module_input` ungated. In the 2026-09-05 build `set_module_input` **does** carry
+  `dataInterfaceCheck` and did emit `mismatched` on every call — so the reporting has been widened
+  to the write path since `b79ba53e`. It reports and does not refuse: all twelve edits were applied
+  and the package left dirty. Whether the *save* refusal fires from this route is still unmeasured
+  here, because I compiled before saving and never presented a mismatched system to `asset.save`.
+  **The repair in `#4` holds, third confirmation.** `niagara.compile {force:true, wait:true}` as its
+  own call returned `status: "completed", compiled: true, timedOut: false, waitedMs: 3968`; then
+  `asset.save {force:true}` returned `saveState: "written"`, `.uasset` mtime advanced
+  2026-09-05 20:55 -> 22:21:30 +03:00 and size 928774 -> 929928 B; `niagara.validate {level:
+  "strict"}` then reports `dataInterfaceCheck: "consistent"`, `valid: true`, zero errors, and zero
+  `NCS_Error` scripts (10 `NCS_UpToDate`, 8 `null` on the EmitterSpawn/EmitterUpdate pair).
+  **Why this is worth the Critical.** The VFX coordinator on this package reports three editor kills
+  attributed to captures. A capture spawns the system and ticks it — the detonator this ticket
+  names — and `NS_Blood` was on disk in the primed state, in the set of thirteen systems the next
+  capture pass sweeps. The delayed, unattributable shape `#1` describes is exactly how those kills
+  presented.
+  **What this gives the fix.** A reproducible mismatched asset needs no manufacturing: check out
+  `NS_Blood` at its pre-`22:21` revision and the refusal branch at `NiagaraHandler.cpp:97` can be
+  taken live, once, which is the single measurement `#5` and `#6` both say is missing.
