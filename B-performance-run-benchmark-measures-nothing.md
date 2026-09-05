@@ -5,8 +5,8 @@ status: IN-REVIEW
 severity: High
 category: bug
 tags: [performance, benchmark, run_benchmark, silent-false-success, jobs, async, stat-file, ue58, not-supported, unread-param, measurement]
-encounters: 1
-lastSeen: 2026-08-30T17:35:00+03:00
+encounters: 2
+lastSeen: 2026-09-05T17:49:00Z
 ---
 
 # A verb named `run_benchmark` succeeds without benchmarking
@@ -266,3 +266,21 @@ one live `performance.run_benchmark {duration: 5}` against a freshly built edito
   (`performance.read_stats`) rather than only as a HUD toggle, since the HUD is unreachable from
   every capture surface the plugin offers.
 - `#5-code-review-verification-stale-binary` `IN-REVIEW` reviewer — Source-only re-verification at plugin HEAD `347826a6`; **status deliberately left `IN-REVIEW`** because no live call was made. The `#3` fix is in the tree and committed (`2df2d8b0`), and it does what a verb named `benchmark` must: a zero-delay `FTSTicker` element samples the engine's own per-frame delta (`LaunchEngineLoop.cpp:6103` -> `Ticker.cpp:121`), and the job completes with `frameCount`, `measuredDurationSeconds` (the SUM of the sampled deltas, not a wall-clock span — wall clock is only the `+5 s` backstop at `:1004`), `avgFps` and nearest-rank `frameTimeMs {min,p50,p95,max,mean}`, or FAILS with `FRAME_TIME_NOT_MEASURED` (`:1028` -> `JobRegistry.cpp:178-181`). `type` is gone from the registration, so `UNKNOWN_PARAMS` now refuses it. Full evidence in § *Verification (code review)*. **The finding that changes what `#4` means:** the built `Binaries/Win64/UnrealEditor-PinWright.dll` in this checkout still carries the pre-fix summary literal `"Start a performance benchmark"` and none of the new field names, so the editor that answered `{captured:false}` on 2026-09-03 was running code older than the fix — `#4` is a stale-binary reading, not a failed fix, and is neither a re-open nor a re-verification. What is still owed before `DONE`: one live `performance.run_benchmark {duration: 5}` against a freshly built editor. Nothing implemented and nothing reverted in this pass; three caveats recorded in the new section (total frame time only, so `F-performance-frame-time-statistics` stays OPEN and owns `#4`'s `performance.read_stats` ask; a frame-rate cap or editor smoothing bounds the reported number, which the wiki page does not yet say; and a frozen engine loop would leave the job `running` with no timeout, unreachable because the request pump is itself a core-ticker element).
+- `#2-verified-in-fps-build` `IN-REVIEW` ENV — **Direct route retried on the rebuilt plugin: the verb measures.** UE 5.8, editor PID 41420, `/Game/FPS/Maps/FPS_Compound` open, ENV holding the world lock. `performance.run_benchmark {duration: 8}`:
+
+  ```
+  requestedDurationSeconds 8   measuredDurationSeconds 8.012888   frameCount 435
+  frameTimeMs { min 16.6667, p50 16.6669, p95 26.6795, max 205.952, mean 18.4204 }
+  avgFps 54.2875   statFileCaptured false
+  ```
+
+  The `{"captured": false}` shape this ticket was filed for is gone. `type` is correctly refused now; my old call passed `type: "all"` and would have failed up front. The `.uestats` warning fires exactly as documented for 5.8. Status left `IN-REVIEW`.
+
+  **One thing the fix does not cover, offered as evidence rather than a new filing.** Two further runs at a different camera pose returned:
+
+  ```
+  frameTimeMs { min 333.33340, p50 333.33361, p95 333.33489, max 333.33701, mean 333.33375 }
+  avgFps 2.99999   frameCount 24
+  ```
+
+  Every frame within 4 microseconds of 333.3333 ms is the editor's 3 FPS background throttle, not a scene cost - and the first run's `p50` of 16.6669 is likewise the 60 FPS cap. `Slate.bAllowThrottling 0` and `t.MaxFPS 0` did not lift it in an unattended editor. So the numbers are real measurements of the frames that were drawn, and the verb is right to report them, but **a caller cannot tell a throttle-clamped window from a scene-limited one** from the payload. The tell is available to the verb and not to the reader: a `p95 - p50` spread under about 0.1 percent of `p50`, at a `p50` sitting on 1000/3 or 1000/60, is a clamp. A `frameTimeClamped` hint, or naming the suspected cap in `warnings`, would stop the next stream quoting 3 FPS as a map cost - which is exactly the misread this ticket's own history is about. Recorded here because it is the same measurement path, not a separate defect. `encounters` 1 -> 2.
