@@ -289,3 +289,31 @@ with everything else. This is not a judgement call — it is read from the sourc
   any caller relying on `asset.delete` / `level.delete` / `animation.cleanup` silently removing a
   referenced asset now gets `ASSET_IN_USE`; a folder is gated as one batch, so one externally-held
   asset refuses the whole folder. Not compiled and not run — the orchestrator owns builds."
+- `#3-unforced-path-verified-in-the-field-force-hazard-is-larger` `IN-REVIEW` reporter — **Field
+  verification of `#2`'s fix, plus one enlargement of the forced path's hazard class. No new
+  defect on this ticket, and nothing in `#1`'s diagnosis or `#2`'s implementation is disputed.**
+  Two `asset.delete` calls this session with **no** `force`, on textures nothing referenced any
+  more: `{path: "/Game/FPS/Weapons/Textures/T_WPN_Markings_M"}` and
+  `{path: "/Game/FPS/Weapons/Textures/T_WPN_FlankAO_M"}`. Both returned `success: true`,
+  `deletedCount: 1`, `deleteReported: true`, `existsAfter: false`, `existsOnDisk: false`,
+  `referencingBlueprints: []`, and both `.uasset` files are gone from
+  `Content/FPS/Weapons/Textures/` on disk — so the safe route (`ObjectTools::DeleteObjects` ->
+  `FAssetDeleteModel`) deletes cleanly and reports honestly on an unreferenced asset, and the
+  editor survived both and kept serving RPCs afterwards (`asset.save` returned
+  `saveState: "written"`). **The forced path's cost is larger than this ticket states, and the
+  evidence for that sits on a different verb.** `B-asset-import-overwrite-commit-kills-editor`
+  (`OPEN`, Critical) carries a crash in which `ObjectTools::ForceReplaceReferences` faulted with
+  `EXCEPTION_ACCESS_VIOLATION reading 0xffffffffffffffff` inside `UFunction::Serialize` ->
+  `UStruct::SerializeExpr` -> `FPropertyProxyArchive::operator<<`, reached from the *import*
+  overwrite commit (`AssetImportPolicy.cpp:1009`) — the whole-object-graph
+  `FThreadSafeObjectIterator` walk this ticket's `## Mechanism` step 4 describes, serialising a
+  `UFunction` whose bytecode held a dangling `FProperty*` left behind by earlier Blueprint
+  recompiles. `force: true` here runs that same walk through that same function; the only
+  difference is `nullptr` for the replacement, and the fault is in the walk, not in what is
+  substituted. So on a shared editor `force: true` risks not only "referencers nulled
+  irreversibly, file possibly left behind" but the **process**, taking every other attached
+  agent's session with it. Callstack, timing and the ruled-out hypotheses are on that ticket; not
+  duplicated here. Practical consequence for callers, worth carrying into any doc pass on this
+  fix: `ASSET_IN_USE` is a **useful** refusal — the answer is to import under a new asset path,
+  repoint the referencers, then delete the old asset unforced once it is unreferenced, not to
+  clear the refusal with `force`.
