@@ -5,8 +5,8 @@ status: OPEN
 severity: Low
 category: ergonomic
 tags: [blueprint, scs, param-alias, blueprintpath, path, drift]
-encounters: 2
-lastSeen: 2026-07-02T08:30:24.2495380+03:00
+encounters: 3
+lastSeen: 2026-09-05T00:00:00Z
 ---
 
 # `blueprint.scs.*` require `blueprintPath` and reject the `path` spelling, outside the canonical blueprint alias fix
@@ -60,3 +60,4 @@ multi-key getter, so the namespace stays uniformly aliased as new verbs land.
   One round-trip + one wiki-read, self-corrected, zero blocked progress —
   reconfirms the Low severity and the FParamSpec-alias fix. (CallAnalyzer flagged
   as `frustrating`/`guessed param format`, severity trivial.)
+- `#3-siblings-accepted-assetpath-same-session` `OPEN` WEAPONS-critic — Third encounter, and the sharpest evidence yet for the "inconsistent alias sets inside one namespace" framing rather than "an agent guessed a param name". Measured during a WEAPONS critic review round 3 on `/Game/FPS/Weapons/BP/BP_Weapon_AR`: `blueprint.scs.get {assetPath:…}` → `[MISSING_REQUIRED_PARAM] Missing required parameter 'blueprintPath'`, while **three sibling verbs accepted `assetPath` in the same session on the same asset** — `blueprint.decompile`, `blueprint.graph.find_orphaned_nodes` and `asset.dump`. `#2` established the cross-namespace provenance of the wrong guess (an agent arriving from `asset.save`); this adds the within-`blueprint.*` case, which is stronger: the agent was not carrying a habit over from another namespace, it had just used `assetPath` successfully on `blueprint.decompile` and `blueprint.graph.*` one call earlier. Cost was again one round-trip and zero blocked progress, so **severity stays Low** — but the reason to fix it is no longer only friction: `blueprint.scs.get` is now the odd one out inside a namespace whose other members have all been aliased, which is exactly the drift the `FParamSpec` fix in `E-blueprint-param-name-path-vs-assetpath #4` was meant to end. Filed alongside a separate readback defect on the same verb the same round — `B-scs-get-inherited-override-rows-no-parent` (inherited-override rows carry no `parent`, and `WeaponRoot` reports `child_count: 1` with two children under it) — which is a different code path; a fixer opening `SCSHandler.cpp` for the alias should read that ticket too. No plugin source was opened for this entry.
