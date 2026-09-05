@@ -286,3 +286,74 @@ it.
   with `set_module_input` / `set_static_switch`, then byte-check the `.uasset`. Slower than a merge
   and it does not scale, but it never puts the only correct copy at risk. (The save leg of that
   pattern hits a separate defect — `B-niagara-emitter-save-guard-deadlocks-unused-emitter`.)
+
+- `#5-verified-in-fps-build` `IN-REVIEW` VFX — **The forward path works end to end. `#4` asserted
+  the rebuild "closes this defect going forward" without testing it; this is that test, and it
+  passes on every property the ticket asked for.** Direct route retried once per PLAN rule 2;
+  leaving `IN-REVIEW` for the tester. Live editor port 27145, UE 5.8, EAContentExamples58,
+  2026-09-05, on scratch assets under `/Game/FPS/VFX/Scratch_TicketRetry/` built for this and
+  deleted after. `NS_Impact_Water` and `NS_Blood` were not touched — both were being edited
+  concurrently.
+
+  **(a) The relationship is now named, and the default refuses rather than downgrading.**
+  `niagara.add_emitter {systemPath:".../NS_TR_Inherit", emitterPath:".../E_TR_Parent", name:"Burst"}`
+  against a raw `asset.duplicate` of `SimpleSpriteBurst` ->
+  `[EMITTER_NOT_INHERITABLE] … declares itself non-inheritable … Nothing was added.` with
+  `{"inheritRequested":true,"emitterSource":"snapshot","handleAdded":false,"emitterCount":0}` —
+  the rollback landed, exactly as the `## Fix` predicted.
+
+  **The error's own remedy works and is worth recording, because `#4` says no re-parent exists.**
+  `property.set {objectPath:".../E_TR_Parent.E_TR_Parent", propertyName:"bIsInheritable", value:true}`
+  -> `{"applied":true,"value":true}`, `asset.save {force:true}` -> `saveState:"written"`, 83698 b.
+  The identical `add_emitter` then succeeded: `emitterSource:"inherited"`,
+  `parentEmitterPath:"/Game/FPS/VFX/Scratch_TicketRetry/E_TR_Parent.E_TR_Parent"`,
+  `emitterCount:1`, `emittersInvokedBySystemGraph:1`, `emitterNodesRebuilt:2`. So a stock-template
+  duplicate can be made inheritable through the generic property writer without waiting on a
+  Niagara-side verb. **This does not solve `#4`** — it fixes the *emitter asset* so future
+  `add_emitter` calls inherit; it does nothing for a handle already snapshotted into a system, and
+  `#4`'s ask for a re-parent verb stands unchanged.
+
+  **(b) The stale signal that did not exist now exists.** With the handle in place, the parent was
+  edited the way `#1`'s repro does — `niagara.add_module {assetPath:".../E_TR_Parent",
+  modulePath:"/Niagara/Modules/Emitter/SpawnBurst_Instantaneous",
+  scriptUsage:"EmitterUpdateScript"}` -> `nodeId 0617E79E494214E4C4FE089243B8D00A`, then
+  `asset.save {force:true}` -> `written`, 81690 b. `niagara.validate {level:"strict"}` on the
+  system then returned a `EMITTER_PARENT_STALE` **warning**: *"Emitter 'Burst' inherits from
+  '/Game/FPS/VFX/Scratch_TicketRetry/E_TR_Parent.E_TR_Parent', which has changed since this system
+  last merged from it … Run niagara.refresh_emitter …"*. `#1`'s central complaint — `validate
+  level:"strict"` returning `valid:true, errors:[]` on a system whose emitters are stale — is
+  answered; the warning names the handle, the parent, and the remedy.
+
+  **(c) The merge propagates AND preserves the system's own override — the property the whole
+  ticket turns on.** Before the parent edit, a deliberate system-side override was set on the
+  handle's own copy: `niagara.set_module_input {assetPath:".../NS_TR_Inherit", emitter:"Burst",
+  entryId:"Burst:68A8CD574D62C54866BE778FB68D9342", inputName:"Spawn Count", value:137}` ->
+  `"value":"137.0"`. Then `niagara.refresh_emitter {systemPath:".../NS_TR_Inherit"}` ->
+  `refreshedEmitters:1, mergesApplied:1, mergesFailed:0`. After `niagara.compile {force:true,
+  wait:true}` -> `completed`, `niagara.inspect {includeStack:true}` shows the `Burst` handle
+  carrying **both** bursts — `SpawnBurst_Instantaneous` at EmitterUpdate idx 1 and the merged-in
+  `SpawnBurst_Instantaneous001` at idx 2 — **and** `Spawn Count` still
+  `{"valueMode":"local","value":"137.0"}`. `remove_emitter` + `add_emitter` would have discarded
+  that 137. This is precisely the non-destructive route `#3` said did not exist.
+  `versionedEmitterData.parent` reads `{"inherited":true, "path":".../E_TR_Parent.E_TR_Parent",
+  "synchronized":true, "parentAtLastMergePath":"…:Burst.NiagaraEmitter_1"}`.
+
+  **On disk, per the host `CLAUDE.md` rule.** `asset.save {force:true}` ->
+  `saveState:"written"`, `sizeBytes:284522`;
+  `Content/FPS/VFX/Scratch_TicketRetry/NS_TR_Inherit.uasset` mtime `2026-09-05 21:01:41 +0300`,
+  284522 b. `grep -a` on that file finds `SpawnBurst_Instantaneous001` (the merged module),
+  `137.0` (the surviving override) and `Scratch_TicketRetry/E_TR_Parent` (the parent link). The
+  byte-grep-the-*system* audit `#3` recommended is the one used here, and it passes.
+
+  **One ergonomic wrinkle the fix should own.** `refresh_emitter` with default `compile:false`
+  **returns an error**, not a success: `[NIAGARA_DATA_INTERFACE_MISMATCH] … (compiled 0, resolved
+  1) … the asset was not saved`, while its own payload reports `mergesApplied:1` — i.e. the merge
+  landed and the pre-save gate then refused, because a merge changes the graph and compiles
+  nothing. The wiki page does say to pass `compile:true`, so this is documented, but the shape is
+  wrong: the default invocation of a verb whose default is `compile:false` cannot be an error. A
+  caller who stops at the error will not realise the merge is already in memory and will re-run
+  it. Recommend `refresh_emitter` either default `compile` to true, or treat "mismatch caused by
+  my own uncompiled merge" as a `mergedNotCompiled` success field rather than a refusal.
+
+  **Not verified: nothing visual.** Capture is owned by the VFX lead on this stream, so there is
+  no frame showing the merged module running. The evidence is structural and on-disk only.
