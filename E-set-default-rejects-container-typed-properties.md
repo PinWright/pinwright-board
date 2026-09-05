@@ -5,8 +5,8 @@ status: OPEN
 severity: Medium
 category: ergonomic
 tags: [blueprint, set-default, container, map, tmap, json, conversion-failed, unactionable-error, workaround-python]
-encounters: 1
-lastSeen: 2026-09-05T19:51:39Z
+encounters: 2
+lastSeen: 2026-09-05T20:15:00Z
 ---
 
 # The verb takes JSON but refuses the types JSON is best at
@@ -73,3 +73,28 @@ error the way `add_variable` does, and say whether the property was modified.
 
 ## History
 - `#1-map-typed-property-rejected` `OPEN` reporter - Found on the FPS build, 2026-09-05, adding a per-surface decal-size map to `BP_WeaponBase`. `blueprint.add_variable` accepted `map<enum<EPhysicalSurface>,float>` and created the variable; `blueprint.set_default` then refused a JSON object for it with `[CONVERSION_FAILED] Unsupported property type for JSON assignment` and no indication of the supported set or whether anything was written. Worked around via `python.execute` on the CDO, which succeeded and was byte-verified on disk (six map entries: f32 14.0 x4, 30.0 x1, 10.0 x1). The workaround loses the verb's `allowReinstancing` guard, which had refused a compile earlier in the same session because another stream held three live instances in its PIE world — so being pushed off the verb costs a real safety net. `TArray`/`TSet` not tested. Distinct from `E-set-default-none-clear-conversion-failed` (clearing an object reference with "None") and from `B-container-array-conversion-failure-leaves-element` (partial write on a sibling verb), though the latter is why "was the property touched" is worth answering here.
+- `#2-array-scope-and-a-safer-workaround` `OPEN` reporter — **Closes the ticket's "Scope not established" question for `TArray`, and it fails for a different reason than the map does.** Setting `Tags` (`TArray<FName>`) on `/Game/FPS/Weapons/Test/BP_WeaponTestPawn` was refused three times, once per plausible encoding:
+
+  ```
+  value: "[\"FPS_Team0\"]"     -> [CONVERSION_FAILED] Expected array for array property
+  value: "(\"FPS_Team0\")"     -> [CONVERSION_FAILED] Expected array for array property   # UE ImportText form
+  value: "FPS_Team0"           -> [CONVERSION_FAILED] Expected array for array property
+  ```
+
+  The map path says *"Unsupported property type for JSON assignment"*; the array path says *"Expected array for array property"* — i.e. the array branch **is** implemented and is asking for a JSON array, but the schema types `value` as `string`, so **no value a caller can send will ever satisfy it**. The verb is asking for something its own parameter type forbids. That makes the array case arguably worse than the map case: the error is actionable-sounding and leads the caller through encodings that cannot work, rather than admitting the type is unreachable.
+
+  **A workaround that keeps the reinstancing guard, which the `#1` python route loses.** `property.set` types `value` as `any` and its wiki states "For array properties, pass a JSON array; the call replaces the entire array". Pointed at the CDO it works, and the compile is then done by `blueprint.compile`, which carries the guard:
+
+  ```
+  property.set {objectPath: "/Game/FPS/Weapons/Test/BP_WeaponTestPawn.Default__BP_WeaponTestPawn_C",
+                propertyName: "Tags", value: ["FPS_Team0"], markDirty: true}
+    -> {"applied":true,"markedDirty":true,"value":["FPS_Team0"]}
+  blueprint.compile {path: "/Game/FPS/Weapons/Test/BP_WeaponTestPawn"}
+    -> {"compiled":true,"status":"UpToDate","errors":[]}          # guard still applies, and would have refused
+  asset.save    {assetPath: "...", force: true}
+    -> {"saved":true,"saveState":"written","sizeBytes":179910}
+  ```
+
+  Byte-verified on disk afterwards: `FPS_Team0` present in `BP_WeaponTestPawn.uasset`, mtime moved. **Recommend replacing `#1`'s `python.execute` workaround with this three-call one in the ticket body** — it is the same three steps `blueprint.set_default` performs internally, minus the broken coercion, and it gives up none of the safety.
+
+  Note the `value` schema type is the actual bug surface for arrays: whatever the coercion fix is, `value` has to stop being `string` (or the handler has to parse a JSON string into an array before the type check) or the array branch stays unreachable.
