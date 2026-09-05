@@ -5,7 +5,7 @@ status: OPEN
 severity: Medium
 category: bug
 tags: [response-budget, outputTooLong, spill, http-responses, mcp-envelope, shape-inconsistency, silent-false-negative, niagara-validate]
-encounters: 1
+encounters: 2
 lastSeen: 2026-09-05
 ---
 
@@ -77,3 +77,4 @@ three shapes have been observed, so the fallback chain is needed rather than any
 ## History
 
 - `#1-filed` `OPEN` VFX — Hit while sweeping all 13 FPS VFX Niagara systems for `dataInterfaceCheck` immediately before a capture pass, specifically to avoid the VectorVM assert that has been suspected in three editor deaths from captures on this project. The check reported 10 of 13 systems unhealthy; correct unwrapping showed 0 of 13. Both the wrong and the right sweep were run against the same live editor minutes apart with no asset changes in between, so response size is the only variable. Note the shared `Saved/PinWright/HttpResponses/` directory makes this easy to compound: picking the newest file rather than the one named in your own `file.path` returns another agent's response entirely, which is how the shape was first mis-diagnosed here.
+- `#2-second-encounter` `OPEN` VFX — Second independent hit, different verb and different agent. `niagara.inspect {assetPath:"/Game/FPS/VFX/NS_Muzzle_AR", includeProperties:true, includeStack:true, includeGraphs:false, includeCompile:false}` returned 449241 chars and spilled; the spill file's top level is `['content','structuredContent','isError']`, confirming the shape reported in `#1` is not specific to `niagara.validate` or to that session. Reading `d["emitters"]` off the raw file yields `None`, which for an inspect reads as "this system has no emitters" — the same silent false negative in a different disguise. The workaround chain in this ticket worked unmodified. Cost here was small only because the ticket already existed and was read first; without it the natural next step would have been to conclude `NS_Muzzle_AR` was structurally broken and start repairing a healthy asset.
