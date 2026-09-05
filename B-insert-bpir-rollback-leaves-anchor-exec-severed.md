@@ -5,8 +5,8 @@ status: OPEN
 severity: High
 category: bug
 tags: [blueprint, bpir, insert_bpir_at_node, rollback, atomicity, exec-splice, orphaned-nodes, silent-corruption]
-encounters: 1
-lastSeen: 2026-09-05T20:00:00Z
+encounters: 2
+lastSeen: 2026-09-05T20:12:00Z
 ---
 
 # A failed `insert_bpir_at_node` leaves the graph worse than it found it
@@ -102,3 +102,4 @@ compile fails, which is the ordinary outcome of any BPIR snippet that is not rig
   0/420 baseline — without that habit the weapon would have shipped with `TryPenetrate` doing
   nothing past its second Branch, and penetration silently dead. Worked around by reconnecting the
   edge by hand and doing the decrement with `create_node` + `connect_pins` instead.
+- `#2-correction` `OPEN` reporter — **My `#1` misattributed the cause of the compile failure and the correction sharpens this ticket rather than weakening it.** The BPIR snippet was not wrong. The compile failed because an *unrelated* node elsewhere in the same graph was already broken — a `Get PenetrationsLeft` that `blueprint.graph.replace_node` had produced without self context (`B-replace-node-variableget-loses-self-context`), which `insert_bpir_at_node`'s whole-Blueprint compile then tripped over (the mechanism in `E-compile-bpir-preexisting-errors-block-repair`). Proof: after wiring that one node's `self` pin by hand, `blueprint.compile` returned `{"compiled":true,"status":"UpToDate","errors":[]}` with the BPIR nodes long since deleted. **So the severed edge is not collateral damage from bad caller input — it is what this verb does to a healthy caller whose Blueprint happens to carry a pre-existing error in any graph.** A caller who is using `insert_bpir_at_node` *to repair* a broken Blueprint — the exact case `E-compile-bpir-preexisting-errors-block-repair` is about — gets a second break for free, in a different place, every attempt.
