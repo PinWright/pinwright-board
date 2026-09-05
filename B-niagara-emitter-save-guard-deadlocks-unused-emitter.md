@@ -5,8 +5,8 @@ status: OPEN
 severity: Medium
 category: bug
 tags: [niagara, emitter, save, compile, compile-guard, deadlock, set_module_input, set_static_switch, asset-save, inconsistent-gate]
-encounters: 1
-lastSeen: 2026-09-05T20:55:00+03:00
+encounters: 2
+lastSeen: 2026-09-05T20:59:00+03:00
 ---
 
 # The save guard on `niagara.*` edits is unsatisfiable for an emitter asset no loaded system uses
@@ -98,3 +98,25 @@ is precisely the habit the guard was added to prevent.
   `ShapeLocation` shape switch onto `E_ImpactWater_Crown`. Both responses, the log line and the
   `asset.save` result above are verbatim; the byte counts were read from the `.uasset` after the
   save, not from the response. No source was read.
+- `#2-independent-repro-blood-emitters` `OPEN` reporter — Independent second encounter the same day
+  from a different stream (the `NS_Blood` cone-axis fix), on three more standalone emitters:
+  `/Game/FPS/VFX/Emitters/E_Blood_{Drips,Spray,Mist}`. `niagara.compile {assetPath:
+  "/Game/FPS/VFX/Emitters/E_Blood_Drips", force:true, wait:true, timeoutSeconds:60}` returned
+  `{"requested":false,"compiled":false,"completed":false,"waited":false,"waitedMs":0.0023,
+  "timedOut":false,"stillCompiling":[],"outstandingCompilationRequests":false,
+  "status":"notRequested","durationMs":0.147}` — the shape in the body, reproduced verbatim on a
+  different asset. `asset.save {force:true}` then wrote all three
+  (`saveState:"written"`, sizes 102933 / 104300 / 99972), verified against the file: fresh mtimes
+  (2026-09-05 20:55:12 / :15 / :20 +0300) and a git-LFS before/after string diff of each `.uasset`
+  showing `"(X=1.0,Y=0.0,Z=0.0)"` 0 -> 1, `"2.0"` +1, and the two override-pin names
+  `AddVelocityInCone.Cone Axis` / `AddVelocityInCone.Cone Axis Coordinate Space` entering the name
+  table. So `#1`'s central claim — the guard is unreachable on this class of asset while
+  `asset.save` writes it anyway — reproduces on assets from a different system, and this stream
+  reached the same workaround independently (never pass `save:true`; use `asset.save`).
+  One detail to add to fix point 3: the emitter-path `niagara.compile` also emits
+  `LogUObjectGlobals: Warning: Failed to find object 'NiagaraSystem /Game/FPS/VFX/Emitters/E_Blood_Drips'`
+  into the editor log before returning its clean `notRequested` — the resolver evidently tries
+  `UNiagaraSystem` first and lets the miss log. Harmless, but it puts a scary "Failed to find object"
+  line in the log for a call that succeeded, which costs a reader time when triaging an unrelated
+  failure in the same window. Verbatim from `Saved/Logs/EAContentExamples58.log` line 4402,
+  `[2026.09.05-17.53.20:231]` (log is UTC; machine is UTC+3). No source was read this session.
