@@ -5,8 +5,8 @@ status: IN-REVIEW
 severity: Critical
 category: bug
 tags: [niagara, vectorvm, data-interface, compile, presave, autosave, sequencer, set-playhead, editor-kill, game-thread-hang, delayed-fault, shared-editor, latent-corruption]
-encounters: 5
-lastSeen: 2026-09-05T23:31:00+03:00
+encounters: 6
+lastSeen: 2026-09-05T23:34:00+03:00
 ---
 
 # A data-interface count mismatch is logged as a Warning and detonates later as an `appError`
@@ -328,3 +328,37 @@ logs are UTC+0, machine UTC+5). Log: `Saved/Logs/EAContentExamples58.log:4421-44
   parameter list with no notes at all — nothing warns that a renderer-property write arms this, and
   nothing tells the caller to compile afterwards. An agent that sets a draw-order int and moves on
   leaves a primed system behind and has been given no reason to suspect it.
+
+- `#9-set-module-input-alone-primes-on-the-first-touch` `IN-REVIEW` reporter — plugin gateway port
+  27145, UE 5.8, `EAContentExamples58`, as the VFX metal-smoke/glass-dust agent. **A clean
+  single-emitter isolate of `#8`'s model, with two narrowings `#8` could not make.**
+  **The measurement.** `/Game/FPS/VFX/NS_Impact_Metal`, five emitters (`Sparks` / `Flash` / `Smoke`
+  / `Light` / `Ricochet`). Immediately before any write, a full `niagara.inspect` of the system
+  succeeded and I made no `set_property` and no `set_static_switch` call at any point. Four
+  consecutive `niagara.set_module_input` calls, all four with `compile` and `save` omitted, all four
+  against the **`Smoke`** emitter only (`Smoke:5C20EBF3...` `Color`, `Uniform Sprite Size Min`,
+  `Uniform Sprite Size Max`; `Smoke:19BA4E9C...` `Spawn Probability`). **Call 1 already returned
+  `dataInterfaceCheck: "mismatched"`** with `mismatchedScripts` = exactly two entries,
+  `NS_Impact_Metal:Smoke.SpawnScript` and `.UpdateScript`, both `compiledDataInterfaces: 0` /
+  `resolvedDataInterfaces: 2`. Calls 2-4 returned the identical two-entry list — no widening, and
+  the four untouched emitters never appeared.
+  **Narrowing (a): `set_module_input` is sufficient on its own.** `#8`'s call 1 was a
+  `niagara.set_property` renderer write, which left open the reading that the renderer path is the
+  primer and `set_module_input` merely inherits an already-armed system. It is not: with no
+  `set_property` anywhere in the session, a lone module-input write arms it.
+  **Narrowing (b): priming is immediate, not cumulative within an emitter.** `#8` shows one *new*
+  emitter per call; mine shows that within a single emitter the first write arms both of its scripts
+  at once and further writes to the same emitter add nothing. So the unit of priming is the emitter
+  touched, on first touch — which matches `#8`'s growth pattern and rules out a per-write counter.
+  **The repair holds, fourth confirmation.** One `niagara.compile {force:true, wait:true}` returned
+  `status:"completed", compiled:true, timedOut:false, waitedMs:329`; `niagara.validate
+  {level:"strict"}` then returned `dataInterfaceCheck: "consistent"`, `valid:true`, zero errors,
+  sole warning `COMPILE_STATE_UNINITIALIZED` (that is
+  `E-niagara-validate-compile-state-uninitialized-undocumented`, not this). `asset.save {force:true}`
+  was refused `blockedByPie` by another stream's session, then written after it ended
+  (`saveState:"written"`, 1058918 -> 1058796 B); post-save `strict` validate still `consistent`.
+  **Ergonomic point, same as `#8` but on a different verb.** `niagara.set_module_input`'s wiki page
+  is long and detailed about override pins, links and echo semantics and says **nothing** about
+  arming this state or about needing a compile afterwards. The only reason I saw it is that the
+  field rides along in the response. A caller who batches module-input edits and saves without
+  compiling ships a primed system, and the wiki gives them no reason to expect it.
