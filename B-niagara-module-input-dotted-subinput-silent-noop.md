@@ -103,3 +103,53 @@ severity rationale: impact=silent-false-success on the namespace's primary write
 - `#3-third-combination-bogus-names-reach-disk-and-breakExistingLink-leaves-the-chain` `OPEN` reporter — Third reporter, same day, UE 5.8, EAContentExamples58, live editor port 27145, building the FPS blood / smoke-grenade / explosion Niagara systems under `/Game/FPS/VFX/`. Four additions, one of which corroborates `#2` against `#1`. **(a) A third module/dynamic-input combination behaves like `#1`'s echo and like `#2`'s pins: unvalidated.** On `AddVelocityInCone` (ParticleSpawnScript, added by `add_module`) with `{dynamicInput:"/Niagara/DynamicInputs/UniformRange/UniformRangedFloat.UniformRangedFloat"}` assigned to `Velocity Strength`, `"Velocity Strength.Minimum"`=500 and `".Maximum"`=1400 both returned the full success envelope. I then wrote a deliberately invented `"Uniform Scale Factor.NoSuchInput"`=5 on a `Lerp_Float`-driven `ScaleSpriteSize` — **also `success:true`, with a fresh `pinId` and a `"5.0"` echo**, confirming `#1`'s core claim on a module where `#2` shows the dotted path otherwise works. There is no safety net on either path. **(b) The bogus names reach disk and survive.** After `niagara.compile {force:true}` + `asset.save {force:true}`, `grep -a "Velocity Strength\.[A-Za-z]*"` on `Content/FPS/VFX/Emitters/E_Blood_Spray.uasset` returns both `Velocity Strength.Minimum` and `Velocity Strength.Maximum`, so this is not an in-memory artefact — a wrong spelling ships. **(c) A rapid-store readback cannot arbitrate between the spellings, which corroborates `#2` and further narrows `#1`.** I wrote three candidate spellings on one `Lerp_Float`-driven `ScaleSpriteSize.Uniform Scale Factor` — `"Uniform Scale Factor.B"`, `"ScaleSpriteSize.Uniform Scale Factor.Lerp_Float.Alpha"`, and the invented one — then compiled and read BOTH rapid-iteration scopes in full (`niagara.inspect {parametersOnly:true, parameterName:"Constants"}`, 13 spawn + 9 update entries listed): **none of the three produced any entry**, and `parameterName:"Lerp"` returns nothing in either scope. That matches `#2`'s finding that this module's sub-inputs land as graph override pins rather than rapid parameters, and it means `#1`'s `reset_module_input {kind:"rapid"}` readback — the strongest arbitration signal on the board — is unavailable on ParticleUpdate float inputs. A caller has no published way to tell a live sub-input from a dead one without simulating the system. **(d) `breakExistingLink:true` does not remove the chain it says it replaced.** `niagara.set_module_input {inputName:"Velocity Strength", value:1350, breakExistingLink:true}` returned `replacedOverride {valueMode:"dynamicInput", source:"/Niagara/DynamicInputs/UniformRange/UniformRangedFloat.UniformRangedFloat"}` and the literal does govern — but after compile + save, the saved `.uasset` still contains three `UniformRangedFloat` references and both orphaned `Velocity Strength.Minimum` / `.Maximum` pin names. The wiki's "deletes the link and its now-orphaned upstream chain first" is only half true; the pins survive. **Consequence for this package:** with `#1`, `#2` and this entry disagreeing on which spelling is live, and no non-simulating way to check, I abandoned dynamic inputs entirely across 19 emitters and fell back to the `InitializeParticle` `Random` static-switch modes plus `AddVelocityInCone`'s `Use Velocity Falloff On Cone Axis` for per-particle speed spread. Per-particle random ranges remain effectively unavailable, as `F-niagara-dynamic-input-nested-inputs` `#2` also argues.
 - `#3-retracting-my-own-counterexample-2-was-wrong` `OPEN` reporter — **Retracting `#2` in full. Same reporter, same session, one hour later: `#1` is right and my counterexample was a misread.** The decisive test `#2` said it had not done, I then did: `niagara.reset_module_input {assetPath:"/Game/FPS/VFX/Emitters/E_ImpactDirt_Dust", entryId:"4A3FBE55…"(AddVelocityInCone), inputName:"Velocity Strength.Minimum"}` returned `reset:true, previousValue:"60.0", wasLinked:false, **kind:"rapid"**` — a **float** input on a ParticleSpawn module with `RandomRangeFloat` assigned, i.e. exactly the case `#2` claimed was different from `#1`'s int-on-EmitterUpdate one. It is not different. The dotted sub-input writes land in the rapid-iteration store under a name nothing reads, on every module I tried. What misled me: `niagara.inspect {includeGraphs:true}` renders those rapid-iteration entries as input nodes carrying their **short** name (`Velocity Strength.Minimum` = `"600.0"`, `Uniform Scale Factor.A` = `"1.0"`), sitting in the same node list as the genuine module override pin (`ScaleSpriteSize.Uniform Scale Factor`, `linkCount:1`). I read the short-named nodes as override pins because they looked identical in that view and because they survived a save, an editor crash and a reload — persistence proves serialisation, not that anything reads them. **So my `#2` advice to spare dotted paths from `#1`'s guard should be ignored: implement the guard.** The `<Input>.<SubInput>` spelling has no legitimate use I found. Worth adding to the fix: the graph aspect should distinguish a rapid-iteration input node from an override pin, since as rendered today it is what makes this defect look like a working feature to a caller who follows the wiki's own advice to read the effective value from the graphs aspect. Practical cost on my side: every `RandomRangeFloat` and every `Lerp_Float`/`RampInOut` chain across thirteen FPS impact emitters was inert, and all of them were torn out and rebuilt from literals plus `Mass Mode:Random` + `Drag{Ignore Mass:false}` + `Velocity Falloff Away From Cone Axis`.
 - `#4-reject-unknown-dotted-input` `IN-REVIEW` developer — Confirmed TRUE from source and fixed the silent-fallback path by validating `inputName` against the placed module stack in `NiagaraEditHandler.cpp`; unknown dotted names now return `MODULE_INPUT_NOT_FOUND` with available top-level inputs before mutation. Added `PinWright.niagara.set_module_input.RejectsDottedSubInput`, updated `Docs/wiki-src/niagara.md`, and deliberately left graph serialization unchanged because existing `class` plus `inputUsage: 'RapidIterationParameter'` already distinguishes rapid nodes from override pins. `NiagaraEditTypes.cpp` was not touched due concurrent work; no live compile or automation run was performed.
+- `#5-verified-in-fps-build` `IN-REVIEW` VFX — **The affirmative-success-for-a-no-op is gone. Both
+  of `#1`'s invented spellings now refuse, and the refusal is self-correcting. Direct route
+  retried once per PLAN rule 2; leaving `IN-REVIEW` for the tester.** Live editor port 27145, UE
+  5.8, EAContentExamples58, 2026-09-05, on scratch emitter
+  `/Game/FPS/VFX/Scratch_TicketRetry/E_TR_Curve` (an `asset.duplicate` of `SimpleSpriteBurst`)
+  with a `RandomRangeInt` dynamic input assigned to `SpawnBurst_Instantaneous.Spawn Count` —
+  `#1`'s fixture rebuilt. Note the correct engine path for that dynamic input is
+  `/Niagara/DynamicInputs/UniformRange/V2/RandomRangeInt.RandomRangeInt`; the shorter
+  `/Niagara/DynamicInputs/Int32/RandomRangeInt` `#1` implies does not exist and returns
+  `ASSET_NOT_FOUND`.
+
+  Both spellings, sent exactly as `#1` sent them:
+
+  ```
+  niagara.set_module_input {entryId:"68A8CD57…", inputName:"Spawn Count.Minimum", value:8}
+    -> [MODULE_INPUT_NOT_FOUND] Module 'SpawnBurst_Instantaneous' declares no stack input
+       'Spawn Count.Minimum'. Its stack inputs are: Spawn Count, Spawn Time, Age,
+       Spawn Probability, Loop Count Limit, Spawn Group.
+
+  niagara.set_module_input {entryId:"68A8CD57…", inputName:"Spawn Count.RandomRangeInt.Minimum", value:8}
+    -> [MODULE_INPUT_NOT_FOUND] … same, listing the same six real inputs.
+  ```
+
+  Nothing was written under either name, so the two mutually-exclusive both-succeed responses `#1`
+  quotes cannot recur, and the message hands the caller the real input list instead of leaving
+  them to guess. The same refusal shape now covers the curve verbs — see
+  `B-niagara-set-curve-keys-unreachable-module-input-di` `#11`.
+
+  **The capability is still absent, and there is now a new inconsistency in its place.** A dynamic
+  input's own inputs still cannot be written by any route I could find. `niagara.inspect
+  {includeStack:true}` **does** now publish the dynamic-input node as its own stack entry —
+  `{"name":"RandomRangeInt", "entryId":"30C561DC439B93A2E4D7C9947E10EA1C",
+  "entryKey":"E_TR_Curve:30C561DC439B93A2E4D7C9947E10EA1C", "scriptUsage":"",
+  "functionScript":"/Niagara/DynamicInputs/UniformRange/V2/RandomRangeInt.RandomRangeInt"}` with
+  `moduleInputs` `Minimum`, `Maximum`, `Random Seed` — i.e. it advertises an address in exactly the
+  shape `set_module_input` documents. Addressing it refuses:
+  `niagara.set_module_input {entryId:"30C561DC439B93A2E4D7C9947E10EA1C", inputName:"Minimum",
+  value:8}` -> `[INVALID_STACK] Module '30C561DC…' is not in a valid stack group.`, and the same
+  call with `scriptUsage:"EmitterUpdateScript"` gives the identical refusal. So one verb publishes
+  an entryId the sibling write verb rejects, and the entry's own `scriptUsage` is empty, which is
+  the field the write path needs. That is a read/write contract disagreement rather than the
+  silent no-op this ticket is about; it belongs with `F-niagara-dynamic-input-nested-inputs`, and
+  it means the workaround (assign a whole dynamic-input script and accept its defaults, or drive
+  the input some other way) still stands.
+
+  Verified by refusal only — no write occurred, so there is no on-disk evidence to give for this
+  entry, which is the correct outcome for a fix whose whole content is "write nothing". The
+  emitter these calls ran against was saved and byte-checked for the *other* tickets in the same
+  session (`Content/FPS/VFX/Scratch_TicketRetry/E_TR_Curve.uasset`, mtime `2026-09-05 20:55:47
+  +0300`) and contains no `Spawn Count.Minimum` rapid-iteration entry.
