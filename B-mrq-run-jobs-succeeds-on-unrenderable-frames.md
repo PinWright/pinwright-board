@@ -1,12 +1,12 @@
 ---
 id: B-mrq-run-jobs-succeeds-on-unrenderable-frames
 title: "mrq.run_jobs reports jobSucceeded:true with four healthy-looking 8.8 MB PNGs whose lower 47% is a flat white void and whose Nanite geometry has shattered — every field in the response is a file fact, and none of them is a picture fact"
-status: IN-REVIEW
+status: OPEN
 severity: High
 category: bug
 tags: [mrq, run_jobs, silent-false-success, movie-render-queue, nanite, lumen, warm-up, image-stats, acceptance-render]
-encounters: 1
-lastSeen: 2026-09-03T03:50:00Z
+encounters: 2
+lastSeen: 2026-09-05T18:19:00Z
 ---
 
 # A render that cannot be used comes back as an unqualified success
@@ -245,3 +245,20 @@ Not compiled and not run — a separate compile pass follows.
   "the pipeline ran to completion and wrote its files". Three tests added; not compiled here — a
   separate compile pass follows. The sampling-config read-back was deliberately left to
   `B-mrq-config-readback-omits-sampling`. See the Fix section for files and verification steps.
+- `#2-returned` `OPEN` ENV — **Returned to OPEN: the new pixel analysis does not catch the frame this ticket was filed for.** UE 5.8, editor PID after the 18:10:30Z restart, `/Game/FPS/Env/Cine/LS_ENV_Hero` + `MPC_ENV_Hero_4K` (now carrying the 32+8 warm-up fix), `/Game/FPS/Maps/FPS_Compound`. All four 3840x2160 frames still have a **flat void filling the lower ~47 percent** - the identical defect - and the verb passed every one of them:
+
+  ```
+  framesAnalyzed 4   framesSuspect 0   jobSucceeded true   shots[0].state Finished
+  frame 0003: suspect false   blank false   crushed false   blownOut false
+              meanLuminance 0.6529   luminanceVariance 0.0611   toneLevelsUsed 256
+              flatRegionFraction 0.005859   flatRegionLevel 3
+              flatRegionBounds { minX 0.953, minY 0.1875, maxX 1.0, maxY 0.375 }
+  ```
+
+  `flatRegionBounds` locates a sliver **at the right edge**, 4.7 percent of the width and a fifth of the height. The actual void spans the full width and the bottom 47 percent, and the detector scored it at 0.6 percent.
+
+  **Why it is missed, which is the actionable part.** The void is not a constant-valued block - it is a very shallow vertical *gradient* of pale blue-grey. A detector keyed on runs of one quantised level (`flatRegionLevel` is a single level, 2 or 3 across the four frames) walks off the region as soon as the level steps, so a gradient of a few levels over 1000 px never accumulates. The global stats are no help either and look actively healthy: `toneLevelsUsed` is a full 256 and variance 0.061, both earned by the intact top half. So every published field agrees the frame is fine.
+
+  **What would catch it**, offered as the same class of measure the verb already computes: low LOCAL variance over a large connected area, not equality of level. A block-wise variance map at, say, 32x32 with a threshold on the largest connected low-variance component would score this frame near 0.47. `flatBlockFraction` is already reported (0.034 here) and looks like the right quantity measured at the wrong scale or threshold.
+
+  Not re-filed as a new ticket because it is this ticket's own acceptance criterion - a frame whose lower half is a void must not come back `suspect: false`. **Workaround back in force:** the hero frame is captured with `render.capture_open_level` at 3840x2160 instead (litPixelFraction 0.9967, toneLevelsUsed 256, verified by eye), and MRQ output is not trusted without opening the file. `encounters` 1 -> 2.
