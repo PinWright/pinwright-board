@@ -1,0 +1,79 @@
+---
+id: B-response-spill-file-wraps-payload-in-mcp-envelope
+title: "An over-threshold response spills to a file whose shape differs from the inline response — the payload is nested under structuredContent, so a caller that follows file.path reads every field as absent and gets a silent false negative"
+status: OPEN
+severity: Medium
+category: bug
+tags: [response-budget, outputTooLong, spill, http-responses, mcp-envelope, shape-inconsistency, silent-false-negative, niagara-validate]
+encounters: 1
+lastSeen: 2026-09-05
+---
+
+# The spill file is the MCP envelope, not the payload the inline response would have given
+
+When a response exceeds the display threshold the caller gets
+
+```json
+{"outputTooLong": true,
+ "message": "Response exceeds display limit (13408 chars, threshold 10000); full payload written to .../20260905T194112Z_<guid>.json",
+ "file": {"path": ".../<guid>.json", "contentType": "application/json", "characters": 13408}}
+```
+
+The obvious and intended recovery is to read `file.path` and carry on. **That file does not contain
+the same object the inline response would have contained.** Its top level is
+
+```
+['content', 'isError', 'structuredContent']
+```
+
+— the MCP transport envelope. The actual payload is one level down under `structuredContent` (and
+again, JSON-encoded, as `content[0].text`). The inline response for the same call, when it happens
+to fit under the threshold, is the payload itself with no envelope.
+
+## Why it is worse than an inconvenience
+
+The two shapes share **no** top-level keys, so a caller that does the natural thing —
+
+```python
+r = call(...)
+if r.get("outputTooLong"):
+    r = json.load(open(r["file"]["path"]))
+value = r.get("dataInterfaceCheck")
+```
+
+— gets `None` for every field, with **no error and no exception**. It reads as "the field is absent",
+which for a health check reads as "not healthy". The failure is silent and it inverts the answer.
+
+## Measured, on `niagara.validate {level:"basic"}`
+
+Sweeping 13 Niagara systems for `dataInterfaceCheck` before a capture pass: 3 systems returned
+under the threshold and reported `valid: true, dataInterfaceCheck: "consistent"`. The other 10
+exceeded it and, after following `file.path`, reported `valid: None, dataInterfaceCheck: None`.
+
+The sweep therefore concluded that **10 of 13 systems were in the data-interface mismatch state that
+`B-niagara-di-count-mismatch-vectorvm-assert-kills-editor` says asserts in the VectorVM and kills
+the editor on the next tick.** Parsing the envelope correctly showed all 13 are `consistent`. The
+false negative was produced purely by response size: the same asset in the same state answers
+"healthy" or "unreadable" depending on whether its payload happens to cross 10000 characters.
+
+That is the dangerous shape of this bug. A caller doing a safety check before a risky operation gets
+a scary answer that is an artifact of formatting, and the natural reactions to it — recompiling ten
+healthy systems, or worse, distrusting the check and proceeding — are both wrong.
+
+## Expected
+
+The spill file should contain **the same object the inline response would have contained**, so that
+following `file.path` is transparent. If the envelope must be preserved for transport reasons, then
+either the wrapper should name the nesting explicitly (e.g. `"payloadPath": "structuredContent"`)
+or the docs for the response budget should state it, so a caller can unwrap deliberately rather
+than discovering it by getting `None` from every field.
+
+## Workaround
+
+After loading the spill file, unwrap: prefer `d["structuredContent"]` when it is a dict containing
+the expected key, else `json.loads(d["content"][0]["text"])`, else fall back to `d` itself. All
+three shapes have been observed, so the fallback chain is needed rather than any single one.
+
+## History
+
+- `#1-filed` `OPEN` VFX — Hit while sweeping all 13 FPS VFX Niagara systems for `dataInterfaceCheck` immediately before a capture pass, specifically to avoid the VectorVM assert that has been suspected in three editor deaths from captures on this project. The check reported 10 of 13 systems unhealthy; correct unwrapping showed 0 of 13. Both the wrong and the right sweep were run against the same live editor minutes apart with no asset changes in between, so response size is the only variable. Note the shared `Saved/PinWright/HttpResponses/` directory makes this easy to compound: picking the newest file rather than the one named in your own `file.path` returns another agent's response entirely, which is how the shape was first mis-diagnosed here.
