@@ -5,8 +5,8 @@ status: OPEN
 severity: High
 category: bug
 tags: [material, material-authoring, connect-nodes, get-material-node-details, static-switch, pin-names, silent-success, default-material]
-encounters: 1
-lastSeen: 2026-09-05T19:17:00Z
+encounters: 2
+lastSeen: 2026-09-05T20:50:00Z
 ---
 
 # Two verbs disagree about a StaticSwitchParameter's pin names, and the disagreement is silent
@@ -95,3 +95,15 @@ feature -> High
 
 ## History
 - `#1-filed` `OPEN` reporter — Found on the FPS PLAYER stream. The new `shaderCompile` block on `set_static_switch_parameter_value` is what finally surfaced it; its `rendersDefaultMaterial` flag and the "a capture of this material is not evidence of anything" hint are exactly the right reporting. The gap is that nothing says it at authoring time, when the wrong pin name is used. Fixed on my side by re-wiring to `A`/`B`; `M_FPSArms` now compiles with `rendersDefaultMaterial: false`.
+- `#2-it-is-not-the-NAME-it-is-input-index-0-and-the-first-fix-did-not-stick` `OPEN` reporter — **Sharpening `#1`, which blamed the pin name. The name is a red herring: `connect_nodes` cannot bind input index 0 of a `StaticSwitchParameter` under EITHER name, and reports success both times.** Evidence, all from one asset (`/Game/FPS/Player/M_FPSArms`):
+
+  1. `connect_nodes {inputName: "True"}` -> `"Nodes connected."`; `connect_nodes {inputName: "A"}` -> `"Nodes connected."`. Both for input 0.
+  2. `connect_nodes {inputName: "False"}` and `{inputName: "B"}` -> also success, and those two **did** take.
+  3. `get_material_node_details` afterwards: `A: {Expression: null, OutputIndex: -1}`, `B: {Expression: MaterialExpressionConstant3Vector_0}`. Input 0 null after two successful-looking writes; input 1 connected.
+  4. `MaterialEditingLibrary.connect_material_expressions(call, '', switch, 'A')` -> **False** (the engine refuses that name); the same call with `'True'` -> **True** and the connection persists. So the engine's name for input 0 is `True`, while the material COMPILER's error calls it `A` (`"(Node StaticSwitchParameter) Missing A input"`). Three layers, three names.
+
+  **And the first fix silently did not stick, which is the part that cost the most.** After `#1` I re-wired with `A`/`B`, `compile_material` answered `compileSucceeded: true, rendersDefaultMaterial: false`, and I recorded the material as fixed. A later `get_material_info` on the same asset came back `shaderCompile: {status: "failed", errors: ["(Node StaticSwitchParameter) Missing A input"], rendersDefaultMaterial: true}` — the `B` half had persisted and the `A` half never existed, so the successful compile had been of a graph that was still broken. Two builds of a first-person viewmodel rendered as the engine Default Material on the back of that.
+
+  Fixed for real via `connect_material_expressions(..., 'True')`, then `compile_material` -> `shaderCompile.succeeded: true, rendersDefaultMaterial: false`, saved (`M_FPSArms.uasset` 18 041 B, `saveState: "written"`), and confirmed by `asset.generate_thumbnail` -> `usingDefaultMaterial: false`, `meanLuminance 0.132`.
+
+  Adds to the asks in `#1`: `connect_nodes` must verify the connection it just made and refuse when the engine call returns false, rather than reporting `"Nodes connected."` unconditionally — the engine already answers with a bool, so the information is there and is being discarded.
