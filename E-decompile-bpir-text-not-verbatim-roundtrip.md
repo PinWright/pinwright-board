@@ -5,8 +5,8 @@ status: IN-REVIEW
 severity: Low
 category: ergonomic
 tags: [docs, bpir, decompile, round-trip, branch, labels, ssa, defaults]
-encounters: 9
-lastSeen: 2026-06-29T04:26:28Z
+encounters: 10
+lastSeen: 2026-09-05T20:25:00Z
 ---
 
 # decompile regenerates BPIR text — round-trip is semantic (topology + coordinates), not literal text — and the canonicalizations aren't documented
@@ -282,3 +282,14 @@ was not misled), hence Low.
   "positions + topology, not literal text" caveat in `Docs/wiki-src/bpir.entry-points.md` §1b
   (corrects the fidelity implication at the "manually moved nodes round-trip" sentence). No
   regression test: docs-only prose change, no production-code behavior change to guard. Severity unchanged Low.
+- `#N-round-trip-is-not-merely-inexact-it-FAILS-to-compile` `IN-REVIEW` reporter — An encounter that argues this is more than ergonomic. `blueprint.decompile_function` on `BP_FPSCharacter::BindWeapon` emits, for each bound dispatcher, a pair:
+
+```
+%n1 = call Create_Event(self: self, event: @OnWeaponFired)
+bind_dispatcher OnFired(Target: %n0.AsBPWeaponBase, event: @OnWeaponFired)
+```
+
+  Feeding that text straight back to `blueprint.compile_bpir` **fails**, five times over:
+`[COMPILE_FAILED] Unresolved function: 'Create_Event'. Searched: ... and 335 more libraries`, plus a second cascade of `Manual BPIR placement error ... this instruction emitted no primary graph node` because the `@(x, y)` on those lines has nothing to attach to. The fix is to delete every `Create_Event` line and keep only `bind_dispatcher`, which creates the delegate internally — recompiled clean at 14 nodes that way.
+
+  So for a dispatcher-binding body the round trip is not "semantic but not literal": the emitted text is **not valid input to the compiler at all**, and the failure names a function the caller never wrote. That is a different cost from renamed temps or reordered branch arms: a caller who decompiles a working function, edits one line and recompiles — the documented iteration loop — gets five errors about a helper the decompiler invented. Suggest either the decompiler stops emitting the `Create_Event` line for `bind_dispatcher` bodies, or the compiler accepts and ignores it. Either would make this body re-compilable; today only hand-editing does.
