@@ -170,3 +170,48 @@ default, so its existing omission assertion holds either way).
 ## History
 - `#1-filed` `OPEN` reporter — Found auditing `SubImageSize` / `bSubImageBlend` across 57 emitters under `/Game/FPS/VFX/Emitters` on EAContentExamples58 (UE 5.8, shared editor, port 27145) while repairing flipbook renderers left at 1x1. The parse was a plain `'bSubImageBlend: true' in body` test over the `renderer ... { }` block, which never matched because the string never appears — the true case is expressed by absence. Corrected polarity is measured, not inferred: the two `property.get` controls quoted above are on emitters whose renderer I never wrote to, one printing the line and one omitting it, returning `false` and `true` respectively. The class-default reading (`bSubImageBlend` defaults to `true`) follows from that pair plus the omission rule; I did **not** read `NiagaraSpriteRendererProperties.h` to confirm the UPROPERTY initialiser, so a verifier should, and should also check whether other renderer bools (`bEnableCameraDistanceCulling`, `bGpuLowLatencyTranslucency`, sort flags) have non-false defaults and therefore invert the same way. `SubImageSize` was verified to follow the identical omit-at-default rule, defaulting to `(1,1)`.
 - `#2-zero-default-rule` `IN-REVIEW` developer — Verified TRUE by reading source: `NIRDecompiler::BuildReflectedFields` passes the CDO and `FIrTextUtils::AppendReflectedFields` skipped every default-identical property; `UNiagaraSpriteRendererProperties::bSubImageBlend` is `true` in the constructor (`NiagaraSpriteRendererProperties.cpp:57`, UE 5.8), confirming the reporter's measured polarity and the class-default reading they explicitly left for a verifier. Also checked the other renderer bools they flagged: `bCastShadows` and `bSortOnlyWhenTranslucent` invert the same way; `bEnableCameraDistanceCulling` and `SortMode` default to zero and never did. Fixed by narrowing what omission is allowed to cover rather than by printing everything — `FReflectedFieldEmitOptions::bEmitNonZeroDefaults` (off for every IR but NIR) omits a default-valued property only when that default IS the type's zero value, and prints the rest with a ` @default` tag. Absence now has one meaning. See the `## Fix` section for the rejected alternatives, the two secondary decisions, the ~+3% dump-size measurement, and reviewer steps.
+- `#3-verified-in-fps-build` `IN-REVIEW` VFX — **The zero-default rule is live and the exact
+  inversion this ticket was filed on is gone. Direct route retried once per PLAN rule 2; leaving
+  `IN-REVIEW` for the tester.** Live editor port 27145, UE 5.8, EAContentExamples58, 2026-09-05.
+  `niagara.decompile_nir` on scratch emitter `/Game/FPS/VFX/Scratch_TicketRetry/E_TR_Curve` (an
+  `asset.duplicate` of `SimpleSpriteBurst`, so renderer `@0` is the template's, plus a second
+  sprite renderer added by `niagara.add_renderer` and therefore sitting at pure class defaults).
+
+  **The two renderers give the contrast the `## Fix` promised, in one dump:**
+
+  ```
+  renderer NiagaraSpriteRendererProperties @0 enabled {   # template's, bSubImageBlend authored
+          bSubImageBlend: false
+          SubImageSize: "(X=1.000000,Y=1.000000)" @default
+  renderer NiagaraSpriteRendererProperties @1 enabled {   # fresh, everything at class default
+          bSubImageBlend: true @default
+          SubImageSize: "(X=1.000000,Y=1.000000)" @default
+  ```
+
+  `bSubImageBlend: true @default` is the line `#1` reported as absent and whose absence the naive
+  parse (`'bSubImageBlend: true' in body`) read as `false` — the inverse of the truth. It now
+  prints. The unmarked `bSubImageBlend: false` on `@0` is an authored override on the stock
+  template, so the two forms are distinguishable exactly as intended: unmarked = authored,
+  `@default` = at a non-zero class default, absent = at the type's zero value.
+
+  **Every other property `#2` named prints too**, verified in the same block:
+  `bAllowInCullProxies: true @default`, `bCastShadows: true @default`, `bIncludeInHitProxy: true
+  @default`, `bIsEnabled: true @default`, `bSortOnlyWhenTranslucent: true @default`,
+  `MaxCameraDistance: 1000.0 @default`, `PivotInUVSpace: "(X=0.500000,Y=0.500000)" @default`,
+  `AlphaThreshold: 0.1 @default`, `Alignment: "Automatic" @default`, `BoundingMode:
+  "BVC_EightVertices" @default`, plus the renderer bindings. **Struct `@default` lines print in
+  full, not as a diff** — `SubImageSize` shows both components, confirming the nullptr-default
+  formatting decision landed.
+
+  **The size measurement holds.** The renderer block is **38 lines, 27 of them `@default`** and 9
+  authored, against the ~6 lines `#1` was reading. The `## Fix`'s "~30-40 lines, not ~6" is
+  accurate, and the growth is mostly renderer bindings as predicted. Anyone with a committed
+  `nir.txt` mirror should expect that diff on the next `asset.dump_folder` sweep.
+
+  **Not verified.** (a) No cross-check against `property.get` on the same two controls — the
+  `@default` polarity is confirmed against the class-default reading and the authored/unauthored
+  contrast within the dump, not against a second reader. (b) No check that the other IRs' text is
+  unmoved: `MGIR` / `AGIR` / `BTIR` / `SCIR` / `PCGIR` were not re-dumped, so the "flag defaults
+  off for every IR but NIR" claim is untested here. (c) The automation test
+  `PinWright.niagara.decompile_nir.RendererDefaultValuedProperty` was not run — this stream does
+  not run the suite.
