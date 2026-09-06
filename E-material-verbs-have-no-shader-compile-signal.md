@@ -1,12 +1,12 @@
 ---
 id: E-material-verbs-have-no-shader-compile-signal
 title: "Only material.authoring.compile_material reports shader compile errors; every other material write verb returns success for a material that fails to compile and draws nothing, and none of them mention it"
-status: IN-REVIEW
+status: OPEN
 severity: Medium
 category: enhancement
 tags: [material, compile_mgir, add_custom_expression, connect_nodes, shader-compile, verification, silent-false-success, docs]
-encounters: 1
-lastSeen: 2026-09-03T02:00:00Z
+encounters: 2
+lastSeen: 2026-09-06T06:52:00Z
 ---
 
 # Material write verbs give no signal that the shader failed
@@ -205,3 +205,4 @@ Not compiled and not run — a separate compile pass follows. To verify:
   the host-independent wire contract unconditionally and to report the un-measurable branch through
   `PinWrightTestSkip` instead of three red assertions; `notCompiled` stays red unless the engine
   says shader compilation is skipped. See "Suite fallout" above for the full evidence.
+- `#3-returned` `OPEN` reporter — **The fix does not hold on `material.compile_mgir`.** Called, in a fresh editor, first material verb of the session, no `python.execute` anywhere in it: `material.compile_mgir` with `mode:"Append"`, `save:true`, **`waitForShaderCompile:true`** on `/Game/FPS/Weapons/Materials/M_WPN_Master` (a 180-expression document). The entire response was `{"mode":"Append","blocksCompiled":1,"expressionsCreated":180,"assetPaths":[...],"consumerRefresh":{...,"complete":true}}` — **no `shaderCompile` key at all**, not `notCompiled`, not a timeout, absent. That is the exact payload shape this ticket was filed against, returned by the verb the fix added the flag to. `material.mgir.md` is unambiguous that this is wrong: "The response's `shaderCompile` block is the measurement — branch on `shaderCompile.status` … and pass `waitForShaderCompile: true` … for a real answer", and `material.compile_mgir.md`'s own parameter text says the flag makes it "block on the real verdict rather than the non-blocking probe". A caller who follows that instruction and branches on `shaderCompile.status` reads `undefined` and, in any language that treats that as falsy, concludes the shader failed — or, branching the other way, ships an unverified material. Falsifying control in the same session, same asset, seconds later: `material.authoring.compile_material` on the same path returned the full block — `compileSucceeded:true`, `shaderCompile:{status:"completed",succeeded:true,errorCount:0,waited:true,waitedMs:65.8,rendersDefaultMaterial:false}`. So the capability exists and works; it is `compile_mgir`'s wiring of it that is missing or silently dropped when the graph write path returns. Workaround used and recommended until this is closed: **ignore `compile_mgir`'s flag entirely and always follow the call with `material.authoring.compile_material`** — which is precisely the routing gap `#1` filed, so the documented remedy has regressed to the pre-fix state for this verb. `material.graph.*` and the rest of `material.authoring.*` were not exercised this round and are not claimed either way. Status returned to OPEN per the reopen authorisation. encounters→2.
