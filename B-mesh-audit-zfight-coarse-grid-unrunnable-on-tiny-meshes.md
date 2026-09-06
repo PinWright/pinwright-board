@@ -5,8 +5,8 @@ status: OPEN
 severity: Medium
 category: bug
 tags: [geometry, audit_static_meshes, z-fighting, unrunnable, coarse-grid, environment-review, blockout-meshes]
-encounters: 1
-lastSeen: 2026-09-02T22:20:00Z
+encounters: 2
+lastSeen: 2026-09-06T06:40:00Z
 ---
 
 # `z_fighting` cannot run on the smallest possible meshes
@@ -119,6 +119,18 @@ Searched the board for `coarse-grid` / `coarse grid` (no hits) and `z_fighting`
   the asset fine and then declines to measure it.
 
 ## History
+- `#2-the-other-end-of-the-same-256` `OPEN` reporter — **The dense-FINE-grid path does it too, and it is the reverse case: a legitimately detailed mesh, no large triangles at all.** `geometry.audit_static_meshes` on `/Game/FPS/Weapons/Meshes/SM_WPN_AR` (FPS WEAPONS build 05) returned `z_fighting` **unrunnable** with:
+
+  > A fine-grid cell contained 541 triangles, above the bounded per-cell limit of 256; the detector refused to enter an unbounded dense-cell all-pairs loop.
+
+  Measurements from that run: `triangleCount 22652`, `gridCellSize 2.562`, `modelExtent 81.98`, `largeTriangleCount 0`, `largeReferenceInspectCount 0`. So this is NOT `#1`'s path — no triangle is large, the coarse-grid fallback never runs, and the limit that bites is the per-cell population of the FINE grid. Same constant, opposite cause.
+
+  **It is not reachable by authoring, which is what makes it different from a threshold that just needs tuning.** The same asset was then rebuilt with its Picatinny rail re-authored (13,106 triangles to 950) and its barrel's buried-rim slivers removed: whole-mesh 22,652 -> **11,110 triangles, a 51% cut**, `degenerateTriangles` 7 -> 0, `inverted` unrunnable -> **clean**. `z_fighting` stayed **unrunnable**, the densest cell only falling **541 -> 310** against the same 256. Halving a weapon did not buy the verdict, and the remaining density is the optic body, the optic lens, the rail and the rear sight legitimately occupying one 2.56 uu cell. Reaching 256 would mean deleting detail a first-person weapon is looked at from 22 cm.
+
+  **The consequence is the same in both directions and it is the reportable part:** `pass` is false, `unrunnable: 1`, and the finding says nothing about the mesh. On this asset every other selected check was clean (`inverted`, `not_closed`, `degenerate_triangles`, `non_manifold`), 1,803 candidate pairs were generated and `fightingPairCount: 0` over the cells the detector DID scan — so the detector had already looked at most of the mesh and found nothing, and still refused to say so.
+
+  **What would help, cheapest first.** (1) Report a PARTIAL result: the cells that were scanned, the pairs found in them, and the cells declined by name, instead of one unrunnable for the whole asset — the response already carries `candidatePairCount`, `fightingPairCount` and `gridReferenceCount`, so the partial answer is measured and thrown away. (2) Subdivide a dense cell rather than refusing it; the bound exists to avoid an unbounded all-pairs loop, and one more level of grid keeps the bound. (3) If neither, publish the cell size and the limit as parameters so a caller can trade time for an answer — `zFightPlaneExtentFraction` is already published in `read`, and the 32-cell model resolution and the 256 cap are not.
+
 - `#1-filed` `OPEN` reporter — Filed from an ENV blind-A/B critic pass over
   `/Game/FPS/Maps/FPS_Compound`. `geometry.audit_static_meshes {folder:
   "/Game/FPS/Env/Meshes"}` returned `z_fighting` `flagged:2 clean:11 unrunnable:5`
