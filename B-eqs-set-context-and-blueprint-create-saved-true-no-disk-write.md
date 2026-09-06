@@ -1,7 +1,7 @@
 ---
 id: B-eqs-set-context-and-blueprint-create-saved-true-no-disk-write
 title: "`eqs.set_context_class {save:true}` and `blueprint.create` both report `saved:true` while PIE blocks the write and nothing reaches disk — the same response also says `pendingSave:true`"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: bug
 tags: [eqs, blueprint, save, pie, silent-success, disk-verification]
@@ -75,3 +75,16 @@ Same failure shape as `B-property-set-saved-true-not-persisted` (IN-REVIEW), whi
 `B-metasound-create-save-no-disk-write`. Filed separately because it names two further verbs
 (`eqs.set_context_class`, `blueprint.create`) that none of those tickets covers, and because the
 PIE-blocked path is what makes it bite in a shared editor.
+
+## Fix
+
+The source confirmed both false-success paths: `eqs.set_context_class` called the dirty-only `McpSafeAssetSave` and copied the request flag into `saved`, while `blueprint.create` sent `saved:true` before its later throttled save. Both now perform `SaveAssetToDiskReportingPresence` before responding, publish `saveRequested` / `saved` / `saveState` / `saveDetail` from the measured `EAssetSaveState`, and return typed `SAVE_FAILED` errors with the result payload when the requested write is not durable. `blueprint.create` applies the same contract to created and idempotently found Blueprints, including test-context dispatch.
+
+Files changed: `Source/PinWright/Private/Handlers/AI/EQSHandler.cpp`, `Source/PinWright/Private/Handlers/Blueprint/BlueprintCreationHandler.cpp`, `Source/PinWright/Private/Dispatch/SafePoint.cpp`, `Source/PinWright/Private/Tests/World/TestSafePointGate.cpp`, `Source/PinWright/Private/Tests/Blueprint/TestBlueprintCreatePersistence.cpp`, `Source/PinWright/Private/Tests/Gameplay/TestEqsSetContextPersistence.cpp`, `Docs/wiki-src/blueprint.md`, and `Docs/wiki-src/eqs.md`.
+
+Tests added: `PinWright.blueprint.create.PersistenceWritesDiskRegistryAndColdReload` and `PinWright.eqs.set_context_class.PersistenceWritesDiskRegistryAndColdReload`; the existing `PinWright.core.safe_point.KnownVictimsAreGated` ratchet now pins both method names. The new behavioural tests call the real handlers on GUID-scoped assets, check response, `.uasset`, and registry state, then use `asset.reload` to verify the requested parent/context from disk. Per the worker brief, these tests were added but not executed here.
+
+Deliberately not changed: the other EQS authoring verbs still using the dirty-only helper are outside this ticket, and Blueprint creation's property-seeding/overwrite semantics were left intact.
+
+## History
+- `#1-durable-save-contract` `IN-REVIEW` developer — Replaced both optimistic save reports with measured durable writes, added safe-point routing, behavioural disk/registry/cold-reload coverage, and updated both namespace wiki contracts.

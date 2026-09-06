@@ -1,7 +1,7 @@
 ---
 id: B-replace-node-variableget-loses-self-context
 title: "blueprint.graph.replace_node produces a VariableGet with no self context — the node compiles-fails with 'uses an invalid target' and the message blames the variable, not the verb"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: bug
 tags: [blueprint, blueprint-graph, replace_node, variableget, variableset, self-context, compile-error, misleading-error]
@@ -99,6 +99,29 @@ the diagnosis entirely x reach=`VariableGet`/`VariableSet` are the first two ent
 `replace_node`'s documented vocabulary and retargeting a variable accessor is the verb's most
 obvious use -> High.
 
+## Fix
+
+The replacement factory treated every non-null resolved owner class as external. A self-context
+old variable resolves its parent to the Blueprint class, so a bare retarget incorrectly called
+`SetExternalMember` and reconstructed a visible, unbound `self` pin. The factory now preserves an
+old accessor's self/external context for bare targets, applies UE's Blueprint-owner ancestry rule
+to qualified targets, sets `SetSelfMember` or `SetExternalMember` accordingly, and reconstructs
+the configured node before pin migration.
+
+Files changed:
+- `Source/PinWright/Private/Handlers/Blueprint/BlueprintGraphCrudHandler.cpp`
+- `Source/PinWright/Private/Tests/Blueprint/TestBlueprintReplaceNode.cpp`
+- `Docs/wiki-src/blueprint.graph.md`
+
+Tests:
+- `PinWright.blueprint.graph.replace_node.VariableGet_SelfMember_RemainsSelfBound`
+- `PinWright.blueprint.graph.replace_node.VariableGet_QualifiedOtherClass_RemainsExternal`
+- Strengthened `PinWright.blueprint.graph.replace_node.VariableGet_To_VariableSet_SameVariable`
+  to assert the parallel VariableSet path remains self-bound.
+
+Deliberately unchanged: `blueprint.graph.create_node`, because it already calls `SetSelfMember`
+for Blueprint variables; response fields and pin migration semantics are also unchanged.
+
 ## History
 - `#1-filed` `OPEN` reporter — Hit on EAContentExamples58 (UE 5.8) retargeting `BP_WeaponBase.TryPenetrate`'s
   penetration gate from `MaxPenetrations` to a new per-shot `PenetrationsLeft` counter. Isolated by
@@ -106,3 +129,7 @@ obvious use -> High.
   replacement's `self` pin, or `create_node` + `connect_pins` + `delete_node` instead of
   `replace_node` for variable accessors. Took the second route in the shipped fix so the graph
   carries no cosmetic self wire.
+- `#2-preserve-variable-context` `IN-REVIEW` developer — Fixed the VariableGet/VariableSet
+  replacement factories to preserve self context for bare self-member retargets, retain external
+  context for unrelated owners, reconstruct the configured node, and cover both contexts through
+  handler-level transient Blueprint tests.

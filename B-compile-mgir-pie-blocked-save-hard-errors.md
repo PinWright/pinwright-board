@@ -1,7 +1,7 @@
 ---
 id: B-compile-mgir-pie-blocked-save-hard-errors
 title: "material.compile_mgir raises MGIR_SAVE_FAILED when another session's PIE blocks the write, discarding the whole success payload for a graph write that DID land — the caller is told the compile failed when only the save did"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: bug
 tags: [material, mgir, compile_mgir, save, pie, savestate, error-payload, multi-agent, transient, false-failure]
@@ -121,6 +121,33 @@ Probe `editor.pie_status` first; when `inPie` is true, pass `save: false` on eve
 each after PIE ends. That is what was done here. It requires the caller to know in advance that
 this verb's save path throws rather than reports, which nothing in the wiki says.
 
+## Fix
+
+The MGIR finalizers called `SaveAssetToDiskReportingPresence` as a bool and converted every
+non-durable result into `MGIR_SAVE_FAILED`, discarding the helper's measured
+`EAssetSaveState::BlockedByPie` distinction before the handler could build its success payload.
+`FMGIRCompileResult` now carries the aggregate save state; material and material-function saves
+continue through a PIE block but preserve hard `MGIR_SAVE_FAILED` errors for every other
+non-durable requested save. `MGIRCompileHandler.cpp` emits the shared AssetSaveState report and
+adds `saveError: "PIE_ACTIVE"` on that one transient branch.
+
+Files changed:
+- `Source/PinWright/Private/MGIR/MGIRCompiler.h`
+- `Source/PinWright/Private/MGIR/MGIRCompiler.cpp`
+- `Source/PinWright/Private/Handlers/Material/MGIRCompileHandler.cpp`
+- `Source/PinWright/Private/Tests/Material/TestCompileMgirPieBlockedSave.cpp`
+- `docs/wiki-src/material.mgir.md`
+
+Regression test: `PinWright.material.compile_mgir.ReportsPieBlockedSaveWithoutDiscardingCompile`.
+It calls the real handler on a GUID-scoped asset saved to disk, simulates the engine PIE gate,
+and asserts the retained compile payload, typed blocked-save report, in-memory graph mutation,
+and byte-identical on-disk baseline. Per the worker brief, it was authored but not run here.
+
+Deliberately not changed: the separate `waitForShaderCompile` observation. Current source already
+routes `true` through `ProbeAndWait` and then `AddReport`; it is outside this worker's assigned
+PIE-save contract and needs separate runtime evidence if it can still be reproduced.
+
 ## History
 - `#1-pie-block-raised-as-error-payload-lost` `OPEN` reporter — First encounter. `material.compile_mgir {save: true}` on a fresh master raised `MGIR_SAVE_FAILED` while another stream's PIE session held the editor; the same document with `save: false` returned `blocksCompiled: 1`, `expressionsCreated: 33`, `consumerRefresh.complete: true`. Distinct from the `asset.save` and `model.compile` PIE tickets: those return a payload with a field missing or a cause missing, this one returns no payload at all, and the mode it strands the caller in (`Append`) rebuilds the target graph on every retry. Also notes `waitForShaderCompile: true` producing no `shaderCompile` block on the successful call.
 - `#2-waitforshadercompile-true-REMOVES-the-shadercompile-block` `OPEN` reporter — The "second, smaller finding" above is now a controlled pair, and it inverts the documented contract. Two `material.compile_mgir` calls on the same asset, minutes apart, differing only in that flag: with `waitForShaderCompile: true` the response was `{"mode":"Append","blocksCompiled":1,"expressionsCreated":33,"assetPaths":[...],"consumerRefresh":{...}}` and **no `shaderCompile` key at all**; with the flag omitted (default `false`) the response carried `"shaderCompile":{"status":"outstanding","succeeded":false,"failed":false,"rendersDefaultMaterial":true,"hint":"A shader compile is still in flight...","materials":[{"assetPath":"/Game/FPS/Weapons/Materials/M_WPN_OpticLens.M_WPN_OpticLens","status":"outstanding"}]}`. So the parameter whose entire purpose is *"report the real verdict rather than the non-blocking probe"* removes the block that carries the verdict, while omitting it returns the probe as documented. A caller who follows `material.mgir` § Compile / decompile — *"branch on `shaderCompile.status`"* — and passes the flag has nothing to branch on, and an absent key is easy to read as "no problem" rather than "no measurement". Workaround is the same either way: a separate `material.authoring.compile_material`, which returned `compileStatus:"completed"`, `compileSucceeded:true`, `shaderCompile.status:"completed"` for this asset. Both observations 2026-09-05, UE 5.8, `/Game/FPS/Weapons/Materials/M_WPN_OpticLens`.
+- `#3-report-pie-blocked-save` `IN-REVIEW` developer — Carried `EAssetSaveState::BlockedByPie` through `MGIRCompiler.cpp` instead of raising `MGIR_SAVE_FAILED`, emitted the shared save report plus typed `saveError: PIE_ACTIVE` from `MGIRCompileHandler.cpp`, documented the contract, and added `PinWright.material.compile_mgir.ReportsPieBlockedSaveWithoutDiscardingCompile` with a real saved asset and simulated PIE gate.

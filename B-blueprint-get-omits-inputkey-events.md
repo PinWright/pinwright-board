@@ -1,7 +1,7 @@
 ---
 id: B-blueprint-get-omits-inputkey-events
 title: "blueprint.get's events[] silently omits every K2Node_InputKey entry point — a pawn with four live input bindings reads as having none, and a published review filed a High defect over the gap"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: bug
 tags: [blueprint, blueprint-get, blueprint-inspect, events, input, K2Node_InputKey, get_execution_flow, silent-wrong-data, false-defect, weapons]
@@ -114,5 +114,34 @@ primary Blueprint summary read, which holds it at High rather than stepping it d
   family; there BPIR asserts entry points that are inert, here `blueprint.get` omits entry points
   that are live. Opposite directions, same consequence for a reviewer.
 
+## Fix
+
+**Verdict: TRUE.** `CollectBlueprintEvents` only appended custom events and `UK2Node_Event`
+instances, while authored `UK2Node_InputKey`, legacy combined input-action/input-touch nodes, and
+`UK2Node_EnhancedInputAction` are sibling `UK2Node` entry types. Input-axis events happened to pass
+the old base-class filter, but their internal function name was emitted instead of the authored axis
+identity.
+
+The shared collector now emits all five input-entry families with the key/action identity in the
+existing `name` field and the authored node class in `eventType`. Input entries add `execOutputs`
+using the established execution-flow shape (`pin`, `targetNodeId`, `targetNodeTitle`), so a single
+InputKey node reports its connected Pressed/Released edges and their actual targets. Because
+`blueprint.get` and `blueprint.inspect` share the collector, both surfaces receive the same fix.
+
+Files changed:
+- `Source/PinWright/Private/Handlers/Blueprint/BlueprintHandlerUtils.cpp`
+- `Source/PinWright/Private/Handlers/Blueprint/BlueprintInfoHandler.cpp`
+- `Source/PinWright/Private/Tests/Blueprint/TestBlueprintGetInputEvents.cpp`
+- `Docs/wiki-src/blueprint.md`
+
+Automation test: `PinWright.blueprint.get.InputEventsReadback` creates a transient Blueprint with a
+real `UK2Node_InputKey`, wires both exec edges to distinct targets, invokes both handlers through
+`InvokeHandlerWithCapture`, and asserts the key, node class, edges, and target GUIDs. Per the worker
+brief, no editor, build, or automation run was performed here; the test awaits the coordinated suite.
+
+Deliberately not changed: the inherited-defaults issue and BPIR input round-trip tickets named in
+Related are separate defects with their own ownership and verification scope.
+
 ## History
 - `#1-filed` `OPEN` WEAPONS-critic — Measured during a WEAPONS critic review round 3. `blueprint.get {assetPath:"/Game/FPS/Weapons/Test/BP_WeaponTestPawn"}` returns `events: [ReceiveActorBeginOverlap, ReceiveTick, ReceiveBeginPlay, AddRecoil]` — **4** — while `blueprint.graph.get_execution_flow` on the same asset in the same session returns **11** entry points; the 7 missing are all `K2Node_InputKey`. Four of them are the pawn's whole firing input surface: `K2Node_InputKey_0` (LMB Pressed → `StartFire`), `_7` (LMB Released → `StopFire`), `_1` (RMB Pressed → `StartADS`), `_3` (RMB Released → `StopADS`), all `enabledState:"enabled"`. Not stubs, not orphans: `find_orphaned_nodes` returns 0 of 60 nodes, and the asset mtime is 2026-09-02 23:00:56 — untouched since before the review that got this wrong. **This produced a false High defect in a published review:** `Docs/fps/reviews/weapons-review-02.md` claimed the pawn had no `StopFire`/`StopADS` binding and named two orphan nodes as the stumps of the missing handlers; both bindings exist and the pawn has zero orphans. The verb returned a complete-looking list over a graph with seven more entry points than it reported, with nothing in the response marking a filtered node class. Ask: emit `K2Node_InputKey` entries in `events[]` with key name, pressed/released edge and call target (shared with `blueprint.inspect` via `CollectBlueprintEvents`); or, if the exclusion is deliberate, name it in the response and the wiki Notes and route to `get_execution_flow`; plus a regression test that a BP with one input key does not produce an `events[]` sized to its `K2Node_Event` count only. Also measured on the same call: `defaults` is populated from class-own `NewVariables` only, so `BP_Weapon_AR` with **19 overridden inherited properties** returns `defaults: {}` — appended as evidence to `E-blueprint-get-defaults-always-empty` (IN-REVIEW) whose shipped fix does not reach inherited overrides. Root cause is a **guess**: `CollectBlueprintEvents` likely filters on `UK2Node_Event` plus the custom-event path and never considers the sibling class `UK2Node_InputKey` — inferred from response shapes, no plugin source opened, no `file:line` claimed. Severity **High** on the silent-false-success band, evidenced by the published false defect; held at High rather than stepped down because `blueprint.get` is the primary Blueprint summary read.
+- `#2-input-events-readback` `IN-REVIEW` developer — Changed `CollectBlueprintEvents` to enumerate InputKey, legacy input-action/input-axis/input-touch, and Enhanced Input action nodes with authored identity plus connected exec-edge targets; added handler-harness coverage in `PinWright.blueprint.get.InputEventsReadback` and documented the additive input-entry shape. Source verification only; coordinated compile/suite pending.

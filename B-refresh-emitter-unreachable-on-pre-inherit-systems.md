@@ -1,7 +1,7 @@
 ---
 id: B-refresh-emitter-unreachable-on-pre-inherit-systems
 title: "niagara.refresh_emitter cannot reach any system authored before the inherit fix — every existing handle is parent:{inherited:false}, no verb can attach a parent, and stock-template emitters refuse inherit:true, so the destructive re-add remains the only route for all content already on disk"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: bug
 tags: [niagara, refresh-emitter, add-emitter, inherit, emitter-parent, migration, pre-existing-content, snapshot, destructive-recovery, bisinheritable]
@@ -76,6 +76,30 @@ after the `inherit` fix, so callers with existing content do not plan around a c
 cannot use. The `mergesApplied: 1` beside `NIAGARA_DATA_INTERFACE_MISMATCH` should not be an error
 response.
 
+## Fix
+
+**Verdict:** PARTLY TRUE. The handler already resolved emitter names and Guids and returned a typed
+`EMITTER_NOT_INHERITED` error, but it discovered the no-parent case only after opening its
+transaction, killing system instances, and calling `System->Modify()`.
+
+**Root cause:** `refresh_emitter` had no preflight for the selected handle(s), so a refused named
+snapshot could dirty or quiesce the system before reporting that it had no usable parent. The named
+error also lacked the resolved handle identity and actionable migration guidance.
+
+**Files changed:**
+
+- `Source/PinWright/Private/Handlers/Niagara/NiagaraHandler.cpp` — preflight selected handles,
+  preserve `skipped[]`, refuse before mutation, and include named `emitter`/`handleId` plus migration
+  guidance in the typed error.
+- `Source/PinWright/Private/Tests/Niagara/TestNiagaraEmitterInheritance.cpp` — added
+  `PinWright.niagara.refresh_emitter.RefusesNamedSnapshotHandle`.
+- `docs/wiki-src/niagara.md` — documented the named-snapshot refusal and migration path.
+
+**Deliberately not changed:** No `force:true` migration or automatic parent reconstruction was
+added because a snapshot has no recoverable source identity. The smaller
+`NIAGARA_DATA_INTERFACE_MISMATCH` beside `mergesApplied` defect remains out of scope.
+
 ## History
 
 - `#1-filed` `OPEN` VFX — Found while reconciling `NS_Impact_Water`, whose system copies held the only correct version of a set of edits (Droplets cone axis and velocity, Crown shape primitive) while its standalone emitter assets had gone stale. `refresh_emitter` looked like the safe reconcile and was measured to be unavailable before it was called; the reconcile was done by forward-applying the values onto the emitter assets by hand and proving equality with a full module/input/static-switch diff (0 differences). The `inherited: false` measurement and the `bIsInheritable=false` template obstacle were established by one agent; the `NIAGARA_DATA_INTERFACE_MISMATCH`-beside-`mergesApplied:1` behaviour and the working end-to-end verification on a fresh system were established independently by a second agent on a scratch asset. Both were re-derived against this checkout before filing.
+- `#2-preflight-named-snapshot` `IN-REVIEW` developer — Changed the refresh handler to preflight named or omitted handles before transaction/quiesce/mutation, return typed named snapshot identity and migration guidance, and added `PinWright.niagara.refresh_emitter.RefusesNamedSnapshotHandle`; static checks only, no build or test run.

@@ -1,7 +1,7 @@
 ---
 id: B-asset-save-pie-failure-reports-pendingflush
 title: "asset.save reports pendingFlush:true with no saveState when PIE blocks the write, so a hard failure reads as a retryable throttle"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: bug
 tags: [asset-save, pie, savestate, pendingflush, silent-false-signal, diagnostics, multi-agent]
@@ -200,6 +200,37 @@ Reviewer verification:
 6. Confirm nothing regressed for the clean-package case: `asset.save` an already-clean asset
    during PIE must still not be turned into a false refusal by the new gate.
 
+### Wave 10 correction
+
+The earlier fix measured and exposed `blockedByPie`, but it left two parts of the hard-failure
+contract wrong: `AddAssetSaveReport` still set `pendingFlush:true` for every requested
+non-durable state, and `asset.save` sent `SendSuccess` after the shared save helper returned
+`BlockedByPie`. The shared report now emits `pendingFlush:false` for that state, and
+`asset.save` returns typed `PIE_ACTIVE` error data containing the complete
+`saveRequested:true` save report, PIE identity, and stale-size evidence.
+
+Files changed in this correction:
+
+- `Source/PinWright/Private/Utils/AssetUtils.h` / `.cpp` - `BlockedByPie` clears
+  `pendingFlush`; state-less callers retain their legacy shape.
+- `Source/PinWright/Private/Handlers/Asset/AssetSaveHandler.cpp` - converts the measured PIE
+  refusal into `PIE_ACTIVE` and adopts error-code constants consistently in this file.
+- `Source/PinWright/Private/Tests/Assets/TestAssetSaveState.cpp` - asserts the state-level
+  `pendingFlush:false` contract.
+- `Source/PinWright/Private/Tests/Assets/TestAssetSavePieBlock.cpp` - adds
+  `PinWright.assets.AssetSaveHandler.PieBlockIsTypedFailure`, which invokes the real handler on
+  a real generated material under the scoped engine PIE predicate and asserts the typed error,
+  response fields, dirty state, and absence of a package file.
+- `Source/PinWright/Private/Dispatch/SafePoint.cpp` and
+  `Source/PinWright/Private/Tests/World/TestSafePointGate.cpp` - gate the synchronous package
+  writer outside `UWorld::Tick` and pin that registration in the existing ratchet.
+- `docs/wiki-src/asset.md` and `docs/wiki-src/safe-mutation-save.md` - document the typed refusal
+  and corrected retry signal.
+
+Deliberately not changed: the `material.authoring.*` save-report omissions in #10/#11 are a
+different handler-family gap, not part of the assigned `asset.save` correction. No build,
+automation run, live PIE session, or MCP call was performed under this source-only worker brief.
+
 ## History
 
 - `#1-filed` `OPEN` reporter — Hit on EAContentExamples58 (UE 5.8, shared editor, port 27145) authoring `/Game/FPS/VFX/Emitters/E_Explosion_Flash`. Emitter was fully configured and `niagara.compile {force:true, wait:true}` returned `status:"completed"`; two consecutive `asset.save {force:true}` calls each returned `saved:false, sizeBytes:0, pendingFlush:true` with no `saveState`, and `ls` confirmed no `.uasset` on disk. The editor log for the same calls records `LogUtils: Error: The Editor is currently in a play mode.` plus `SaveAssetToDiskReportingPresence ... state=failed outcome=Failed forced=true`, i.e. the cause was PIE held by another agent in the shared editor and the handler knew the state was `failed` while replying `pendingFlush`. Cross-ref `B-editor-save-all-pie-diagnostic` (DONE) — same defect class, fixed for `editor.save_all` only, and `asset.save` is the verb the docs steer callers to instead. Diagnosis from the response payloads, the log lines quoted above, and `safe-mutation-save.md`'s `saveState` table; no plugin source read.
@@ -236,3 +267,4 @@ sizeBytes 30611   sizeBytesIsStale true
 - `#11-non-pie-success-still-silent` `OPEN` reporter - **New datum that removes PIE from the diagnosis for the `material.authoring.*` half.** Every prior sighting of `material.authoring.set_material_instance_parameters {save:true}` on this ticket (`#10-returned`, and `#4`/`#5` on the duplicate `B-asset-save-omits-savestate-pie-block`) observed the missing save fields while PIE held the editor and nothing was written, which leaves open the reading that the report is simply not reached on the blocked path. It is not that. FPS VFX stream, shared editor port 27145, 2026-09-05, **`editor.pie_status` returned `inPie:false, count:0` immediately before the calls**. Two `set_material_instance_parameters {save:true}` calls - `/Game/FPS/VFX/Materials/MI_FPS_Smoke_MetalDark` `{scalar:{SoftFadeDistance:8, Density:0.9, DetailAmount:0.45}}` and `/Game/FPS/VFX/Materials/MI_FPS_Glass_Dust` `{scalar:{AmbientBoost:0.445}}`. Both **did write**, byte-verified on disk: `MI_FPS_Smoke_MetalDark.uasset` 7859 -> 8302 bytes with packed floats `66 66 66 3f` (0.9) and `66 66 e6 3e` (0.45) each present once and the old `9a 99 19 3f` (0.6) / `9a 99 59 3f` (0.85) absent; `MI_FPS_Glass_Dust.uasset` carrying `0a d7 e3 3e` (0.445) with the old `7b 14 ae 3e` (0.34) absent. And both responses carried **exactly the same field set as the PIE-blocked failures in `#10`**: `applied[]`, `failed:[]`, `existsOnDisk:true`, `shaderCompile{}` - no `saved`, no `saveRequested`, no `saveState`, no `pendingFlush`, no `pieActive`.
 
   So on this verb the response is **wire-identical for a durable write and for a write that never happened**, and the absence is unconditional rather than a gap on the failure path. That strengthens `#10`'s inference: the handler does not route through `AddAssetSaveReport` at all, so there is no path - success or failure - on which the shared chokepoint's fix can reach it. It also means the class cannot be verified from a passing case either: a caller who sees `applied[]` + `existsOnDisk:true` and concludes "saved" is right half the time by luck, and has no field to consult in either direction. Re-running the `## Fix` section's verification step 5 needs both cases: PIE up (expect `pieActive`/`saveState:"blockedByPie"`) and PIE down (expect `saveState:"written"`). Confirmed in the same session that `asset.save` itself is fixed on both: `asset.save {"/Game/FPS/VFX/NS_Impact_Metal", force:true}` under another stream's `T_Player` PIE returned the full `saveState:"blockedByPie"` + `saveDetail` + `pieWorlds[]` payload `#9` verified.
+- `#12-pie-refusal-contract` `IN-REVIEW` developer — Classified PARTLY TRUE against current source: the wave-5 path already measured and emitted `saveState:"blockedByPie"`, but `AddAssetSaveReport` still labelled it `pendingFlush:true` and `asset.save` still sent success. `BlockedByPie` now emits `pendingFlush:false`; `asset.save` returns typed `PIE_ACTIVE` with the full save/PIE report and is registered in the safe-point table; the wiki matches the contract; `PinWright.assets.AssetSaveReport.EachStateEmitsItsOwnFields` was tightened and `PinWright.assets.AssetSaveHandler.PieBlockIsTypedFailure` added through `InvokeHandlerWithCapture`. Source-only: not built or run.

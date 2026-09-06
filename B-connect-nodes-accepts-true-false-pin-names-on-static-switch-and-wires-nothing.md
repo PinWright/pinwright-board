@@ -1,7 +1,7 @@
 ---
 id: B-connect-nodes-accepts-true-false-pin-names-on-static-switch-and-wires-nothing
 title: "material.authoring.connect_nodes reports 'Nodes connected.' for inputName True/False on a StaticSwitchParameter - the names get_material_node_details itself returns - but the compiler then fails with 'Missing A input' and the material renders as Default Material"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: bug
 tags: [material, material-authoring, connect-nodes, get-material-node-details, static-switch, pin-names, silent-success, default-material]
@@ -93,6 +93,14 @@ severity rationale: impact=ships a material that renders as the engine default w
 verbs report success x reach=any material with a static switch, the standard way to gate an optional
 feature -> High
 
+## Fix
+
+The defect was true: `material.authoring.connect_nodes` resolved an input, assigned the wire, and unconditionally returned success after `PostEditChange` without reading the selected `FExpressionInput` back. UE 5.8 stores StaticSwitchParameter inputs in reflected fields `A`/`B` while `GetInputName()` exposes `True`/`False`; the resolver now pairs both aliases with the exact cached input pointer, returns the complete accepted-name set, and the handler returns `PIN_NOT_FOUND` with `result.candidates` before mutation or `CONNECTION_FAILED` when read-back does not retain the requested source.
+
+Files changed: `Source/PinWright/Private/Material/MaterialExpressionFactory.h`, `Source/PinWright/Private/Material/MaterialExpressionFactory.cpp`, `Source/PinWright/Private/Handlers/Material/MaterialAuthoringHandler.cpp`, `Source/PinWright/Private/Tests/Material/TestMaterialConnectSourcePin.cpp`, and `Docs/wiki-src/material.authoring.md`. Test id: `PinWright.material.authoring.connect_nodes.StaticSwitchInputAliases`.
+
+Deliberately not changed: material shader permutation compilation and `get_material_node_details` response fields. This fix makes both display and internal input names operational and discoverable on refusal, while permutation coverage and inspection response expansion are separate contracts requiring their own scoped changes.
+
 ## History
 - `#1-filed` `OPEN` reporter — Found on the FPS PLAYER stream. The new `shaderCompile` block on `set_static_switch_parameter_value` is what finally surfaced it; its `rendersDefaultMaterial` flag and the "a capture of this material is not evidence of anything" hint are exactly the right reporting. The gap is that nothing says it at authoring time, when the wrong pin name is used. Fixed on my side by re-wiring to `A`/`B`; `M_FPSArms` now compiles with `rendersDefaultMaterial: false`.
 - `#2-it-is-not-the-NAME-it-is-input-index-0-and-the-first-fix-did-not-stick` `OPEN` reporter — **Sharpening `#1`, which blamed the pin name. The name is a red herring: `connect_nodes` cannot bind input index 0 of a `StaticSwitchParameter` under EITHER name, and reports success both times.** Evidence, all from one asset (`/Game/FPS/Player/M_FPSArms`):
@@ -107,3 +115,4 @@ feature -> High
   Fixed for real via `connect_material_expressions(..., 'True')`, then `compile_material` -> `shaderCompile.succeeded: true, rendersDefaultMaterial: false`, saved (`M_FPSArms.uasset` 18 041 B, `saveState: "written"`), and confirmed by `asset.generate_thumbnail` -> `usingDefaultMaterial: false`, `meanLuminance 0.132`.
 
   Adds to the asks in `#1`: `connect_nodes` must verify the connection it just made and refuse when the engine call returns false, rather than reporting `"Nodes connected."` unconditionally — the engine already answers with a bool, so the information is there and is being discarded.
+- `#3-resolve-aliases-and-read-back` `IN-REVIEW` developer — Changed material input resolution to bind display and reflected internal names to the same input pointer, made `connect_nodes` return `PIN_NOT_FOUND` with all candidate names before mutation, and gated success on `Input.Expression == Source`. Added `PinWright.material.authoring.connect_nodes.StaticSwitchInputAliases` on a transient material; source-only verification only, no editor/build/suite run.
