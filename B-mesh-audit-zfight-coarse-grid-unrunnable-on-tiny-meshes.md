@@ -150,3 +150,21 @@ Searched the board for `coarse-grid` / `coarse grid` (no hits) and `z_fighting`
   offending triangle's projected area, and a caller-settable reference limit the way
   `level.audit` echoes its `thresholds`. No workaround; the review recorded the five
   meshes as unmeasured.
+- `#2-weapons-kit-both-bounds` `OPEN` reporter — Reproduces on the FPS WEAPONS kit, and a SECOND
+  bound in the same check refuses for a different reason. `geometry.audit_static_meshes {assets:
+  [SM_WPN_AR, SM_WPN_AR_Magazine, SM_WPN_Pistol, SM_WPN_Pistol_Slide]}` returned `z_fighting`
+  `clean:2 unrunnable:2` while every other check was clean on all four, so `pass:false` again names
+  nothing a caller can act on. `SM_WPN_Pistol` (2,048 tri, extent 16.39 uu) is this ticket exactly:
+  *"Large triangle 3 inspected more than the bounded coarse-grid reference limit (256)"*, with
+  `largeTriangleCount:10`, `largeReferenceInspectCount:257` against `maxLargeReferenceInspectCount:257`
+  — one over. `SM_WPN_AR` (11,110 tri, extent 81.98 uu) fails on the OTHER bound: *"A fine-grid cell
+  contained 310 triangles, above the bounded per-cell limit of 256; the detector refused to enter an
+  unbounded dense-cell all-pairs loop"*, at `gridCellSize:2.56`, `candidatePairCount:1803`,
+  `fightingPairCount:0`. So both the sparse-and-large path and the dense-and-small path stop, and
+  neither limit is a parameter: `checks`, `minVolumeRatio` and `floatingToleranceFraction` are
+  settable, the two 256s are not. Both figures sit one to twenty percent over the limit, which is
+  the range a caller would happily pay for. Same ask as `#1`, plus: expose the two limits (or one
+  `maxZFightWork`) as parameters, and echo which bound fired in a machine-readable field rather than
+  only in the message text. Recorded against WEAPONS build 05, where the AR's degenerate triangles
+  were fixed at source specifically so this check could run — `inverted` is now clean and runnable
+  on all four meshes and `z_fighting` is the only thing still unmeasured.
