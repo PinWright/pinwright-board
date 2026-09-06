@@ -1,12 +1,12 @@
 ---
 id: B-static-switch-input-connection-lost-across-save-and-reload
-title: "A StaticSwitchParameter's input-0 connection is bound in memory, renders correctly, saves with saveState written - and comes back NULL after an editor restart, silently reverting the material to the engine Default Material"
+title: "A StaticSwitchParameter input bound AFTER construction is lost across save and reload - it binds, reads back, compiles, renders and saves written, then comes back NULL; the same input set during construction by compile_mgir survives"
 status: OPEN
 severity: High
 category: bug
-tags: [material, static-switch, serialisation, save, reload, default-material, silent-revert, connect-nodes]
-encounters: 1
-lastSeen: 2026-09-06T06:30:00Z
+tags: [material, static-switch, serialisation, save, reload, default-material, silent-revert, connect-nodes, compile-mgir, post-hoc-connection]
+encounters: 2
+lastSeen: 2026-09-06T06:40:00Z
 ---
 
 # The connection is live, rendered and saved — and gone after a restart
@@ -93,3 +93,18 @@ standard way to gate an optional feature -> High
 
 ## History
 - `#1-filed` `OPEN` reporter — Found on the FPS PLAYER stream after the arms viewmodel rendered pale in a frame that followed two editor restarts, having rendered dark before them. The measurement chain above is the whole story; the earlier ticket's `connect_nodes` defect is real but separate, and this one survives its workaround.
+- `#2-narrowed-by-a-control-it-is-the-POST-HOC-binding-path` `OPEN` reporter — **The WEAPONS stream ran the restart test on an independently authored switch and input 0 SURVIVED, which narrows this from a serialisation bug to a connection-path bug.** Their control, on `/Game/FPS/Weapons/Materials/M_WPN_OpticLens`, same node class (`MaterialExpressionStaticSwitchParameter`), after a full save -> process death -> reload:
+
+```
+properties.A = {Expression: ".../M_WPN_OpticLens:MaterialExpressionTransform_1", OutputIndex: 0}
+properties.B = {Expression: ".../MaterialExpressionConstant3Vector_0"}
+compile_material -> compileSucceeded true, shaderCompile.rendersDefaultMaterial FALSE
+```
+
+  **The difference is how the input was set, not what node it is.** Theirs was authored in a single `material.compile_mgir` `Extend` call, which emits `True:` / `False:` as part of the expression's construction — the input is populated while the expression is being created. Mine was bound afterwards with `MaterialEditingLibrary.connect_material_expressions(call, '', switch, 'True')` on an expression that already existed. That post-hoc binding is the half that did not survive.
+
+  So the search is much smaller than `#1` implied: not "`FExpressionInput` A does not serialise" but "an `FExpressionInput` written after the expression exists is not marked dirty, or is not written through to the serialised input, while the same field set at construction is". Retitled accordingly.
+
+  It also makes this and `B-connect-nodes-accepts-true-false-pin-names-on-static-switch-and-wires-nothing` two depths of one problem rather than two problems: `connect_nodes` reports success and binds nothing at all; `connect_material_expressions` binds something that passes every in-session check — read-back, shader compile, rendered frame, `saveState: "written"` — and then does not serialise. Both are the post-hoc connection path being unreliable on this node. **Practical guidance until it is fixed: author expression inputs at construction (`material.compile_mgir` `Extend`) rather than connecting them afterwards**, which is a working route past both tickets and is what the other stream did without hitting either.
+
+  Credit where due: the control was theirs, run at my request after I warned them their hook might have the same defect. It did not, and their negative result is worth more to the fix than my positive one.
