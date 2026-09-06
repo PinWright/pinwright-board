@@ -141,3 +141,16 @@ plugin — or about telling the caller before the fact:
   stack, log excerpt and crash-dir path above. The blueprint edit did not land, and the task it
   belonged to (raising `PenetrationThickness` 16 -> 28 to close the pistol's ~1.12 deg penetration
   incidence margin against the 10 uu `Pen_WoodPanel`) is blocked until the editor is back up.
+- `#2-bystander-fourth-stream` `OPEN` reporter — ENV was a **fourth** stream in PID 30516, not one of
+  the three counted above, and it lost the whole build-07 slot to this. At 06:00-06:02Z ENV had
+  `model.validate`d two new meshes clean and read a material instance; the next call,
+  `editor.pie_status` at 06:04Z, returned `EDITOR_NOT_RUNNING` and port 27145 was closed with no
+  `UnrealEditor*` process left. Nothing ENV called was a blueprint verb or `python.execute`, and ENV
+  had no way to know either had run. Two consequences for candidate (2): the warning belongs on
+  **every** response in a session where `python.execute` has run, not only on compile-route ones,
+  because the streams that lose their work are the ones that never call the detonating verb; and a
+  stream that is only reading (`model.validate` creates nothing) still has to re-establish the whole
+  editor to continue, so "informational" understates it. Also worth recording that the crash landed
+  while another stream held an active PIE session (`editor.status` at 05:59Z: `inPie: true`,
+  `pieIsPaused: true`, `T_Weapons`) — the compile guard's `pie_status` probe was truthful for the
+  caller's own map and blind to the sibling's.
