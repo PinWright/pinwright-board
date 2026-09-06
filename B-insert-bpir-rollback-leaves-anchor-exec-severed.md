@@ -1,7 +1,7 @@
 ---
 id: B-insert-bpir-rollback-leaves-anchor-exec-severed
 title: "blueprint.insert_bpir_at_node splices out the anchor's existing exec edge before compiling and does not restore it when the compile fails — the rollback deletes its own nodes and leaves the rest of the function orphaned"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: bug
 tags: [blueprint, bpir, insert_bpir_at_node, rollback, atomicity, exec-splice, orphaned-nodes, silent-corruption]
@@ -93,6 +93,23 @@ caller believes it did not modify x reach=every `insert_bpir_at_node` into a wir
 compile fails, which is the ordinary outcome of any BPIR snippet that is not right first time
 -> High.
 
+## Fix
+
+`Source/PinWright/Private/Utils/BlueprintGraphSnapshot.{h,cpp}` now captures the pre-image of
+every authored output-pin connection using the surviving nodes' GUIDs, pin names, and directions.
+`RollbackToSnapshot` removes newly created graphs and nodes as before, then removes links absent
+from the snapshot and restores every captured link that is missing, using the owning graph schema
+with a direct-link fallback. This covers the anchor-to-downstream splice even when transaction
+undo does not restore `LinkedTo` state. `BpirCompilerHandler.cpp` continues to use this shared
+snapshot for all BPIR rollback paths; it does not keep a handler-local edge snapshot.
+
+`Tests/Bpir/TestBpirInsertRollbackAnchorExec.cpp` now creates and saves a valid on-disk Actor
+Blueprint with a CustomEvent wired to PrintString, invokes the real
+`blueprint.insert_bpir_at_node` handler with `call K2Node_CallFunction()` (a node that reaches the
+post-splice whole-Blueprint compile and should fail validation), and asserts the typed
+`BLUEPRINT_COMPILE_FAILED` response plus symmetric restoration of the original edge. Source and
+whitespace checks are complete; the Unreal compile and automation run remain verifier work.
+
 ## History
 - `#1-filed` `OPEN` reporter — Hit on EAContentExamples58 (UE 5.8) while adding a penetration-budget
   decrement to `BP_WeaponBase.TryPenetrate`. The BPIR snippet was wrong (the emitted
@@ -103,3 +120,4 @@ compile fails, which is the ordinary outcome of any BPIR snippet that is not rig
   nothing past its second Branch, and penetration silently dead. Worked around by reconnecting the
   edge by hand and doing the decrement with `create_node` + `connect_pins` instead.
 - `#2-correction` `OPEN` reporter — **My `#1` misattributed the cause of the compile failure and the correction sharpens this ticket rather than weakening it.** The BPIR snippet was not wrong. The compile failed because an *unrelated* node elsewhere in the same graph was already broken — a `Get PenetrationsLeft` that `blueprint.graph.replace_node` had produced without self context (`B-replace-node-variableget-loses-self-context`), which `insert_bpir_at_node`'s whole-Blueprint compile then tripped over (the mechanism in `E-compile-bpir-preexisting-errors-block-repair`). Proof: after wiring that one node's `self` pin by hand, `blueprint.compile` returned `{"compiled":true,"status":"UpToDate","errors":[]}` with the BPIR nodes long since deleted. **So the severed edge is not collateral damage from bad caller input — it is what this verb does to a healthy caller whose Blueprint happens to carry a pre-existing error in any graph.** A caller who is using `insert_bpir_at_node` *to repair* a broken Blueprint — the exact case `E-compile-bpir-preexisting-errors-block-repair` is about — gets a second break for free, in a different place, every attempt.
+- `#3-shared-snapshot-rollback` `IN-REVIEW` developer — Added connection pre-image capture and restoration to `Utils/BlueprintGraphSnapshot`, which is the common rollback path used by the BPIR handlers. The regression now drives the real `insert_bpir_at_node` handler on a saved valid Blueprint and supplies an invalid generic BPIR node so the handler's post-splice full compile fails; it verifies `BLUEPRINT_COMPILE_FAILED` and the original anchor-to-PrintString edge in both directions. Static source/diff checks pass; no Unreal build or automation run was performed in this implementation pass.
