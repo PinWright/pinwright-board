@@ -1,12 +1,12 @@
 ---
 id: B-niagara-di-count-mismatch-vectorvm-assert-kills-editor
 title: "Editor crash: a Niagara system left with 0 compiled DataInterfaceInfos against 2 resolved ones asserts in VectorVM on its NEXT TICK, so any verb that forces a re-tick (sequencer.set_playhead opening the Level Sequence editor) kills the shared editor minutes after the write that broke it"
-status: IN-REVIEW
+status: OPEN
 severity: Critical
 category: bug
-tags: [niagara, vectorvm, data-interface, compile, presave, autosave, sequencer, set-playhead, editor-kill, game-thread-hang, delayed-fault, shared-editor, latent-corruption]
-encounters: 6
-lastSeen: 2026-09-05T23:34:00+03:00
+tags: [niagara, vectorvm, data-interface, compile, presave, autosave, sequencer, set-playhead, editor-kill, game-thread-hang, delayed-fault, shared-editor, latent-corruption, no-op-write, save-refusal]
+encounters: 7
+lastSeen: 2026-09-07T07:08:00Z
 ---
 
 # A data-interface count mismatch is logged as a Warning and detonates later as an `appError`
@@ -362,3 +362,48 @@ logs are UTC+0, machine UTC+5). Log: `Saved/Logs/EAContentExamples58.log:4421-44
   arming this state or about needing a compile afterwards. The only reason I saw it is that the
   field rides along in the response. A caller who batches module-input edits and saves without
   compiling ships a primed system, and the wiki gives them no reason to expect it.
+
+- `#10-returned-a-value-identical-no-op-write-re-arms-it-after-the-repair` `OPEN` reporter — plugin
+  gateway port 27145, UE 5.8, `EAContentExamples58`, as the VFX glass-dust agent (review 04 defect
+  3). **Returned IN-REVIEW -> OPEN: the state was hit again in ordinary use, and with a narrowing
+  that changes what the fix has to cover.**
+  **The narrowing `#8` and `#9` could not make: the write does not have to change anything.**
+  Every priming write in `#8` and `#9` altered a value, which leaves open the reading that the
+  changed value invalidates the compiled result. It does not. Sequence on
+  `/Game/FPS/VFX/NS_Impact_Glass`, one emitter (`Dust`), in this order and with nothing else between:
+  1. `niagara.set_module_input` `Dust:5C20EBF3...` `Color` `(R=0.9,G=0.94,B=1.0,A=0.44)` ->
+     `(R=0.9,G=0.94,B=1.0,A=1.0)`, `compile:false save:true` — `dataInterfaceCheck: "mismatched"`,
+     `mismatchedScripts` exactly `NS_Impact_Glass:Dust.SpawnScript` and `.UpdateScript`, both
+     `compiledDataInterfaces: 0` / `resolvedDataInterfaces: 2`. Matches `#9` exactly.
+  2. `niagara.compile {force:true, wait:true}` -> `status:"completed"`, `waitedMs:746`;
+     `niagara.validate {level:"strict"}` -> `dataInterfaceCheck: "consistent"`, `valid:true`, zero
+     errors. `asset.save` -> `saveState:"written"`, verified on disk (mtime moved, old literal
+     `A=0.44` absent, new literal present).
+  3. `niagara.set_module_input` **with the identical arguments as step 1** — i.e. writing
+     `(R=0.9,G=0.94,B=1.0,A=1.0)` over the pin that already holds exactly that, `compile:false
+     save:false`, a write with **no content change of any kind**. Response:
+     `dataInterfaceCheck: "mismatched"`, the same two scripts, the same `0` / `2`. Re-armed.
+  4. `niagara.compile {force:true, wait:true}` -> `completed`, `waitedMs:108`; strict validate ->
+     `consistent`. Repair holds, fifth confirmation.
+  **What this rules out and what it points at.** It is not the new value, not the diff, and not a
+  first-touch-of-a-session effect (step 3 is a second touch of an emitter already touched and
+  already repaired). The unit is the *act of writing to the emitter*, so the presave/invalidate step
+  fires unconditionally on touch. **And the repair is not durable against the next touch** — a
+  compile that returns `completed` and a `strict` validate that returns `consistent` do not stop the
+  very next `set_module_input` from putting the system straight back into the editor-killing state.
+  Any fix that only makes the write path *report* the verdict leaves an agent that edits, compiles,
+  edits again holding a primed system with a green validate behind it.
+  **Ergonomic point, and it cost a diagnostic detour.** Step 1 asked for `save:true` and got
+  `saved:false`, `saveState:"failed"`, `pendingFlush:false` with the generic detail *"The save was
+  attempted and produced no durable revision; a flush will not help until the cause is cleared. The
+  editor log carries a SaveAssetToDiskReportingPresence line with the outcome, sizes and
+  timestamps."* The actual cause — the DI gate refusing to save a mismatched system, exactly as
+  `niagara.validate`'s wiki page says every mutating verb will — **is sitting in the same response
+  object two fields away**, and `saveDetail` sends the caller to the editor log instead of naming
+  it. `saveDetail` should say the DI gate refused it and name `niagara.compile` as the remedy.
+  **Control that makes the attribution clean.** Immediately after step 1, the untouched sibling
+  `/Game/FPS/VFX/NS_Impact_Concrete` — same folder, same authoring lineage, same
+  never-compiled-this-session state (`scriptCompileCheck: "unverified"`,
+  `COMPILE_STATE_UNINITIALIZED`) — validated `dataInterfaceCheck: "consistent"`, `valid:true`. So
+  `mismatched` is not the ordinary post-load reading of an uncompiled system in this session; it
+  followed the write.
