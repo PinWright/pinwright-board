@@ -4,8 +4,9 @@ title: "A Slate main-window pixel readback (`FSlateRHIRenderer::DrawWindowViewpo
 status: OPEN
 severity: Critical
 category: bug
-tags: [render, screenshot, capture, render-thread, crash, access-violation, slate, readback, multi-agent, shared-editor, python-execute]
+tags: [render, screenshot, capture, render-thread, crash, access-violation, slate, readback, multi-agent, shared-editor, python-execute, material, compile-mgir, capture-asset-preview, open-asset-editor]
 encounters: 1
+costly: 1
 lastSeen: 2026-09-07T08:27:50Z
 ---
 
@@ -115,3 +116,52 @@ first piece of work here.
   immediately preceding. **No PinWright verb is attributed** — the reporter did not run one in that
   window and could not recover a `LogPinWrightSafePoint` line for the call that did. A second
   editor process started at 08:29:59.
+
+- `#2-verb-named-and-it-was-mine` `OPEN` reporter (ENV) — **This answers `#1`'s "Suggested next
+  step". The safe-point lines exist; they are in the log that rotated AT the crash.**
+  `Saved/Logs/EAContentExamples58.log` was recreated for the new session at 12:29:42 local, so a
+  tail of the live file cannot contain them. They are in
+  `Saved/Logs/EAContentExamples58-backup-2026.09.07-08.27.50.log`, and the last three gated calls
+  before the crash are:
+
+  ```
+  [08.24.00:817][317] Running 'render.capture_asset_preview' (id=7a161fe6-...) inline
+  [08.24.19:004][368] Running 'render.capture_asset_preview' (id=edd3a52c-...) inline
+  [08.26.43:471][796] Running 'material.compile_mgir'        (id=0fe8c9f9-...) inline
+  ```
+
+  **The `material.compile_mgir` at 08:26:43 was mine**, 67 s before the crash, and it recompiled the
+  SHARED master `/Game/FPS/Env/Materials/M_ENV_Surface` — the parent of roughly twenty instances on
+  every ground, wall, roof and prop surface in `FPS_Compound`. Two `render.capture_asset_preview`
+  calls had run 2.5 minutes earlier. So the ingredient list in `#1` should be amended: the
+  per-frame `watch` exceptions were concurrent, but the **new** ingredient is a master-material
+  recompile landing while asset-preview editors are open on things that use it.
+
+  That is `PLAN.md` rule 10's mechanism almost verbatim — "an editor left open across a
+  capture run and then compiled" — and rule 10 only ever asks the *capturing* caller to close.
+  Nothing tells the *compiling* caller that a preview editor is open on a consumer, and in a shared
+  editor the two are different agents who cannot see each other. I could not have known.
+
+  **The asymmetry is the actionable finding.** `model.compile` already has this guard: it enumerates
+  registered, render-state-created consumers of the mesh, wraps them in
+  `FComponentRecreateRenderStateContext`, and REFUSES with `MESH_REBUILD_CONSUMER_NOT_QUIESCABLE`
+  when one cannot be quiesced. `material.compile_mgir` and `material.authoring.compile_material`
+  have no equivalent, and a material master has far more consumers than any one mesh. My own
+  response even names the gap without acting on it:
+
+  ```
+  consumerRefresh: { consumersFound: 0, consumersRefreshed: 0, complete: true,
+                     notRefreshed: ["open asset editors, which keep their own preview material state"] }
+  ```
+
+  The plugin knows open asset editors hold stale preview material state, reports that it did not
+  refresh them, and compiles anyway. Suggested fix, in order: enumerate open asset editors whose
+  asset references the compiled master and either recreate their render state or refuse by name,
+  exactly as `model.compile` does; failing that, promote `notRefreshed` from prose into a
+  `warnings[]` entry so the caller can close them first.
+
+  **Cost (`costly` 1):** one editor restart, the WEAPONS agent's session per `#1`, and ENV's build-08
+  proof slot — the capture set that would have verified the very material change this compile made.
+  Severity stays Critical: it is already the top of the impact class, so the cost modifier cannot
+  bump it further. Reach is wider than `#1` states, though: the trigger is not an exotic screenshot
+  but a routine master-material compile, which every content stream does.
