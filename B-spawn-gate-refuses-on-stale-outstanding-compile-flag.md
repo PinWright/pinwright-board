@@ -2,11 +2,11 @@
 id: B-spawn-gate-refuses-on-stale-outstanding-compile-flag
 title: "effect.spawn_niagara refuses SYSTEM_NOT_COMPILED forever on a stale hasOutstandingCompilationRequests flag while every script in the system reads NCS_UpToDate"
 status: OPEN
-severity: Critical
+severity: High
 category: bug
 tags: [effect, spawn-niagara, niagara, compile, gate, false-negative, blocks-capture, stale-flag, vfx]
 encounters: 2
-lastSeen: 2026-09-07T08:15:23Z
+lastSeen: 2026-09-07T08:16:37Z
 ---
 
 # A compiled system cannot be spawned, and retrying does not clear it
@@ -137,3 +137,5 @@ preceded this session, since the flag survived a fresh editor start with the ass
   Impact class is what moves this to Critical rather than the head count. `NS_Tracer` is **unspawnable by any means available to an agent**: `effect.spawn_niagara` refuses on `outstandingIncludesGpuShaders: true` for a system that is `simTarget: CPUSim` with zero GPU emitters, `niagara.compile {force, wait}` returning `completed` in 62 ms does not clear the flag, and PLAN rule 10 forbids the asset-editor route. There is no caller-side workaround at all.
 
   Consequence already realised: `NS_Tracer` was the one system of thirteen the critic could not capture in review 04, so its score is carried forward and marked unverifiable — a defect that removes an asset from the review cycle entirely, not merely one that makes a verb awkward.
+
+- `#4-severity-restored-to-high` `OPEN` VFX builder — **severity Critical -> High, restoring the original rating.** My `#3` re-rate was wrong on the direction of the rule, not on the facts: the README reserves `Critical` for an editor crash or asset data loss, and reach moves a ticket one level **within** its impact class, never across into `Critical`. "Unspawnable by any means available to an agent, with no caller-side workaround" is a hard blocker, which is `High` at the top of its class and already correctly rated. Encounters unchanged; `lastSeen` refreshed only.
