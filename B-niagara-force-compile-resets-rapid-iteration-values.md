@@ -5,9 +5,9 @@ status: OPEN
 severity: High
 category: bug
 tags: [niagara, compile, force, rapid-iteration, set-parameter, silent-revert, data-loss, vfx]
-encounters: 1
-lastSeen: 2026-09-07T07:25:00Z
-related: [B-module-input-override-inert-runtime-uses-rapid-iteration-default]
+encounters: 2
+lastSeen: 2026-09-07T07:45:00Z
+related: [B-module-input-override-inert-runtime-uses-rapid-iteration-default, B-niagara-set-parameter-emitter-scope-arms-di-mismatch]
 ---
 
 # A forced compile reverts the rapid-iteration store to template defaults
@@ -71,3 +71,62 @@ saving, and warn downstream agents not to force-compile the asset.
 Preserve existing rapid-iteration values across a compile — merge on parameter name rather than
 rebuilding from module template defaults — and, where a rebuild is genuinely required, report the
 parameters whose values were replaced in the compile response.
+
+## Second encounter, 2026-09-07 07:45 UTC: `force` is not the variable, and the reset is scope-selective
+
+Two corrections to the statements above, both measured on `/Game/FPS/VFX/NS_Impact_Concrete` in the
+same session.
+
+**1. `force: false` is not safe. What is safe is a compile that does not run.** The sentence
+"`force: false` on an up-to-date system issues no compile and is therefore harmless" is true only
+for the up-to-date case, and a Niagara system whose emitter scripts sit at `compileStatus: null`
+(the ordinary post-load state under `fx.Niagara.OnDemandCompile`) is **not** up to date. On all
+eleven systems tried this session, `niagara.compile {force:false, wait:true}` returned
+`requested: true, compiled: true, status: "completed"` in 40-650 ms — a real compile — and reset the
+rapid-iteration values exactly as `force: true` does:
+
+```
+niagara.set_parameter {scope:"systemUpdateRapidIteration",
+    name:"Constants.Chunks.SpawnBurst_Instantaneous.Spawn Count", type:"int32", value:9}   # + Sparks 2, Dust 10
+niagara.compile {assetPath:"/Game/FPS/VFX/NS_Impact_Concrete", force:false, wait:true}
+# -> requested:true, compiled:true, completed:true, waitedMs:89, status:"completed"
+niagara.inspect {parametersOnly:true, parameterName:"SpawnBurst_Instantaneous.Spawn Count"}
+# -> Chunks 1, Dust 1, Flash 1, Light 1, Sparks 1     <- all reverted
+#    offsets also moved (176 -> 72, ...), so the store was rebuilt, not overwritten in place
+```
+
+So the guidance to give downstream agents is not "do not `force: true`" but **"do not compile at all
+after the RI writes"**, and a caller who thinks `force: false` is a safe probe is wrong whenever the
+asset has not compiled this session.
+
+**2. Only the system-wide stores are rebuilt; the emitter-scoped ones survive.** The same compile
+that reset all five `systemUpdateRapidIteration` Spawn Counts left every
+`spawnRapidIteration` / `updateRapidIteration` value written moments earlier untouched:
+
+```
+# written before the compile, read back after it:
+Constants.Flash.InitializeParticle.Color   = {r:7,   g:5,   b:3,   a:1}    (intact)
+Constants.Light.InitializeParticle.Color   = {r:280, g:209, b:140, a:1}    (intact)
+Constants.Sparks.InitializeParticle.Color  = {r:2.6, g:1.1,  b:0.3, a:1}   (intact)
+Constants.Dust.InitializeParticle.Color    = {r:0.95,g:0.94, b:0.92,a:1}   (intact)
+Constants.Chunks.InitializeParticle.Color  = {r:1,   g:1,    b:1,   a:1}   (never written, still template default)
+```
+
+That asymmetry makes a compile survivable, and is what the repair of the whole `/Game/FPS/VFX/`
+package was built on:
+
+1. every **emitter-scoped** write (`spawnRapidIteration` / `updateRapidIteration`),
+2. **one** `niagara.compile {force:false, wait:true}` — needed anyway to clear the
+   `dataInterfaceCheck: "mismatched"` those writes cause, see
+   `B-niagara-set-parameter-emitter-scope-arms-di-mismatch`,
+3. every **system-scoped** write (`systemUpdateRapidIteration`: Spawn Count, Loop Duration, Spawn
+   Time),
+4. `asset.save`, and never a compile after step 3.
+
+Verified by re-reading the RI stores and then by searching the saved `.uasset` bytes for the packed
+byte image of the whole `systemUpdateRapidIteration` store: present once on all 12 systems, while
+the same image with the counts reverted to 1 and the durations to 2 is absent (0 occurrences).
+
+## History
+
+- `#1-force-false-also-resets` `OPEN` reporter — Second encounter, two corrections. (a) `force: false` is not harmless: on a system whose emitter scripts are at `compileStatus: null` it issues a real compile (`requested:true, compiled:true, status:"completed"`, 40-650 ms across 11 systems) and rebuilds `systemUpdateRapidIteration` from template defaults just as `force: true` does — Spawn Counts 9/2/10 came back as 1/1/1 with the store offsets shifted, proving a rebuild rather than an in-place write. The rule to publish is "no compile after the RI writes", not "no forced compile". (b) The rebuild is scope-selective: the emitter-scoped `spawnRapidIteration` / `updateRapidIteration` values written immediately before the same compile survived it intact, which makes the order emitter-scope writes -> one unforced compile -> system-scope writes -> save a working sequence. That sequence repaired 106 shadowed inputs across 12 systems under `/Game/FPS/VFX/`, verified against the `.uasset` bytes on disk (repaired store image present once; pre-fix image absent).

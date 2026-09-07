@@ -5,8 +5,8 @@ status: OPEN
 severity: Critical
 category: bug
 tags: [niagara, set-module-input, override-pin, rapid-iteration, silent-noop, silent-wrong-value, spawn-count, compile, measured-in-render, vfx]
-encounters: 1
-lastSeen: 2026-09-07T07:30:00Z
+encounters: 2
+lastSeen: 2026-09-07T08:00:00Z
 related: [E-niagara-inspect-params-stale-after-override, F-niagara-reset-module-input]
 ---
 
@@ -124,3 +124,61 @@ after the last compile**, see `B-niagara-force-compile-resets-rapid-iteration-va
   its value.
 - `niagara.inspect {includeStack:true}` should mark such an input as shadowed rather than reporting
   `valueMode: "local"` with a value the simulation will not use.
+
+## Second encounter, 2026-09-07 08:00 UTC: the blast radius is not Spawn Count
+
+A full sweep of all 13 systems under `/Game/FPS/VFX/` — every stack module input with
+`valueMode: "local"` compared against the matching `Constants.<Emitter>.<Module>.<Input>` in every
+rapid-iteration store — found **111 shadowed inputs across 13 systems**, of which only 38 are
+`Spawn Count`. Spawn Count is the case that got noticed because its effect is countable; it is not
+the case that dominates.
+
+| shadowed input | count | authored -> effective |
+|---|---|---|
+| `InitializeParticle.Color` | 45 | e.g. `(40, 14, 2, 1)` -> `(1, 1, 1, 1)` |
+| `SpawnBurst_Instantaneous.Spawn Count` | 38 | e.g. `34` -> `1` |
+| `EmitterState.Loop Duration` | 13 | e.g. `0.25` -> `2` |
+| `InitializeParticle.Lifetime` | 11 | e.g. `0.09` -> `2` |
+| `SubUVAnimation.Start/End Frame Range Override` | 4 | `2`/`5` -> `0`/`63` |
+| `InitializeParticle.Position Offset` | 1 | `(0,0,3)` -> `(0,0,0)` |
+| `SpawnBurst_Instantaneous001.Spawn Time` | 1 | `0.035` -> `0` |
+
+Every one of them is **switch-active**, checked against the module's own `staticSwitchInputs` rather
+than assumed:
+
+- `InitializeParticle.Color Mode` = `1` = **Direct Set** on 58 of 59 emitters
+  (`/Niagara/Enums/ENiagara_ColorInitializationMode`), so `Color` is the live input. Every authored
+  HDR tint in the package — muzzle-flash cores, sparks, embers, blood, and every alpha-authored
+  smoke and mist — has been initialising to white at alpha 1.
+- `InitializeParticle.Lifetime Mode` = `0` = **Direct Set**
+  (`/Niagara/Enums/ENiagara_LifetimeMode`) on exactly the 11 emitters whose `Lifetime` is shadowed,
+  so a 0.06-0.09 s muzzle light and a 0.6 s tracer have been living **2 s**.
+- `EmitterState`: `Loop Behavior` = `1` = Once and `Loop Duration Mode` = `0` = Fixed, so
+  `Loop Duration` is live; a 0.25 s glass flash has been running a 2 s loop.
+- `SubUVAnimation`: `UseStartFrame` and `UseEndFrame` are both `True` on `NS_Impact_Water/Column`,
+  so its authored 2-5 sub-image range has been playing 0-63.
+
+So the correct statement of this ticket is not "Spawn Count was tuned four times for nothing" but
+"**every literal an agent authored through `set_module_input` on a pre-existing module is inert**,
+and the RI store has been serving module template defaults to the simulation for the whole life of
+the package". The fix directions above are unchanged; the priority is not.
+
+Two further facts from the same sweep:
+
+- **The asymmetry generalises exactly as predicted.** Across the package, 620 stack inputs carry
+  `valueMode: "local"` with **no** RI entry at all and are live; every module added by
+  `niagara.add_module` (`SpawnBurst_Instantaneous001` on five emitters) has live `Spawn Count`,
+  `Spawn Probability` and `Spawn Time` while its `Age` / `Loop Count Limit` / `Spawn Group` RI
+  entries persist. Only inputs whose RI entry pre-existed the override are shadowed.
+- **`/Game/FPS/VFX/NS_Blood` was not fully repaired.** Its three Spawn Counts are correct (90 / 110 /
+  26), but `Drips`, `Spray`, `Mist` and `Burst` `InitializeParticle.Color` are all still shadowed by
+  white, and `Burst.InitializeParticle.Lifetime` reads `0.08` in the stack and `2` in the RI store.
+  The earlier repair fixed the input it was looking for, not the class of defect.
+
+106 of the 111 were repaired this session by writing the authored value into the shadowing RI
+constant with `niagara.set_parameter` (verified against the `.uasset` bytes on disk, not a
+read-back); the 5 left are `NS_Blood`'s, which was out of the repairing agent's scope.
+
+## History
+
+- `#1-scope-wider-than-spawn-count` `OPEN` reporter — Second encounter. A full stack-vs-RI diff of all 13 systems under `/Game/FPS/VFX/` shows the shadowing is not specific to `SpawnBurst_Instantaneous.Spawn Count`: 111 shadowed inputs, of which 45 are `InitializeParticle.Color`, 38 `Spawn Count`, 13 `EmitterState.Loop Duration`, 11 `InitializeParticle.Lifetime`, 4 `SubUVAnimation` frame-range overrides, 1 `Position Offset` and 1 `Spawn Time`. Each was confirmed switch-active against the module's own `staticSwitchInputs` (`Color Mode` = Direct Set on 58/59 emitters, `Lifetime Mode` = Direct Set on all 11, `Loop Behavior` = Once with `Loop Duration Mode` = Fixed, `UseStartFrame`/`UseEndFrame` = True), so the runtime has been initialising every authored HDR tint to white at alpha 1 and running 0.06 s muzzle lights for 2 s. The 620 locals with no RI entry are live, and every `add_module`-added `SpawnBurst_Instantaneous001` is live on exactly the three inputs that carry an override pin — the asymmetry that named the bug generalises across the whole package. `NS_Blood`, recorded above as repaired, had only its Spawn Counts fixed; its four `Color` entries and `Burst.Lifetime` are still shadowed.
