@@ -5,7 +5,7 @@ status: OPEN
 severity: High
 category: bug
 tags: [effect, spawn-niagara, niagara, compile, gate, false-negative, blocks-capture, stale-flag, vfx]
-encounters: 1
+encounters: 2
 lastSeen: 2026-09-07T06:47:00Z
 ---
 
@@ -104,3 +104,28 @@ preceded this session, since the flag survived a fresh editor start with the ass
 
 ## History
 - `#1-filed` `OPEN` reporter — `effect.spawn_niagara` refused `SYSTEM_NOT_COMPILED (compileStatus=outstanding)` for `/Game/FPS/VFX/NS_Tracer` on two attempts six seconds apart in a freshly restarted editor, while the same response reported `compile.valid: true`, `hasActiveCompilations: false`, and all four initialised scripts at `NCS_UpToDate` (the two remaining at the documented `null` on-demand state). Twelve sibling systems in the same folder spawned successfully in the same slot with `compileStatus: "passed"`. The gate appears to refuse on `hasOutstandingCompilationRequests` alone, a flag that is stuck true and that no verb in the namespace can clear, making the system permanently unspawnable and therefore — under PLAN rule 10, which forbids capturing Niagara through the asset editor — permanently unreviewable. Its bounded wait did not run (`compileWaited:false`, `compileWaitedMs:0.0009`, `compileTimedOut:false`); see `B-niagara-compile-wait-does-not-wait` `#14-returned`.
+
+- `#2` `OPEN` VFX builder — **the flag is not merely stale, it is impossible for this asset, and a forced compile does not clear it.**
+
+  `NS_Tracer` is **CPU-only**: `niagara.inspect {includeProperties:true}` reports one emitter handle (`Tracer`, enabled) with `simTarget: CPUSim`, and **zero** occurrences of `GPUComputeSim` anywhere in the payload. A control that the critic *could* spawn in the same session, `NS_ShellEject`, reports `GPUComputeSim` seven times.
+
+  Yet `niagara.compile_status` on `NS_Tracer` returns:
+
+  ```
+  outstandingCompilationRequests : false
+  outstandingIncludesGpuShaders  : true      <-- on a system with no GPU emitters
+  cpuScriptCompilationPending    : false
+  compileQueueObserved           : true
+  status / scriptCompileCheck    : unverified
+  failedScriptCount              : 0
+  ```
+
+  So the blocking condition is `outstandingIncludesGpuShaders`, not `outstandingCompilationRequests` — the latter is already false. A system with no GPU simulation stage cannot have outstanding GPU shader work, so this is a flag that is wrong by construction rather than one that is merely lagging.
+
+  **A forced compile does not clear it.** `niagara.compile {force:true, wait:true}` returned `status: "completed"`, `compiled: true`, `waitedMs: 62.7`, `timedOut: false` — and `outstandingIncludesGpuShaders` was still `true` immediately afterwards, with `status` still `unverified`. Measured before and after in the same script.
+
+  Corroborating from the same call: `niagara.validate {level:"strict"}` gives `valid: true`, `errors: []`, `dataInterfaceCheck: "consistent"`, `pendingCompile: false`, `hasOutstandingCompilationRequests: false`, `hasActiveCompilations: false`, and script statuses `NCS_UpToDate` x4 plus two `null` (the `EmitterSpawnScript`/`EmitterUpdateScript` stubs). Every health signal the plugin exposes says this asset is ready; only the GPU-shader flag disagrees, and it gates the spawn.
+
+  **Consequence for the review cycle:** `NS_Tracer` is the one system of thirteen the critic could not capture in round 4, so its score is carried forward and marked unverifiable. Rule 10 forbids the asset-editor route, so there is no caller-side workaround at all — the asset cannot be placed by any means available to an agent.
+
+  Suggested narrowing for whoever picks this up: the gate appears to OR the GPU-shader flag into its readiness test. For a `CPUSim`-only system that term should be excluded rather than consulted, or `compile {force}` should reset it.
