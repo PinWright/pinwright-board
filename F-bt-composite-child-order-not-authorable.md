@@ -2,7 +2,7 @@
 id: F-bt-composite-child-order-not-authorable
 title: "No `behavior_tree.*` verb can set or change a composite child's execution order — order is graph-X position, `add_node` is the only verb that writes it, and it cannot be re-written"
 status: OPEN
-severity: Critical
+severity: High
 category: feature
 tags: [behavior-tree, authoring, node-position, execution-order, selector, sequence, node-guid, decompile]
 encounters: 2
@@ -106,10 +106,15 @@ which defeats the point of the authoring surface.
 
 - **#2, 2026-09-07, AI stream.** Attempted the documented remove-and-re-add workaround and found it
   unreachable: `behavior_tree.decompile` emits no node GUIDs and `remove_node` rejects the runtime
-  node object name (`NODE_NOT_FOUND`). **Severity High -> Critical by reach.** The reach is not a
+  node object name (`NODE_NOT_FOUND`). **Severity stays High.** The reach is not a
   second stream — the AI stream is the only one authoring Behavior Trees in this project, and that
   half of the test is not met. It is the verb surface: node GUIDs being undiscoverable blocks
   `remove_node`, `set_node_properties`, `attach_decorator`, `attach_service`, `break_connections`
   and `connect_nodes` on **any** tree not created in the current session, which is every tree that
   has ever been saved. The original ask (make order editable) is now the smaller half of the
   ticket; emitting GUIDs from `decompile` unblocks all six verbs at once.
+- **#2 severity corrected, 2026-09-07.** The `High -> Critical` bump in the entry above was wrong
+  and is reverted: per the board README, Critical is reserved for an editor crash or asset data
+  loss. Reach and cost move a ticket **within** its impact class, and a hard blocker with no
+  workaround tops out at High. This one destroys no data and crashes nothing — it makes an
+  authoring operation impossible — so High is the ceiling and the reach argument does not lift it.
