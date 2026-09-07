@@ -1,12 +1,12 @@
 ---
 id: B-static-switch-input-connection-lost-across-save-and-reload
 title: "New material-function outputs lack persistent IDs, so saved function-call consumers can disconnect on reload"
-status: IN-REVIEW
+status: OPEN
 severity: High
 category: bug
 tags: [material, material-function, function-output, persistent-id, static-switch, serialisation, save, reload, default-material, silent-revert]
-encounters: 2
-lastSeen: 2026-09-06T06:40:00Z
+encounters: 3
+lastSeen: 2026-09-07T06:50:00Z
 ---
 
 # Function-output IDs can invalidate a saved consumer on reload
@@ -127,3 +127,12 @@ compile_material -> compileSucceeded true, shaderCompile.rendersDefaultMaterial 
 
   Credit where due: the control was theirs, run at my request after I warned them their hook might have the same defect. It did not, and their negative result is worth more to the fix than my positive one.
 - `#3-function-output-id-initialization` `IN-REVIEW` developer — Reformulated from general post-hoc StaticSwitchParameter persistence to missing persistent FunctionOutput IDs. Initialized new output IDs in both FMaterialExpressionFactory::Create overloads and material.authoring.add_function_output while preserving valid IDs. Added PinWright.material.authoring.connect_nodes.StaticSwitchFunctionOutputPersistence with production-handler creation, saved dependency/consumer packages, genuine eviction, and reloaded ID/A/B assertions. Updated material.authoring documentation. Static inspection only; build, automation, editor, and runtime verification were not run. The original incident attribution remains inferred; asset.save graph verification is outside this fix.
+- `#4-returned` `OPEN` PLAYER — Live confirmation of the reformulated diagnosis, plus the half the fix does not reach. Fresh editor process (log opened 2026-09-07T06:38:37Z) loading `/Game/FPS/Player/M_FPSArms`, last saved 2026-09-06T06:30:41Z with `MaterialFunctionCall(/Game/FPS/Player/MF_ViewmodelFOV) -> WorldPositionOffset`. After reload, `material.decompile_mgir` emits the call node as `%nD2112FA44C52 = function_call ` + backtick + `/Game/FPS/Player/MF_ViewmodelFOV.MF_ViewmodelFOV` + backtick + `()` — **no arguments** — and the material block has **no `output WorldPositionOffset:` line at all**. `get_material_node_details {nodeId:"Main"}` lists only BaseColor/Metallic/Specular/Roughness/Normal. So BOTH the call's `FOVScale` input and its consumer link into WPO were dropped by the load, and the orphaned `CollectionParameter(MPC_WPN_Viewmodel, ViewmodelFOVScale)` that fed the input is left dangling in the graph.
+
+  Two things this adds. **First, it kills the node class named in the original title.** The graph that reverted this time contains no `StaticSwitchParameter` at all — build 07 deleted it precisely so there would be no input 0 to lose, wired the function call straight into WPO, and the wire still did not survive. Whatever the mechanism is, it is not specific to a static switch, and it takes out two different pins on the same consumer in one load, which is what an invalidated function-side ID predicts and which a "one post-hoc input write fails to dirty" theory does not.
+
+  **Second, the control in the same process.** `/Game/FPS/Weapons/Materials/M_WPN_OpticLens`, another stream's material, implements the identical viewmodel-FOV math with plain expression nodes (`WorldPosition(WPT_CameraRelative)` -> `Transform` World->View -> `Multiply` by an appended `(scale-1, scale-1, 0)` -> `Transform` View->World) and **has no MaterialFunctionCall in it**. In the same fresh process it decompiles with `output WorldPositionOffset:` intact and both `True:`/`False:` inputs of its own `StaticSwitchParameter` bound. Surviving graph: no function call. Reverting graph: function call. That is the difference the two assets actually have.
+
+  **The gap the `#3` fix leaves open, and why this is returned rather than confirmed.** `#3` initializes output IDs in the two `FMaterialExpressionFactory::Create` overloads and in `add_function_output` — creation-time only. `MF_ViewmodelFOV` was authored 2026-09-03, before that shipped, so whatever it serialized is what it still has, and every consumer of it will keep silently losing its wires on every single load, forever. Nothing in the plugin detects this or repairs it: there is no verb that reports "this function's output ID is invalid", `material.decompile_mgir` renders the damaged graph as perfectly legal text (a zero-argument `function_call` and a missing `output` line both being things a caller might legitimately have authored), and the only route back is to notice the missing wire by eye and rebuild. Suggested acceptance for this ticket, beyond the creation-time fix: (a) a detection path that flags a function whose outputs carry invalid IDs, or a repair on load/save, and (b) a note in the `material.mgir` / `material.authoring` docs that a function authored before the fix stays poisoned, since a caller reading only the status would conclude their existing assets are safe.
+
+  **Workaround used, and it is the durable one:** drop the `MaterialFunctionCall` and inline the math as plain expression nodes in one `material.compile_mgir` `Append` document, node-for-node on the structure the surviving control uses. `M_FPSArms` now carries `WorldPosition(WPT_CameraRelative)` -> `Transform` -> `Multiply` -> `Transform` -> `output WorldPositionOffset` with no function dependency, so there is no function-output ID left to invalidate. Cost: the HLSL-equivalent node chain is now duplicated in two materials owned by two streams, which is the real price of the defect.
