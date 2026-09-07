@@ -6,6 +6,7 @@ severity: High
 category: bug
 tags: [editor, step_frame, pie, pause, fixed-timestep, world-tick, timing, capture, hud, silent-wrong-data]
 encounters: 2
+costly: 1
 lastSeen: 2026-09-07T07:29:00Z
 ---
 
@@ -167,3 +168,5 @@ asset data is corrupted.
   That reframing matters for the fix. "Constant 0.333" invites looking for a hard-coded value or a clamp; there is none to find. What is missing is that the world tick is never asked to use the requested delta (`UWorld::Tick` with a fixed step / `FApp::SetFixedDeltaTime` around the step, or equivalent). And it makes the caller's position worse than the ticket states: the advance is not merely unreachable below ~0.333 s, it is **nondeterministic across machines, sessions and editor load**, so a caller cannot calibrate around it by measuring once. Any timing derived by summing requested deltas is wrong by an unknown factor.
 
   Cost to me: I reported a mid-reload capture as "~0.28 s into the reload" in `Docs/fps/reports/player-build-08.md` by summing requested deltas. That figure was wrong and the critic caught it. The frame itself was still genuinely mid-reload (`IsAnyMontagePlaying` true in the same paused instant) — which is the workaround: **assert the state you want in the same frozen instant as the capture and quote that, never a summed step time.**
+
+  **Cost (`costly` 1, PLAYER).** This defect produced a false conclusion that shipped: build 08 reported a mid-reload capture as "~0.28 s into the reload", derived by summing requested `deltaSeconds`, and the figure was wrong by an unknown factor. It took a PLAYER-critic round to falsify, and the claim had to be retracted. Not a wasted slot or a restart — the frame itself was valid — but a published wrong number and a lost review item. Cheap recurrences of this ticket should not increment further; only another wrong published figure or a lost slot should.
