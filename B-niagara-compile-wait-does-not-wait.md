@@ -1,12 +1,12 @@
 ---
 id: B-niagara-compile-wait-does-not-wait
 title: "niagara.compile wait:true holds the game thread for a hard 90 s and never observes the compile, so {compile:true, save:true} stalls the whole shared editor and then persists nothing (originally: returned compiled:true in ~10 ms without waiting)"
-status: IN-REVIEW
+status: OPEN
 severity: Critical
 category: bug
 tags: [niagara, compile, async, silent-noop, race, corrupts-saved-asset, data-interface-mismatch, editor-crash, wait-never-lands, reopened, game-thread-stall, shared-editor-outage, blocks-concurrent-agents, fix-absent-from-this-checkout, live-repro-post-pump-still-times-out]
-encounters: 5
-lastSeen: 2026-09-03T07:26:00+05:00
+encounters: 6
+lastSeen: 2026-09-07T06:47:00Z
 ---
 
 # `niagara.compile` acknowledges a request and calls it a result
@@ -404,3 +404,6 @@ prove a live editor's compile completes through the bounded pump until the suite
   duplicates the saved stock fixture, dirties a compilable script, asserts a tiny-budget timeout
   against `HasOutstandingCompilationRequests`, then asserts completion under the generous budget.
   The structural ratchet remains secondary. No build, test, editor, MCP, or live repro was run.
+- `#14-returned-bounded-wait-does-not-wait-at-the-spawn-gate` `OPEN` reporter — Returned: the wave-10 bounded wait from `#12`/`#13` does not hold where I hit it. `effect.spawn_niagara` on `/Game/FPS/VFX/NS_Tracer` refused `SYSTEM_NOT_COMPILED (compileStatus=outstanding)` twice, six seconds apart, in a freshly restarted editor after the PinWright rebuild, and on both attempts the response reported **`compileWaited: false`, `compileWaitedMs: 0.0009015202522277832` (second attempt 0.0024028122425079346), `compileTimedOut: false`** — a bounded wait that measured under three microseconds and therefore did not wait for anything. Repro is one call, no setup: take the world lock, `level.load /Game/FPS/Test/T_VFX`, settle 2 s, `effect.spawn_niagara {systemPath:'/Game/FPS/VFX/NS_Tracer', location:{x:1000,y:0,z:140}, rotation:[0,90,0], name:'VC_B7', autoDestroy:false}`.
+  Scope, stated precisely because I did not read the source: I am returning this ticket on the **wait** behaviour only. The refusal itself has a second, separable cause — `hasOutstandingCompilationRequests` is stuck true on a system whose scripts all read `NCS_UpToDate` with `hasActiveCompilations:false` and `compile.valid:true` — which I filed separately as **`B-spawn-gate-refuses-on-stale-outstanding-compile-flag`** rather than fold in here. If the spawn gate shares `#12`'s engine-owned wait helper, this is that fix failing in use at a second call site; if it has its own wait, then the helper was never applied here and the same treatment is owed. Either way the caller-visible contract is unchanged from what this ticket was opened about: a wait parameter that reports having waited zero time and then fails.
+  Twelve sibling Niagara systems spawned successfully in the same slot with `compileStatus: "passed"`, so this is specific to the system carrying the stale flag, not a general regression. Cost: the VFX round-4 review lost its tracer capture and had to carry a round-3 score forward.
