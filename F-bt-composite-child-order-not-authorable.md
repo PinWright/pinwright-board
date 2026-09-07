@@ -1,0 +1,78 @@
+---
+id: F-bt-composite-child-order-not-authorable
+title: "No `behavior_tree.*` verb can set or change a composite child's execution order — order is graph-X position, `add_node` is the only verb that writes it, and it cannot be re-written"
+status: OPEN
+severity: High
+category: feature
+tags: [behavior-tree, authoring, node-position, execution-order, selector, sequence]
+---
+
+# A Behavior Tree's execution order cannot be edited after the node exists
+
+In UE a composite's children run **left to right by graph X position**, not by connection order.
+`behavior_tree.decompile` reports that position (`@(x, y)` on every node), so the order is
+*readable*. It is not *writable* on an existing node:
+
+- `behavior_tree.add_node` takes `x` and `y` — and required, with the docstring
+  "required — nodes stack at origin if all callers pass 0", so the surface already knows position
+  is load-bearing. It only applies at creation.
+- `behavior_tree.set_node_properties` takes `nodeId`, `comment` and `properties` (node *instance*
+  properties). No `x`/`y`.
+- `behavior_tree.connect_nodes` takes `parentNodeId` and `childNodeId`. No index, no
+  before/after sibling.
+- `behavior_tree.break_connections` + `connect_nodes` re-parents but does not move, so a
+  reconnected child keeps its old X and therefore its old priority.
+
+So the only route to "run this leaf first" is `remove_node` on the subtree and `add_node` it back
+at a smaller X — which throws away the node's instance properties, its decorators and its services,
+all of which then have to be re-authored from the decompile by hand.
+
+## Where it bit (this checkout, 2026-09-07)
+
+`/Game/FPS/AI/BT_Enemy`, the ammo branch:
+
+    child composite Sequence @(-700, 320) {
+      decorator Blackboard (BlackboardKey: AmmoState, GreaterOrEqual, IntValue: 1)
+      child task RunEQSQuery  @(-900, 520)   (BlackboardKey: CoverLocation)
+      child task MoveTo       @(-700, 520)   (BlackboardKey: CoverLocation, AcceptableRadius: 60)
+      child task BTT_TakeCover@(-500, 520)
+      child task BTT_Reload   @(-300, 520)
+    }
+
+`BTT_Reload` is last, so the AI must *reach* cover before it reloads. A 90 s three-enemy probe
+recorded 0 reload starts in 528 samples: all three emptied a 30-round magazine, none reloaded, and
+the reserve stayed at 180 — because the `MoveTo` ahead of the reload never completed. The one-line
+fix is "reload first, then move": give `BTT_Reload` an X left of `-900`. There is no verb that can
+do it.
+
+Reordering a Selector's *branches* has the same problem and is the more common case — branch
+priority is exactly what a BT author tunes, and every tuning pass needs to move an existing subtree
+left or right.
+
+## Ask
+
+Either:
+
+1. `behavior_tree.set_node_properties` accepts `x` / `y` alongside `comment` (smallest change; the
+   handler already writes those fields on the `add_node` path), **or**
+2. `behavior_tree.connect_nodes` accepts `childIndex` (or `beforeChildId` / `afterChildId`) and the
+   handler assigns the X that produces that order, **or**
+3. a dedicated `behavior_tree.set_child_order` taking `parentNodeId` and an ordered `childNodeIds`
+   array — the form that makes the intent explicit and cannot leave two children at the same X.
+
+Whichever lands, the response should echo the resulting order the way `decompile` prints it, so a
+caller can verify the priority it just asked for rather than re-decompiling to check.
+
+## Workaround
+
+`remove_node` the leaf and `add_node` it at a new X, then re-attach every decorator and service and
+re-apply every instance property from a prior `decompile`. Lossy and easy to get wrong: nothing
+warns that a re-added node came back without its decorators.
+
+## Notes
+
+- Distinct from `E-ai-bt-authoring-verbs-dead-end`, which is about the deprecated `ai.*` verbs
+  producing orphaned, unaddressable nodes. This one is on the supported `behavior_tree.*` surface
+  and is about editing a tree that is already correct in structure but wrong in priority.
+- Distinct from `B-bt-set-node-properties-silent-noop`: passing `x` to `set_node_properties` today
+  is a declared-param failure, not a silent drop.
