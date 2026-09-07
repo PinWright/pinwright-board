@@ -2,9 +2,11 @@
 id: F-bt-composite-child-order-not-authorable
 title: "No `behavior_tree.*` verb can set or change a composite child's execution order — order is graph-X position, `add_node` is the only verb that writes it, and it cannot be re-written"
 status: OPEN
-severity: High
+severity: Critical
 category: feature
 tags: [behavior-tree, authoring, node-position, execution-order, selector, sequence, node-guid, decompile]
+encounters: 2
+lastSeen: 2026-09-07T08:05:00Z
 ---
 
 # A Behavior Tree's execution order cannot be edited after the node exists
@@ -99,3 +101,15 @@ which defeats the point of the authoring surface.
   and is about editing a tree that is already correct in structure but wrong in priority.
 - Distinct from `B-bt-set-node-properties-silent-noop`: passing `x` to `set_node_properties` today
   is a declared-param failure, not a silent drop.
+
+## History
+
+- **#2, 2026-09-07, AI stream.** Attempted the documented remove-and-re-add workaround and found it
+  unreachable: `behavior_tree.decompile` emits no node GUIDs and `remove_node` rejects the runtime
+  node object name (`NODE_NOT_FOUND`). **Severity High -> Critical by reach.** The reach is not a
+  second stream — the AI stream is the only one authoring Behavior Trees in this project, and that
+  half of the test is not met. It is the verb surface: node GUIDs being undiscoverable blocks
+  `remove_node`, `set_node_properties`, `attach_decorator`, `attach_service`, `break_connections`
+  and `connect_nodes` on **any** tree not created in the current session, which is every tree that
+  has ever been saved. The original ask (make order editable) is now the smaller half of the
+  ticket; emitting GUIDs from `decompile` unblocks all six verbs at once.

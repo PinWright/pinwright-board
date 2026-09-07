@@ -5,6 +5,8 @@ status: OPEN
 severity: High
 category: feature
 tags: [ai, behavior-tree, pathfollowing, runtime, pie, introspection, debugging, moveto]
+encounters: 1
+lastSeen: 2026-09-07T08:04:00Z
 ---
 
 # A running AI cannot be observed, only authored
