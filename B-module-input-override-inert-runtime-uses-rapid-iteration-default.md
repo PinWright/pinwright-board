@@ -170,15 +170,42 @@ Two further facts from the same sweep:
   `niagara.add_module` (`SpawnBurst_Instantaneous001` on five emitters) has live `Spawn Count`,
   `Spawn Probability` and `Spawn Time` while its `Age` / `Loop Count Limit` / `Spawn Group` RI
   entries persist. Only inputs whose RI entry pre-existed the override are shadowed.
-- **`/Game/FPS/VFX/NS_Blood` was not fully repaired.** Its three Spawn Counts are correct (90 / 110 /
-  26), but `Drips`, `Spray`, `Mist` and `Burst` `InitializeParticle.Color` are all still shadowed by
-  white, and `Burst.InitializeParticle.Lifetime` reads `0.08` in the stack and `2` in the RI store.
-  The earlier repair fixed the input it was looking for, not the class of defect.
+- **`/Game/FPS/VFX/NS_Blood` had not been fully repaired.** Its three Spawn Counts were correct
+  (90 / 110 / 26), but `Drips`, `Spray`, `Mist` and `Burst` `InitializeParticle.Color` were all still
+  shadowed by white, and `Burst.InitializeParticle.Lifetime` read `0.08` in the stack against `2` in
+  the RI store — a 0.08 s flash living 25x too long. The earlier repair fixed the input it was
+  looking for, not the class of defect. Repaired later in the same session; see `#2` below.
 
-106 of the 111 were repaired this session by writing the authored value into the shadowing RI
-constant with `niagara.set_parameter` (verified against the `.uasset` bytes on disk, not a
-read-back); the 5 left are `NS_Blood`'s, which was out of the repairing agent's scope.
+**111 of 111 repaired** — 106 in the first pass and `NS_Blood`'s remaining 5 in a follow-up — by
+writing the authored value into the shadowing RI constant with `niagara.set_parameter`, verified
+against the `.uasset` bytes on disk rather than a read-back. The only divergences deliberately left
+are 5 on `NS_Explosion` (four `Color`, one `Lifetime`), held back by the owning stream while a
+separate atlas defect on its `Fireball` emitter is under test.
+
+### The multiply is real, and it is albedo
+
+Worth recording, because it is what makes the `Color` half of this ticket a content defect rather
+than a cosmetic one. All three blood masters compute `BaseColor = ParticleColor.rgb * <tint>.rgb` —
+traced through `mgir.txt`, not assumed:
+
+| master | node | tint in effect |
+|---|---|---|
+| `M_FPS_Debris_Lit` | `Multiply(ParticleColor.rgb, DebrisTint.rgb) -> BaseColor` | MI override `(0.42, 0.03, 0.022)` |
+| `M_FPS_BloodDroplet_Lit` | `Multiply(ParticleColor.rgb, BloodColor.rgb) -> BaseColor` | master **default** `(0.46, 0.03, 0.02)` — the renderer points at the master, there is no MI |
+| `M_FPS_Blood_Lit` | `Multiply(ParticleColor.rgb, BloodColor.rgb) * lerp(1, texMax, TextureShading)` | MI overrides `(0.26, 0.02, 0.014)` / `(0.30, 0.02, 0.013)` |
+
+So while the input was shadowed, every emitter in the package rendered with
+`ParticleColor = (1,1,1,1)` — the raw tint, with every authored per-emitter colour relationship
+absent, and with particle alpha forced to `1.0` regardless of what the author wrote. Restoring
+blood's four values moves its red albedo from `0.42-0.46` to `0.567-0.874` and its alpha from a
+forced `1.0` to the authored `0.5` / `0.8`.
+
+Nothing clips: the highest channel anywhere after restoration is `0.874`. The `>1` components in
+these authored colours are **multipliers into a sub-unity albedo tint**, not HDR emissive values —
+which is why the shadowing produced a washed-out, plausible result rather than an obviously broken
+one, and why it survived a critic pass with the colour claim marked VERIFIED.
 
 ## History
 
 - `#1-scope-wider-than-spawn-count` `OPEN` reporter — Second encounter. A full stack-vs-RI diff of all 13 systems under `/Game/FPS/VFX/` shows the shadowing is not specific to `SpawnBurst_Instantaneous.Spawn Count`: 111 shadowed inputs, of which 45 are `InitializeParticle.Color`, 38 `Spawn Count`, 13 `EmitterState.Loop Duration`, 11 `InitializeParticle.Lifetime`, 4 `SubUVAnimation` frame-range overrides, 1 `Position Offset` and 1 `Spawn Time`. Each was confirmed switch-active against the module's own `staticSwitchInputs` (`Color Mode` = Direct Set on 58/59 emitters, `Lifetime Mode` = Direct Set on all 11, `Loop Behavior` = Once with `Loop Duration Mode` = Fixed, `UseStartFrame`/`UseEndFrame` = True), so the runtime has been initialising every authored HDR tint to white at alpha 1 and running 0.06 s muzzle lights for 2 s. The 620 locals with no RI entry are live, and every `add_module`-added `SpawnBurst_Instantaneous001` is live on exactly the three inputs that carry an override pin — the asymmetry that named the bug generalises across the whole package. `NS_Blood`, recorded above as repaired, had only its Spawn Counts fixed; its four `Color` entries and `Burst.Lifetime` are still shadowed.
+- `#2-blood-remaining-five-repaired` `OPEN` reporter — Correction to `#1`, which recorded `NS_Blood`'s four `Color` entries and `Burst.Lifetime` as still shadowed: they were repaired in a follow-up pass, so the package now stands at 111/111 with only `NS_Explosion`'s 5 deliberately held back. Two things the follow-up established. First, the `Color` shadowing is an **albedo** defect: all three blood masters multiply `ParticleColor.rgb` into their tint to produce `BaseColor` (`M_FPS_Debris_Lit` via `DebrisTint`, `M_FPS_BloodDroplet_Lit` and `M_FPS_Blood_Lit` via `BloodColor`), so a shadowed white particle colour renders the raw tint and discards both the authored hue relationship and the authored alpha; restoring blood's values moves red albedo `0.42-0.46 -> 0.567-0.874` with no channel above 1.0, because the `>1` components are multipliers into a sub-unity tint rather than HDR emissive. That is why four rounds of review scored this content as acceptable. Second, and the reason `NS_Blood` is the sharpest instance: its `Spawn Count` values had **already** been repaired by an earlier agent, and the `force:false` compile required to clear the `dataInterfaceCheck: "mismatched"` state (`B-niagara-set-parameter-emitter-scope-arms-di-mismatch`) silently reverted all three — Drips 90, Spray 110, Mist 26 all back to 1 — while leaving the other 42 entries in the store untouched. The repair only survived because the store was snapshotted before the compile and diffed after. Any repair of this ticket that compiles after an earlier repair, on any system, destroys that earlier repair without a word.
