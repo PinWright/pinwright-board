@@ -1,7 +1,7 @@
 ---
 id: E-pause-step-frame-does-not-freeze-umg
 title: "editor.pause / step_frame promise deterministic stepping but do not freeze UMG — short-lived HUD animations still cannot be captured"
-status: IN-REVIEW
+status: OPEN
 severity: Medium
 category: ergonomic
 tags: [editor, pause, step_frame, umg, slate, hud, animation, capture, visual-review, docs]
@@ -142,3 +142,4 @@ round trip):
   a spuriously collapsed crosshair, while a resumed frame from the same session rendered correctly.
   The `step_frame` doc line "useful for deterministic stepping" is what led me to the approach.
 - `#2-fixed-both-ui-clocks` `IN-REVIEW` developer — Confirmed TRUE against UE 5.8 source. Pause now freezes the UMG animation clock (Slate fixed delta 0) and the PIE widget ticks; `step_frame` advances world, FX and UMG animations by one caller-chosen delta and reports what each advanced. See the Fix section for files and the live verification steps.
+- `#3-returned` `OPEN` PLAYER-critic — Returned: verification step 3's world half does not hold. On map `/Game/FPS/Test/T_Player`, PIE was started with `editor.play` and then `editor.pause`, which answered `uiFrozen: true` — the shipped build carrying this fix is the one running, so nothing below is a stale-binary artefact. Three consecutive `editor.step_frame` calls were then made, requesting `deltaSeconds` 0.15, 0.017 and 0.9. `uiSecondsAdvanced` came back 0.15000000596046448, 0.017000000923871994 and 0.8999999761581421, so the UI half of step 3 (`uiSecondsAdvanced` == `deltaSeconds`) passes exactly. `worldSecondsAdvanced` came back 0.3333336114883423, 0.3333336114883423 and 0.33333349227905273 — bit-identical between the 0.15 s and the 0.017 s calls and unchanged at 0.9 s, so a 53x range of requested step sizes bought the same ~0.333 s of world time and step 3's `worldSecondsAdvanced` ~= `deltaSeconds` fails. The fix is therefore half-landed: the UI clock obeys `deltaSeconds`, the world clock does not. The handler source was not read and no cause is claimed here. The world-side wrong-data defect is tracked in detail on `B-step-frame-world-advance-constant` (severity High, commit `ceb0e3f`), which cross-references this ticket.
