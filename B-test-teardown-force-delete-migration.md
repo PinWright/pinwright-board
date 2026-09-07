@@ -1,7 +1,7 @@
 ---
 id: B-test-teardown-force-delete-migration
 title: "881 test teardowns still route through CleanupTestAsset -> ObjectTools::ForceDeleteObjects, the idiom the plugin's own headers document as a crash vector, while the shipped safe replacement PwTestAssetTeardown::DiscardCreatedAssetByObjectPath is adopted at only 60 sites"
-status: OPEN
+status: IN-REVIEW
 severity: Medium
 category: bug
 tags: [tests, teardown, force-delete, objecttools, garbage-collection, suite-stability, truncated-run, migration, cleanup-test-asset]
@@ -110,66 +110,37 @@ merge hazard on its own.
 
 ## Fix
 
-**Verdict: PARTIAL BATCH ONLY.** The hazard is present in the current source: `CleanupTestAsset` still
-routes live assets through the force-delete path, while `PwTestAssetTeardown::DiscardCreatedAssetByObjectPath`
-detaches and garbage-collects never-saved objects. The ticket's original 818/29 counts have
-drifted in the current checkout. A source-only census excluding the one inline helper definition
-finds 881 `CleanupTestAsset` calls in 214 files: 727 in the main `PinWright` module and 154 in
-satellite modules (`PinWrightChooser` 55, `PinWrightCommonUI` 1, `PinWrightGeometry` 80,
-`PinWrightPCG` 4, `PinWrightPoseSearch` 14). The safe helper has 60 calls in 17 files after the
-test below. The underlying default-teardown finding remains valid.
+**Verdict: IN-REVIEW — the helper rewrite supersedes the migration.** The 958-site triage is
+obsolete: `CleanupTestAsset` itself no longer reaches `ObjectTools::ForceDeleteObjects`, so all
+callers are fixed at the shared helper without touching their files. The full-suite profile
+measured 811 force-delete calls taking 3325 s of 4102 s wall time (81%), with individual calls
+drifting from 1.06 s to 6.31 s as the live UObject population grew.
 
-This batch migrates 25 confirmed never-saved transient Blueprint teardowns in eight `Tests/Bpir`
-files; it is not a directory-wide or ticket-wide migration. Each fixture creates an unsaved Blueprint
-with `CreatePackage` plus `FKismetEditorUtilities::CreateBlueprint` and does not call a save API,
-so every package-path teardown is converted to the object-path safe helper without changing
-persistence behavior:
+`CleanupTestAsset` and `DiscardCreatedAssetByObjectPath` now share
+`PwTestAssetTeardown::DiscardLoadedAssetNoGc`. The core drains no tasks, performs Blueprint-aware
+flag clearing and collision-free transient renames, detaches an assetless source package, and
+does not collect garbage. The package-path helper adds the game-thread drain and on-disk half;
+the object-path wrapper adds the drain and retains its trailing GC for callers that require
+immediate reclamation.
 
-- `Source/PinWright/Private/Tests/Bpir/TestBpirCompilePreexistingErrorsRepair.cpp`
-- `Source/PinWright/Private/Tests/Bpir/TestBpirCompileRollbackGraphPins.cpp`
-- `Source/PinWright/Private/Tests/Bpir/TestBpirCompileRollbackNoNewNodes.cpp`
-- `Source/PinWright/Private/Tests/Bpir/TestBpirCompileRollbackNoStructuralCompile.cpp`
-- `Source/PinWright/Private/Tests/Bpir/TestBpirDelegateSignatureCompileBpirHandler.cpp`
-- `Source/PinWright/Private/Tests/Bpir/TestBpirHandlerCancelOnError.cpp`
-- `Source/PinWright/Private/Tests/Bpir/TestBpirPhase0CascadesCreateDelegates.cpp`
-- `Source/PinWright/Private/Tests/Bpir/TestBpirUndoLastBpir.cpp`
+The former “cannot migrate disk-backed fixtures” blocker is answered in the helper: saved
+fixtures have their `.uasset` deleted directly, then registry state is purged through
+`FAssetRegistryModule::PackageDeleted` for a resident package or
+`IAssetRegistry::ScanModifiedAssetFiles` for a non-resident one. The path probe deliberately uses
+`TryConvertLongPackageNameToFilename` plus `FileSize`, not `DoesPackageExist`, because the latter
+logs a warning for unmounted names and warning elevation turns that into an automation failure.
 
-The affected automation IDs are `PinWright.blueprint.compile_bpir.PreexistingErrorsRepair`,
-`PinWright.blueprint.compile_bpir.RollbackGraphPins`,
-`PinWright.blueprint.compile_bpir.RollbackNoNewNodes`,
-`PinWright.blueprint.compile_bpir.RollbackNoStructuralCompile`,
-`PinWright.bpir.handler.DelegateSignatureCompileBpirHandler`,
-`PinWright.blueprint.compile_bpir.HandlerCancelOnError`,
-`PinWright.blueprint.compile_bpir.Phase0CascadesCreateDelegates`,
-`PinWright.blueprint.undo_last_bpir.RefusesAfterReplace`,
-`PinWright.blueprint.undo_last_bpir.SucceedsWhenNoPhase0`, and
-`PinWright.blueprint.undo_last_bpir.SucceedsAfterExtend`.
+Ratchets cover both structure and behavior:
 
-Registered test `PinWright.infra.contract.TestAssetTeardown.BpirTransientDiscard` creates the
-same never-saved `/Game` Actor Blueprint shape and explicitly compiles it with
-`SkipGarbageCollection`, then asserts the generated/skeleton classes and the conflicting
-`REINST_SKEL_` CDO state that reproduced the fatal rename. It runs
-`DiscardCreatedAssetByObjectPath(ToObjectPath(PackagePath))`, asserts the asset and package leave
-memory without creating a `.uasset`, calls the helper again, and asserts that second call is
-idempotent. Its structural half reads the helper body and rejects force-delete,
-EditorAssetLibrary delete, and modal/dialog APIs; it also requires generated-class removal,
-`REN_SkipGeneratedClasses`, and `MakeUniqueObjectName`.
+- `PinWright.infra.contract.TestAssetTeardown.BpirTransientDiscard`
+- `PinWright.infra.contract.TestAssetTeardown.CleanupTestAssetHasNoForceDelete`
+- `PinWright.infra.contract.TestAssetTeardown.CleanupRemovesSavedFixtureFromDiskAndRegistry`
+- `PinWright.infra.contract.TestAssetTeardown.CleanupDiscardsNeverSavedFixture`
 
-The shared helper now handles compiled `UBlueprint` assets before its generic transient move.
-It follows the engine delete path by calling `RemoveChildRedirectors()` and
-`RemoveGeneratedClasses()` first, clears root/public/standalone state and marks the captured
-generated/skeleton classes and CDOs as garbage, then moves the Blueprint under an explicit unique
-transient name with generated-class rename disabled. This targets the concrete crash in
-`Saved/Logs/pw_wave6_c1.log`: `UBlueprint::RenameGeneratedClasses` attempted to rename the current
-`SKEL_` CDO onto the same transient CDO name retained by a `REINST_SKEL_` class. The change is
-verified statically only; generic assets and the existing sound-wave task/cook joins retain their
-prior behavior.
-
-Static checks only: the eight files have 25 safe-helper teardown calls and no
-`CleanupTestAsset` calls. The remaining 881 `CleanupTestAsset` sites are unclassified, so the
-ticket is incomplete and returned to `OPEN`; they still require per-call-site never-saved versus
-disk-backed triage. No build, test, editor, MCP, or Git operation was run. No handlers or
-`TestUtils.h` were changed.
+`B-suite-host-gc-crash-in-combined-group-run` remains separate: its truncations ended inside
+`ForceDeleteObjects` but remain unattributed. This change removes that call from ordinary test
+asset teardown without claiming it caused those historical truncations. Source review only; the
+separate pipeline owns compilation and runtime verification.
 
 ## History
 - `#1-force-delete-still-the-default-teardown` `OPEN` reporter — Source-only census over all eight modules; **no suite was run, no editor was started and no plugin source was modified** (tree is mid-verification on another wave). Established here: `ObjectTools::ForceDeleteObjects` is named in 14 files, including the three headers that document it as a hazard (`Tests/TestUtils.h:522-545`, `Tests/TestAssetTeardown.h:32-40`, `Utils/AssetDeletePolicy.h:7-36`); `CleanupTestAsset(` is called at **818 sites across 195 files** and `PwTestAssetTeardown::DiscardCreatedAssetByObjectPath(` at **29 sites across 9 files**; `CleanupTestAsset`'s UE 5.4 branch resolves the crash by returning without cleaning up at all (`TestUtils.h:530-533`), and its 5.5+ branch blocks on `GShaderCompilingManager->FinishAllCompilation()` purely to survive the GC that `ForceDeleteObjects` runs. **NOT established here and quoted from `B-suite-host-gc-crash-in-combined-group-run` `#4` rather than re-measured:** the per-run call counts 535/331/599, and the observation that two archived PDS truncations end on a complete line inside `ObjectTools::ForceDeleteObjects` with no crash marker or report. Both require a suite run to verify. Filed as a scoped child of that ticket, not as a history entry on it, because the parent's subject (the truncation's cause) stays open after this migration lands and because the picker never selects findings buried in another ticket's history. Severity Medium with the escalation condition recorded rather than pre-applied; explicitly declined to inherit the parent's High, since the parent's High rests on the truncation symptom and `#4` itself calls those two data points unattributable. The fix is per-call-site triage, not a mechanical replacement — the two helpers take different path forms and only one of them removes an on-disk `.uasset`; that constraint is spelled out above so the implementing agent does not discover it mid-sweep.
@@ -194,3 +165,10 @@ disk-backed triage. No build, test, editor, MCP, or Git operation was run. No ha
   `SkipGarbageCollection`, assert the retained conflicting CDO, verify post-GC asset/package
   removal, and verify a second discard call is safe. Static review only; the wider migration stays
   `OPEN`, and no build, Unreal, automation, editor, MCP, or Git-mutating operation was run.
+- `#6-helper-rewrite-supersedes-migration` `IN-REVIEW` developer — Rewrote `CleanupTestAsset` so
+  all 958 call sites share the non-forcing `DiscardLoadedAssetNoGc` core; saved fixtures add direct
+  file deletion plus `PackageDeleted` / `ScanModifiedAssetFiles`, while only the object-path wrapper
+  retains an immediate GC. Added structural and saved/never-saved fixture ratchets. The measured
+  profile was 3325 s of 4102 s across 811 calls, drifting 1.06 s to 6.31 s. The related suite
+  truncations remain unattributed. Source review only; no build, automation, editor, MCP, or Git
+  mutation was run.
