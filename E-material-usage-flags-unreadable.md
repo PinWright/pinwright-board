@@ -2,11 +2,11 @@
 id: E-material-usage-flags-unreadable
 title: "No verb reads or writes a material's bUsedWith* usage flags — get_material_info reports domain, blend mode, two-sidedness, shading model, node count, main inputs and parameters and not one usage flag — so a caller building the ISM/HISM scatter the plugin's own wiki teaches cannot see that the material will be swapped for the Default Material in a packaged build"
 status: OPEN
-severity: Medium
+severity: High
 category: ergonomic
 tags: [material, material-authoring, get_material_info, readback, usage-flags, ism, hism, instanced-static-mesh, nanite, shader-recompile, packaged-build, vegetation, niagara, vfx, compile-mgir, default-material]
-encounters: 2
-lastSeen: 2026-08-29T18:00:00+05:00
+encounters: 3
+lastSeen: 2026-09-07T07:06:30Z
 ---
 
 # The editor hides this condition by fixing it, once per launch, forever
@@ -211,3 +211,23 @@ unmodified.
   Cause, found only by reading the flags directly through `python.execute`: **9 of my 10 particle materials had `used_with_niagara_sprites` / `used_with_niagara_mesh_particles` set to false.** Neither `compile_mgir` nor `create_material` sets a usage flag, and MGIR's own documentation lists `bUsedWith*` among the properties it does not carry — so a particle material authored entirely through PinWright is born unable to render, and nothing in the toolchain says so.
   Why it is intermittent rather than always-broken, which is what makes it expensive: the editor auto-sets the flag the first time it draws the material and marks the package dirty. If that dirty package is later saved, the flag sticks and the problem vanishes forever; if the editor crashes first, it reverts. This session had four editor crashes, so I got both behaviours from the same assets at different times — sparks rendering correctly with the flag reading `false` on disk, and a heat sprite checkerboarding with the flag reading `true`. That non-determinism is exactly why a caller cannot reason about it without a read verb.
   Fixed by setting `used_with_niagara_sprites` + `used_with_niagara_ribbons` on the eight sprite materials and `used_with_niagara_mesh_particles` on the two mesh materials via `python.execute` with `PinWrightPackageLibrary.mark_package_dirty` and a forced save; re-captured and the checkerboard was gone. Adds to `#1`'s ask: alongside a read on `get_material_info`, `compile_mgir` and `create_material` should accept usage flags, or at minimum `material.authoring` should expose a typed setter — `property.set` works but a caller has to already know the flag exists to reach for it. Severity: `#1` argued Medium on a packaged-build-only symptom; this encounter shows visible in-editor breakage that survives every available validation, which I would argue is High, but I am leaving the field at the reporter's original value rather than raising another agent's ticket unilaterally.
+- `#3-skeletal-mesh-visible-in-editor-cost-five-builds` `OPEN` PLAYER — Same gap, a worse manifestation, and one correction to the text above.
+
+  **The correction first, because it is load-bearing.** The title and body say the plugin has "no read and no write for material usage flags at all". That is no longer true, and a reader who believes it will not try the thing that works: the generic property verbs reach these flags fine. `property.get {objectPath:"/Game/FPS/Player/M_FPSArms.M_FPSArms", propertyName:"bUsedWithSkeletalMesh"}` returned `false`, and `property.set` of the same name returned `applied:true, markedDirty:true` and survived a save (19706 B, mtime 2026-09-07T07:06:30Z). So the gap is narrower and more specific than stated: **the material verbs do not surface usage flags, while the reflection verbs do** — nothing is unreachable, it is undiscoverable from the material namespace where a caller doing material work is actually looking. Retitling around that would make the ticket findable by the person who needs it.
+
+  **The worse manifestation.** The body argues this looks harmless because "the editor hides this condition by fixing it, once per launch". For **skeletal** meshes in this project it did not hide it at all — it rendered the engine Default Material in the editor, in PIE, in every frame, for five consecutive builds. `/Game/FPS/Player/M_FPSArms` is assigned to the first-person arms (`SKM_FPSArms`, a `USkeletalMeshComponent`) and carried `bUsedWithSkeletalMesh = false`. The arms rendered pale grey with dense fine speckle — the Default Material — while the authored material is a near-black sleeve (`SleeveTint` 0.035/0.038/0.045).
+
+  **What makes it expensive is that every material-side check passes, and each one passes for a different reason:**
+
+  | check | result | why it cannot see this |
+  |---|---|---|
+  | `asset.generate_thumbnail {primitive:"sphere"}` | `usingDefaultMaterial:false`, meanLuminance 0.132 — a correct dark sphere | renders a **static** primitive, which needs no skeletal permutation |
+  | `material.authoring.compile_material` | `shaderCompile.succeeded:true`, `rendersDefaultMaterial:false` | compiles the **default** permutation, not the one the component requires |
+  | `material.authoring.get_material_info` | domain, blend mode, shading model, parameters, wired main inputs, all correct | reports no usage flag, as this ticket says |
+  | `get_material_node_details` / `decompile_mgir` | graph fully wired | the graph *is* fine; the material is simply not allowed on that mesh |
+
+  `rendersDefaultMaterial:false` is the sharpest edge here. It is the one field whose plain reading is "this will not render as the Default Material", and it is false at the exact moment the asset is rendering as the Default Material on the only mesh that uses it. Five builds of this stream chased albedo, tiling, exposure, material slots, shader permutations, component overrides and World Position Offset — each measured "correct" — because the field that was wrong was not in any material response.
+
+  **Two asks, in priority order.** (1) `get_material_info` should report the `bUsedWith*` set, and `rendersDefaultMaterial` should either account for the usage flags or be documented as default-permutation-only in the same breath it is emitted. (2) A material assigned to a component whose usage flag is unset is a checkable condition — if any verb ever reports "this material renders on this mesh", that is the one that must consult the flags.
+
+  **One more consequence, for `material.compile_mgir`.** Its own documentation says the `bUsedWith*` flags are not among the properties MGIR carries, so a material authored into a **fresh** path via MGIR gets engine defaults. Authoring a skeletal-mesh material that way therefore produces a silently broken asset by construction, and MGIR has no syntax to set the flag. A `property MaterialUsage: ...` line, or just a note in `material.mgir` pointing at the property verbs, would close that.
