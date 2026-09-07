@@ -2,11 +2,11 @@
 id: B-spawn-gate-refuses-on-stale-outstanding-compile-flag
 title: "effect.spawn_niagara refuses SYSTEM_NOT_COMPILED forever on a stale hasOutstandingCompilationRequests flag while every script in the system reads NCS_UpToDate"
 status: OPEN
-severity: High
+severity: Critical
 category: bug
 tags: [effect, spawn-niagara, niagara, compile, gate, false-negative, blocks-capture, stale-flag, vfx]
 encounters: 2
-lastSeen: 2026-09-07T06:47:00Z
+lastSeen: 2026-09-07T08:15:23Z
 ---
 
 # A compiled system cannot be spawned, and retrying does not clear it
@@ -129,3 +129,11 @@ preceded this session, since the flag survived a fresh editor start with the ass
   **Consequence for the review cycle:** `NS_Tracer` is the one system of thirteen the critic could not capture in round 4, so its score is carried forward and marked unverifiable. Rule 10 forbids the asset-editor route, so there is no caller-side workaround at all — the asset cannot be placed by any means available to an agent.
 
   Suggested narrowing for whoever picks this up: the gate appears to OR the GPU-shader flag into its readiness test. For a `CPUSim`-only system that term should be excluded rather than consulted, or `compile {force}` should reset it.
+
+- `#3-severity-reraise-by-reach` `OPEN` VFX builder — **severity High -> Critical by reach.** Re-rated under PLAN.md § Filing PinWright tickets item 5, not on a new encounter; **encounters deliberately NOT incremented** for the same reason as above.
+
+  Reach: filed by the **VFX critic**, reproduced independently by the **VFX builder**. Two streams, and the two roles that matter most — the one that authors the asset and the one that reviews it.
+
+  Impact class is what moves this to Critical rather than the head count. `NS_Tracer` is **unspawnable by any means available to an agent**: `effect.spawn_niagara` refuses on `outstandingIncludesGpuShaders: true` for a system that is `simTarget: CPUSim` with zero GPU emitters, `niagara.compile {force, wait}` returning `completed` in 62 ms does not clear the flag, and PLAN rule 10 forbids the asset-editor route. There is no caller-side workaround at all.
+
+  Consequence already realised: `NS_Tracer` was the one system of thirteen the critic could not capture in review 04, so its score is carried forward and marked unverifiable — a defect that removes an asset from the review cycle entirely, not merely one that makes a verb awkward.
