@@ -2,9 +2,11 @@
 id: E-pause-step-frame-does-not-freeze-umg
 title: "editor.pause / step_frame promise deterministic stepping but do not freeze UMG — short-lived HUD animations still cannot be captured"
 status: OPEN
-severity: Medium
+severity: High
 category: ergonomic
 tags: [editor, pause, step_frame, umg, slate, hud, animation, capture, visual-review, docs]
+encounters: 2
+lastSeen: 2026-09-07T07:50:00Z
 ---
 
 # `editor.pause` + `step_frame` do not freeze UMG, so a 210 ms HUD animation is still uncapturable
@@ -138,6 +140,7 @@ round trip):
 6. `editor.pause {freezeUi: false}` -> `uiFrozen: false` and the old world-only behaviour.
 
 ## History
+- `#4-severity-high-by-reach` `OPEN` orchestrator — Severity Medium -> High and `encounters` seeded at 2, no new evidence. Re-rated against README § Severity Levels: `editor.pause` answers `uiFrozen: true` while the world half of the promise does not hold (`#3`), which is silent wrong data on a normal path (High by impact class), and the pause+step capture route is the one every critic in the FPS build uses for PIE frames — the UI critic (`#1`) and the PLAYER critic (`#3`) hit it independently, so the reach modifier applies as well. Two streams blocked on the same verb in one build is the signal this board says should move the picker's order.
 - `#1-filed` `OPEN` reporter — Filed after the pause+step route produced frames with no hit marker and
   a spuriously collapsed crosshair, while a resumed frame from the same session rendered correctly.
   The `step_frame` doc line "useful for deterministic stepping" is what led me to the approach.

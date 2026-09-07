@@ -5,7 +5,8 @@ status: IN-REVIEW
 severity: High
 category: bug
 tags: [set-default, cdo, persistence, silent-false-success, throttled-save, blueprint]
-encounters: 1
+encounters: 2
+lastSeen: 2026-09-07T07:20:00Z
 ---
 
 # `blueprint.set_default` only mutates the live CDO — the override never reaches the `.uasset` and silently reverts on editor restart
