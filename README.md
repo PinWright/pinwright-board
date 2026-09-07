@@ -158,6 +158,7 @@ deferUntil: 2026-07-21     # optional; deferral-only — YYYY-MM-DD review-by da
 claimedBy: fuzz3           # optional; lease-only — host currently working this OPEN ticket
 claimedAt: 2026-06-21T14:30:00Z  # optional; lease-only — ISO time the claim was taken
 encounters: 3              # optional; times this bug was observed (seeded 1, +1 per dedup-append). Same-severity tiebreak; absent = 1
+costly: 2                  # optional; encounters that recorded lost work (see Severity Levels § Cost). Bumps severity at 3; absent = 0
 lastSeen: 2026-06-27T09:15:00Z   # optional; ISO time of the most recent observation
 ---
 ```
@@ -181,8 +182,11 @@ Rules:
   most recent observation, refreshed on each append. (`lastSeen` is allowed in
   frontmatter — the "no dates in history" rule governs history entries only, and
   `claimedAt` is already an ISO frontmatter timestamp.) `encounters` is a
-  same-severity work-ordering tiebreak, **never** a severity input — see
-  [Severity Levels](#severity-levels).
+  same-severity work-ordering tiebreak; it becomes a severity input only through
+  `costly` — see [Severity Levels](#severity-levels) § Cost.
+- `costly` counts the subset of encounters whose History entry records concrete
+  lost work (definition under Severity Levels § Cost). Seeded `0`, incremented by
+  `1` on a costly append, never on a re-rating entry; absent = `0`.
 
 ### Severity Levels
 
@@ -207,11 +211,22 @@ Reach modifier: if the affected method runs in almost every session, bump up one
 level; if it is a rare edge path, bump down one. A `Low`-impact gap on an
 every-session method outranks a `High`-impact gap on a method nobody hits.
 
-Tiebreak: within one severity band the picker orders OPEN tickets by
-`encounters` (descending), then filename. `encounters` only breaks ties between
-equally-severe tickets — it measures how often the fuzzer re-hits a bug, not user
-impact, so it **never** bumps severity. Severity stays impact × reach; a
-high-`encounters` ticket is still worked after every more-severe ticket.
+Cost modifier (added 2026-09-07 at the user's direction): repeated encounters
+bump severity when they keep costing work, and not otherwise. An encounter is
+**costly** when its History entry records one of: a wasted world or PIE slot or
+an editor restart; a false conclusion that was published, acted on, or later
+retracted because of the defect; a build or review round lost; or a workaround
+that took more than about ten extra calls or ten minutes. An encounter that a
+single `Read`, a wiki lookup, or a one-line retry resolved is **cheap** and never
+counts, however often it recurs. The rule: when `costly` reaches **3** from at
+least **two independent tasks or streams**, raise severity one level and append
+`#N-bumped-by-cost` naming the entries counted; each further three costly
+encounters may raise it again. The cap is the top of the impact class
+(`High` for anything that is not a crash or data loss — `Critical` stays reserved
+for those). Severity is therefore impact × reach, plus cost.
+
+Tiebreak: within one severity band the picker orders OPEN tickets by `costly`
+(descending), then `encounters` (descending), then filename.
 
 ## Body Template
 
