@@ -6,6 +6,7 @@ severity: Medium
 category: bug
 tags: [editor, set_game_view, show-flags, billboard, response-semantics, invariant-field, false-signal, docs]
 encounters: 1
+costly: 1
 lastSeen: 2026-08-20T00:00:00Z
 ---
 

@@ -5,6 +5,7 @@ status: OPEN
 severity: Low
 category: ergonomic
 tags: [scs, blueprint, add_component, root, discovery, error-diagnostics]
+costly: 1
 ---
 
 # `blueprint.scs.add_component` rejects `parentComponentName: "RootComponent"`

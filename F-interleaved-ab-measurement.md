@@ -6,6 +6,7 @@ severity: Medium
 category: feature
 tags: [performance, measurement, benchmark, ab-testing, interleaved, drift, baseline, percentiles, methodology, profiling, reproducibility, frame-time]
 encounters: 1
+costly: 1
 lastSeen: 2026-08-30T17:55:00+03:00
 ---
 

@@ -6,6 +6,7 @@ severity: Medium
 category: ergonomic
 tags: [blueprint, set-default, container, map, tmap, json, conversion-failed, unactionable-error, workaround-python]
 encounters: 2
+costly: 2
 lastSeen: 2026-09-05T20:15:00Z
 ---
 

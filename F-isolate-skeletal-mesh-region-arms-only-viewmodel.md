@@ -5,6 +5,7 @@ status: OPEN
 severity: Medium
 category: feature
 tags: [skeleton, skeletal-mesh, geometry, sections, viewmodel, first-person, arms, hide-bone, material-slot]
+costly: 3
 ---
 
 # An arms-only viewmodel cannot be produced from a full-body skeletal mesh

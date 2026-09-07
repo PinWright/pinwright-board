@@ -6,6 +6,7 @@ severity: Low
 category: ergonomic
 tags: [asset, asset-list, class-filter, diagnostics, empty-result, discoverability]
 encounters: 1
+costly: 1
 lastSeen: 2026-08-20T00:00:00Z
 ---
 

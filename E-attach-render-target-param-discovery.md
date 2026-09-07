@@ -6,6 +6,7 @@ severity: Low
 category: ergonomic
 tags: [render, render-target, post-process, undocumented-material-contract, docs]
 encounters: 1
+costly: 1
 lastSeen: 2026-07-10T22:13:47+0300
 ---
 

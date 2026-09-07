@@ -6,6 +6,7 @@ severity: Low
 category: ergonomic
 tags: [bpir, cast, pin-name, diagnostic, wiki, discoverability, display-name]
 encounters: 2
+costly: 1
 lastSeen: 2026-09-02T23:10:00+03:00
 ---
 

@@ -6,6 +6,7 @@ severity: Low
 category: feature
 tags: [actor-batch-set-asymmetry, actor-list, actor-get, projection, location, transform, bulk, spatial]
 encounters: 2
+costly: 1
 lastSeen: 2026-09-06T00:00:00Z
 ---
 

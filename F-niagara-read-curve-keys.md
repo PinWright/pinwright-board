@@ -6,6 +6,7 @@ severity: Medium
 category: feature
 tags: [niagara, curve, data-interface, readback, verification, inspect]
 encounters: 2
+costly: 2
 lastSeen: 2026-09-05
 ---
 

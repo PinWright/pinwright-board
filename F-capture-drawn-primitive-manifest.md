@@ -6,6 +6,7 @@ severity: Medium
 category: feature
 tags: [render, capture_open_level, capture, manifest, subject, framing, ism, hism, instanced-static-mesh, per-instance, look-dev, verification, missing-verb, vegetation]
 encounters: 1
+costly: 1
 lastSeen: 2026-08-29T18:20:00+05:00
 ---
 

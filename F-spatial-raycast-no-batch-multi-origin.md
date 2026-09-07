@@ -6,6 +6,7 @@ severity: Low
 category: feature
 tags: [batch, spatial, raycast, surface-scan, floor-probe, region-scan, workaround]
 encounters: 1
+costly: 1
 lastSeen: 2026-07-05T01:09:45.3126624+03:00
 ---
 

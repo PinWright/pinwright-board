@@ -6,6 +6,7 @@ severity: Medium
 category: bug
 tags: [mrq, run_jobs, movie-pipeline, mp4, audio, aac, streams, artifact-report, readback, deliverable, response-honesty, measured]
 encounters: 2
+costly: 2
 lastSeen: 2026-09-02T20:30:00+03:00
 ---
 

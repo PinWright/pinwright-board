@@ -6,6 +6,7 @@ severity: Medium
 category: bug
 tags: [bpir, compile-bpir, interface, variable, set, trycreateconnection, k2-schema, conversion-node]
 encounters: 1
+costly: 1
 lastSeen: 2026-09-02T23:05:00+03:00
 ---
 

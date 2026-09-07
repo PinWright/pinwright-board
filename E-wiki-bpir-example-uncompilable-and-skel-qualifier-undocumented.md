@@ -6,6 +6,7 @@ severity: Medium
 category: ergonomic
 tags: [docs, wiki, wiki-src, bpir, break-struct, interface, message, skel-class, round-trip, copy-paste-fails]
 encounters: 1
+costly: 1
 lastSeen: 2026-09-05T18:07:35Z
 ---
 

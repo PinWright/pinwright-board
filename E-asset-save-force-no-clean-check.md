@@ -6,6 +6,7 @@ severity: Medium
 category: ergonomic
 tags: [asset, save, force, dirty, no-op, persistence, possible-crash, needs-repro]
 encounters: 1
+costly: 1
 lastSeen: 2026-07-01T00:17:53.1197644+03:00
 blockedBy: [F-asset-save]
 ---

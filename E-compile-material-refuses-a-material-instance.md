@@ -2,10 +2,11 @@
 id: E-compile-material-refuses-a-material-instance
 title: "set_static_switch_parameter_value on an MI reports notCompiled + rendersDefaultMaterial:true and tells you to call compile_material, which refuses a MaterialInstanceConstant"
 status: OPEN
-severity: Low
+severity: High
 category: enhancement
 tags: [material, material-authoring, compile-material, material-instance, static-switch, shader-compile, contradictory-advice, read-verb, get-material-instance-info]
 encounters: 3
+costly: 1
 lastSeen: 2026-09-07T07:06:00Z
 ---
 
@@ -44,6 +45,7 @@ severity rationale: impact=advice that cannot be followed, though the underlying
 and actionable by other means x reach=any static switch overridden on an instance -> Low
 
 ## History
+- `#4-rerated-by-impact-class` `OPEN` orchestrator — Severity Low -> High. `rendersDefaultMaterial: true` on a material instance is not unfollowable advice but silent wrong data on a normal path — the caller is told the asset draws nothing while it demonstrably renders, which is the High impact class, and the original Low rested on reading it as advice. Reach supports it on top: three independent streams hit the same false field — #1 (reporter, `set_static_switch_parameter_value`), #2 (ENV asphalt, ~14 consecutive `set_material_instance_parameters` calls across two sessions, disproved by a red-tint capture), #3 (VFX glass-dust agent, the same flag on the read verb with a shipped 8-of-10 frame as control).
 - `#1-filed` `OPEN` reporter — Found immediately after `B-connect-nodes-accepts-true-false-pin-names-on-static-switch-and-wires-nothing`, where the same `shaderCompile` block correctly caught a material rendering as the Default Material. The reporting is a real improvement; this is the one loose end in it.
 - `#2-flag-is-not-just-unhelpful-it-is-false` `OPEN` ENV — Same field, adjacent verb, and a datum this ticket does not yet have: **`rendersDefaultMaterial: true` is not merely advice that cannot be followed - it is factually wrong**, and I can show it rather than argue it.
 

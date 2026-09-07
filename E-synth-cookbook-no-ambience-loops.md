@@ -6,6 +6,7 @@ severity: Medium
 category: ergonomic
 tags: [audio, synth, cookbook, wiki, ambience, looping, discontinuity, documentation-gap]
 encounters: 1
+costly: 3
 lastSeen: 2026-09-02T20:45:00Z
 ---
 

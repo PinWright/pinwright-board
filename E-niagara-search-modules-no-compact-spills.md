@@ -6,6 +6,7 @@ severity: Low
 category: ergonomic
 tags: [niagara, search-modules, response-size, oversized-readback, compact, projection, node-discovery, docs]
 encounters: 2
+costly: 1
 lastSeen: 2026-07-11T13:42:19.4473734+03:00
 ---
 

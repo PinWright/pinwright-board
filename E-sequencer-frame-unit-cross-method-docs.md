@@ -6,6 +6,7 @@ severity: Low
 category: ergonomic
 tags: [cross-method-unit-split, units, sequencer, add_sub_sequence, set_sub_section_range, set_properties, list_sections, python-scripting-channels, docs, discoverability]
 encounters: 2
+costly: 1
 lastSeen: 2026-08-27T23:55:00.0000000+05:00
 ---
 

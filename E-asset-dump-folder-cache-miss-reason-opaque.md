@@ -6,6 +6,7 @@ severity: Low
 category: ergonomic
 tags: [asset-dump, dump-folder, cache, telemetry, fingerprint]
 encounters: 1
+costly: 1
 lastSeen: 2026-07-17T07:06:00Z
 ---
 

@@ -6,6 +6,7 @@ severity: Low
 category: ergonomic
 tags: [material, material-authoring, get_material_info, parameters, material-instance, recipe, docs, discoverability, shared-content, promote-to-parameter, premise-corrected]
 encounters: 1
+costly: 1
 lastSeen: 2026-08-29T18:00:00+05:00
 ---
 

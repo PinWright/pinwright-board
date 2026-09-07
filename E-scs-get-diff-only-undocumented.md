@@ -6,6 +6,7 @@ severity: Low
 category: ergonomic
 tags: [blueprint, scs, scs-get, diff-only, readback, cdo, default-value, docs, discovery]
 encounters: 2
+costly: 1
 lastSeen: 2026-07-01T23:01:51+03:00
 ---
 

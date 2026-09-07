@@ -6,6 +6,7 @@ severity: Medium
 category: feature
 tags: [proxy, mcp-proxy, editor-launch, editor_start, readiness, timeout, cold-start]
 encounters: 1
+costly: 1
 lastSeen: 2026-09-02T00:00:00Z
 ---
 

@@ -6,6 +6,7 @@ severity: Medium
 category: bug
 tags: [geometry, audit_static_meshes, z-fighting, unrunnable, coarse-grid, environment-review, blockout-meshes]
 encounters: 2
+costly: 2
 lastSeen: 2026-09-06T06:40:00Z
 ---
 

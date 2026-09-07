@@ -6,6 +6,7 @@ severity: High
 category: bug
 tags: [effect, spawn-niagara, niagara, compile, gate, false-negative, blocks-capture, stale-flag, vfx]
 encounters: 2
+costly: 2
 lastSeen: 2026-09-07T08:16:37Z
 ---
 

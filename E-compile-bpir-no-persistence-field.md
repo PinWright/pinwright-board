@@ -6,6 +6,7 @@ severity: Medium
 category: ergonomic
 tags: [blueprint, compile_bpir, save, persistence, saveState, pendingFlush, safe-mutation-save, response-shape]
 encounters: 1
+costly: 1
 lastSeen: 2026-09-02T19:44:57Z
 ---
 

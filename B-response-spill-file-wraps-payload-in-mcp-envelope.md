@@ -6,6 +6,7 @@ severity: High
 category: bug
 tags: [response-budget, outputTooLong, spill, http-responses, mcp-envelope, shape-inconsistency, silent-false-negative, niagara-validate]
 encounters: 4
+costly: 1
 lastSeen: 2026-09-07T08:15:23Z
 ---
 

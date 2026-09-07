@@ -6,6 +6,7 @@ severity: High
 category: bug
 tags: [material, material-authoring, get_material_info, compile_material, generate_thumbnail, rendersDefaultMaterial, usage-flags, bUsedWithSkeletalMesh, skeletal-mesh, false-green, silent-substitution, shader-permutation]
 encounters: 1
+costly: 1
 lastSeen: 2026-09-07T07:06:30Z
 ---
 

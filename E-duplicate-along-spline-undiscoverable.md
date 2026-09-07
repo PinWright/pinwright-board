@@ -6,6 +6,7 @@ severity: Low
 category: ergonomic
 tags: [docs, geometry, spline, duplicate_along_spline, discoverability, cross-namespace-discovery, wiki]
 encounters: 1
+costly: 1
 lastSeen: 2026-07-02T03:26:06.4106887+03:00
 ---
 

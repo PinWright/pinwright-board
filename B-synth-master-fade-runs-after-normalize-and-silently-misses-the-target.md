@@ -6,6 +6,7 @@ severity: Medium
 category: bug
 tags: [audio, synth, generate, normalize, fade, peak, misleading-measurement, transient]
 encounters: 1
+costly: 1
 lastSeen: 2026-09-03T01:30:00Z
 ---
 

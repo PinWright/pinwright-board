@@ -6,6 +6,7 @@ severity: Medium
 category: feature
 tags: [asset, asset-create, generic-creator, factory, class-parameter, missing-verb, procedural-vegetation, modal-hazard, python-unreachable]
 encounters: 2
+costly: 1
 lastSeen: 2026-09-02T22:20:00+03:00
 ---
 

@@ -6,6 +6,7 @@ severity: Medium
 category: bug
 tags: [geometry, audit_static_meshes, includeClean, cleanAssets, silent-no-op, measurements, readback, weapons]
 encounters: 1
+costly: 1
 lastSeen: 2026-09-06T00:00:00Z
 ---
 

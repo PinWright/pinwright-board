@@ -6,6 +6,7 @@ severity: Medium
 category: bug
 lastSeen: 2026-09-05T18:09:22Z
 encounters: 2
+costly: 1
 tags: [bpir, decompiler, compiler, qualified-call, cross-class, skeleton-class, round-trip]
 ---
 

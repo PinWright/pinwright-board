@@ -6,6 +6,7 @@ severity: Low
 category: ergonomic
 tags: [niagara, validate, compile-state, docs, discovery, compile-status]
 encounters: 6
+costly: 1
 lastSeen: 2026-09-06T00:31:00+03:00
 ---
 

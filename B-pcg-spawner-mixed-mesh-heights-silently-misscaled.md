@@ -6,6 +6,7 @@ severity: Medium
 category: bug
 tags: [pcg, generate, static-mesh-spawner, mesh-selector, weighted, transform-points, scale, silent-wrong-output, missing-warning, lint, vegetation]
 encounters: 1
+costly: 1
 lastSeen: 2026-08-29T18:00:00+05:00
 ---
 

@@ -6,6 +6,7 @@ severity: Medium
 category: ergonomic
 tags: [actor, get_components, readback, collision, collision-profile, collision-channel, body-instance, object-type, ism, hism, pawn, census, missing-field, level-building, static-mesh, mesh-identity, instance-count, scatter, multi-agent, ground_instances, safety-practice]
 encounters: 2
+costly: 2
 lastSeen: 2026-08-30T16:10:03+03:00
 ---
 

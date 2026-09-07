@@ -6,6 +6,7 @@ severity: Low
 category: ergonomic
 tags: [texture, streaming, never-stream, misleading-name, neverStream, docs]
 encounters: 2
+costly: 2
 lastSeen: 2026-06-23T10:08:23Z
 ---
 

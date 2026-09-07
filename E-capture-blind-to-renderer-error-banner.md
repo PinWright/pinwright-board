@@ -6,6 +6,7 @@ severity: Medium
 category: enhancement
 tags: [render, capture_open_level, capture, contamination, warning, acceptance-shot, vram, on-screen-message]
 encounters: 1
+costly: 1
 lastSeen: 2026-09-05T19:00:00Z
 ---
 

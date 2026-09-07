@@ -6,6 +6,7 @@ severity: Medium
 category: bug
 tags: [python, crash, garbage-collection, engine-fault, reentrancy, material]
 encounters: 3
+costly: 2
 lastSeen: 2026-09-06T06:03:44Z
 ---
 

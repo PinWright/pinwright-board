@@ -6,6 +6,7 @@ severity: Low
 category: feature
 tags: [input, enhanced-input, add_mapping, batch, ergonomic, churn]
 encounters: 3
+costly: 1
 lastSeen: 2026-07-02T14:22:42.2644272+03:00
 ---
 

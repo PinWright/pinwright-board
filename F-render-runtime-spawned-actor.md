@@ -6,6 +6,7 @@ severity: Medium
 category: feature
 tags: [render, capture, preview, actor, blueprint, runtime-spawn, visual-verification, active-world]
 encounters: 2
+costly: 1
 lastSeen: 2026-08-18T00:00:00Z
 ---
 

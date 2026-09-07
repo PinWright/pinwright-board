@@ -5,6 +5,7 @@ status: OPEN
 severity: Medium
 category: feature
 tags: [gas, configure_asc, replication, ability-system, bpir, reimplement, rpc-audit]
+costly: 1
 ---
 
 # Reimplement `gas.configure_asc` via BPIR (graph call), not a component-template property write

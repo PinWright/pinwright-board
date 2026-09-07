@@ -6,6 +6,7 @@ severity: Medium
 category: feature
 tags: [audio, synth, sample, normalize, soundwave, stereo, mono-collapse, silent-data-loss]
 encounters: 1
+costly: 1
 lastSeen: 2026-09-03T00:50:00Z
 ---
 

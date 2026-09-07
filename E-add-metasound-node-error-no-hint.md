@@ -7,6 +7,7 @@ category: ergonomic
 tags: [metasound, audio, authoring, add_metasound_node, error-messages, error-hint, discovery]
 blockedBy: [B-add-metasound-node-rejects-registry-classnames]
 encounters: 7
+costly: 1
 lastSeen: 2026-06-24T19:46:41Z
 ---
 

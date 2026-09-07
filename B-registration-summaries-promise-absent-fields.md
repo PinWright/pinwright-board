@@ -5,6 +5,7 @@ status: OPEN
 severity: Medium
 category: bug
 tags: [wiki, discoverability, jobs, system, response-schema, false-promise]
+costly: 1
 ---
 
 # Three registration summaries advertise response fields the handler never returns

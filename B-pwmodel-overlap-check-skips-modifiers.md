@@ -6,6 +6,7 @@ severity: Medium
 category: bug
 tags: [pwmodel, diagnostics, PWMODEL_UNUNIONED_OVERLAP, mirror, array_linear, array_radial, array_along_path, sweep, extrude_along_spline, unreachable-check, footprint]
 encounters: 3
+costly: 1
 lastSeen: 2026-09-03T04:20:00Z
 ---
 

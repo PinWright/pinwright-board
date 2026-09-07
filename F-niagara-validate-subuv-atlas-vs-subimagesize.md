@@ -6,6 +6,7 @@ severity: High
 category: feature
 tags: [niagara, niagara-validate, subuv, subimagesize, sprite-renderer, flipbook, texture, silent-wrong-render, vfx]
 encounters: 1
+costly: 1
 lastSeen: 2026-09-07
 ---
 

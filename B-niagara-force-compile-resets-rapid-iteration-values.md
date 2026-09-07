@@ -6,6 +6,7 @@ severity: High
 category: bug
 tags: [niagara, compile, force, rapid-iteration, set-parameter, silent-revert, data-loss, vfx]
 encounters: 2
+costly: 2
 lastSeen: 2026-09-07T07:45:00Z
 related: [B-module-input-override-inert-runtime-uses-rapid-iteration-default, B-niagara-set-parameter-emitter-scope-arms-di-mismatch]
 ---

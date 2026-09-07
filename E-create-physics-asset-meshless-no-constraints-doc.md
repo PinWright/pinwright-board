@@ -6,6 +6,7 @@ severity: Low
 category: ergonomic
 tags: [misleading-doc, docs, skeleton, physics-asset, create_physics_asset, ragdoll, constraints, meshless]
 encounters: 1
+costly: 1
 lastSeen: 2026-07-13T08:31:50.8164083+03:00
 ---
 

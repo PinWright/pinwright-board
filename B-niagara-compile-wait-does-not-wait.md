@@ -6,6 +6,7 @@ severity: Critical
 category: bug
 tags: [niagara, compile, async, silent-noop, race, corrupts-saved-asset, data-interface-mismatch, editor-crash, wait-never-lands, reopened, game-thread-stall, shared-editor-outage, blocks-concurrent-agents, fix-absent-from-this-checkout, live-repro-post-pump-still-times-out]
 encounters: 6
+costly: 5
 lastSeen: 2026-09-07T06:47:00Z
 ---
 

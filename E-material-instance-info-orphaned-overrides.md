@@ -6,6 +6,7 @@ severity: Medium
 category: ergonomic
 tags: [material, material-authoring, get_material_instance_info, material-instance, overrides, orphaned-parameters, readback, asset-dump, weapons]
 encounters: 3
+costly: 1
 lastSeen: 2026-09-06T00:00:00Z
 ---
 

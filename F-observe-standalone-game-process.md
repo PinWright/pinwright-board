@@ -6,6 +6,7 @@ severity: Medium
 category: feature
 tags: [drive, observe, screenshot, standalone, launch-standalone, cef, webui, verification]
 encounters: 1
+costly: 1
 lastSeen: 2026-09-02T00:00:00Z
 ---
 

@@ -6,6 +6,7 @@ severity: Medium
 category: bug
 tags: [tests, crlf, line-endings, autocrlf, mcp-instructions, windows, false-red]
 encounters: 1
+costly: 1
 lastSeen: 2026-08-13T00:00:00Z
 ---
 

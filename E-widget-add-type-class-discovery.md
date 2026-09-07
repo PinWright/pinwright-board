@@ -6,6 +6,7 @@ severity: Low
 category: ergonomic
 tags: [widget, add, docs, common-ui, class-discovery]
 encounters: 1
+costly: 1
 lastSeen: 2026-06-30T22:53:48.7445084+03:00
 ---
 

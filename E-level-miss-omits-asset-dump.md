@@ -6,6 +6,7 @@ severity: Medium
 category: ergonomic
 tags: [level, asset-dump, level-not-loaded, signpost, discoverability, wiki, active-world]
 encounters: 1
+costly: 1
 lastSeen: 2026-08-18T00:00:00Z
 ---
 

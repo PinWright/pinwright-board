@@ -6,6 +6,7 @@ severity: Medium
 category: bug
 tags: [render, capture_asset_preview, decoration, grid, gizmo, backdrop, preview-scene, pass-through-gap, reference-image, docs-placement]
 encounters: 2
+costly: 1
 lastSeen: 2026-09-02T00:00:00Z
 ---
 

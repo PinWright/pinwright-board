@@ -6,6 +6,7 @@ severity: Medium
 category: feature
 tags: [texture, get-pixel-stats, region, rect, tile-grid, subuv, atlas, flipbook, readback, niagara, vfx]
 encounters: 2
+costly: 2
 lastSeen: 2026-09-07
 ---
 

@@ -6,6 +6,7 @@ severity: Medium
 category: feature
 tags: [audio, synth, patch, canonical-recipe, list-candidates, rfc6902, json-pointer, unactionable-error]
 encounters: 2
+costly: 2
 lastSeen: 2026-09-03T01:30:00Z
 ---
 

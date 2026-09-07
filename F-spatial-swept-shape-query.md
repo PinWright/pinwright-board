@@ -6,6 +6,7 @@ severity: Medium
 category: feature
 tags: [spatial, raycast, sweep, capsule, shape-trace, overlap, collision, pawn, traversal, walkability, missing-verb, level-building, vegetation]
 encounters: 1
+costly: 1
 lastSeen: 2026-08-29T22:05:00+03:00
 ---
 

@@ -6,6 +6,7 @@ severity: Medium
 category: bug
 tags: [wiki, wiki-src, docs, level-building, instancing-and-scatter, hism, ism, python-execute, root-component, transform, world-origin, silent-wrong-output, shipped-artefact]
 encounters: 2
+costly: 1
 lastSeen: 2026-08-29T18:00:00+05:00
 ---
 

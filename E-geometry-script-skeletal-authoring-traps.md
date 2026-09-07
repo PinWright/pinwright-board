@@ -5,6 +5,7 @@ status: OPEN
 severity: Medium
 category: ergonomic
 tags: [geometry-script, bone-weights, skeletal-mesh, python-execute, silent-failure, ordering-trap, docs]
+costly: 1
 ---
 
 # Geometry Script skeletal authoring: an ordering trap and a binding-name trap

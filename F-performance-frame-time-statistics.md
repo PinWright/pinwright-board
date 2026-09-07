@@ -6,6 +6,7 @@ severity: Medium
 category: feature
 tags: [performance, profiling, benchmark, frame-time, fps, gputime, measurement, readback, missing-verb, csvprofile, profilegpu, insights, run_benchmark, stat-unit, percentiles]
 encounters: 1
+costly: 1
 lastSeen: 2026-08-30T17:40:00+03:00
 ---
 

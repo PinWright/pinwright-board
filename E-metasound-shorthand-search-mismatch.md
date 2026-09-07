@@ -6,6 +6,7 @@ severity: Low
 category: ergonomic
 tags: [docs, metasound, audio, authoring, add_metasound_node, search_metasound_nodes, node-discovery, connect_metasound_nodes]
 encounters: 2
+costly: 1
 lastSeen: 2026-06-24T19:46:41Z
 ---
 

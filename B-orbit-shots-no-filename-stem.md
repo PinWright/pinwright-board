@@ -6,6 +6,7 @@ severity: Low
 category: bug
 tags: [render, camera, orbit_shots, capture_asset_preview, filename, naming, parity, unknown-params, ergonomics]
 encounters: 1
+costly: 1
 lastSeen: 2026-09-02T00:00:00Z
 ---
 

@@ -6,6 +6,7 @@ severity: Low
 category: bug
 tags: [docs, wiki, asset-dump, static-mesh, sound-wave, sidecar, discoverability, doc-omits-shipped-behavior, weapons]
 encounters: 1
+costly: 1
 lastSeen: 2026-09-03T00:00:00Z
 ---
 

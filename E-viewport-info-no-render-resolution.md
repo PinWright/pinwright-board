@@ -6,6 +6,7 @@ severity: Medium
 category: ergonomic
 tags: [system, inspect, get_viewport_info, viewport, resolution, screen-percentage, tsr, upsampling, performance, profiling, benchmark, readback, missing-field, reproducibility, render, capture]
 encounters: 1
+costly: 1
 lastSeen: 2026-08-29T20:10:00+03:00
 ---
 

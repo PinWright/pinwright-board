@@ -6,6 +6,7 @@ severity: Medium
 category: bug
 tags: [asset-dump, dump-folder, determinism, crlf, line-endings, git, tooling-noise]
 encounters: 1
+costly: 1
 lastSeen: 2026-09-02T00:00:00Z
 ---
 

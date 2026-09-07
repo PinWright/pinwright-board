@@ -6,6 +6,7 @@ severity: Medium
 category: bug
 tags: [bpir, compile_bpir, member-call, chained-property, target-pin, function-resolution]
 encounters: 1
+costly: 1
 lastSeen: 2026-09-03T00:50:00Z
 ---
 

@@ -6,6 +6,7 @@ severity: Medium
 category: ergonomic
 tags: [niagara, niagara-inspect, response-size, oversized, projection, readback, docs, niagara-script, returned]
 encounters: 13
+costly: 4
 lastSeen: 2026-09-07
 ---
 

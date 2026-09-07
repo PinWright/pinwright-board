@@ -6,6 +6,7 @@ severity: Medium
 category: feature
 tags: [property, property-set, batch, authoring, pcg, reflection, ergonomic, call-count]
 encounters: 1
+costly: 1
 lastSeen: 2026-08-29T00:00:00+05:00
 ---
 

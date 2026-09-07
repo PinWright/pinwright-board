@@ -6,6 +6,7 @@ severity: Low
 category: bug
 tags: [asset-dump, performance, editor-freeze, progress, ticker]
 encounters: 1
+costly: 1
 lastSeen: 2026-07-31T11:57:40Z
 ---
 

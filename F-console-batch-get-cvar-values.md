@@ -6,6 +6,7 @@ severity: Low
 category: feature
 tags: [console, cvar, search, verify, batch, read, system]
 encounters: 5
+costly: 1
 lastSeen: 2026-08-29T00:00:00+05:00
 ---
 

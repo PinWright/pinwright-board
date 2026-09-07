@@ -6,6 +6,7 @@ severity: Medium
 category: feature
 tags: [system, identity, performance, measurement, profiling, contention, concurrent-process, gpu, readback, missing-field, reproducibility, shared-machine, editor-cmd]
 encounters: 1
+costly: 1
 lastSeen: 2026-08-30T18:00:00+03:00
 ---
 

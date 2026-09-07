@@ -6,6 +6,7 @@ severity: Critical
 category: bug
 tags: [niagara, vectorvm, data-interface, compile, presave, autosave, sequencer, set-playhead, editor-kill, game-thread-hang, delayed-fault, shared-editor, latent-corruption, no-op-write, save-refusal]
 encounters: 7
+costly: 4
 lastSeen: 2026-09-07T07:08:00Z
 ---
 

@@ -6,6 +6,7 @@ severity: Low
 category: ergonomic
 tags: [pwmodel, append_buffers, health, selfIntersections, coplanar, membrane, testability, no-repro-path, verification-gap, engine-limit]
 encounters: 1
+costly: 1
 lastSeen: 2026-08-28
 ---
 

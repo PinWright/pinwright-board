@@ -2,10 +2,11 @@
 id: E-niagara-inspect-params-stale-after-override
 title: "niagara.set_module_input does not echo the value it wrote, so a set-then-verify loop must re-inspect — and the natural params-aspect readback shows the stale rapid-iteration template default (the override lives on the graph pin), making the verify look like a no-op"
 status: OPEN
-severity: Medium
+severity: High
 category: ergonomic
 tags: [niagara, niagara-inspect, set-module-input, readback, override-pin, rapid-iteration, misleading]
 encounters: 4
+costly: 4
 lastSeen: 2026-09-07
 ---
 
@@ -189,6 +190,7 @@ though:
    note at it costs nothing and gives the verify loop a real check.
 
 ## History
+- `#11-bumped-by-cost` `OPEN` orchestrator — Severity Medium -> High by cost. Costly encounters counted: #5 (a literal write over a linked override pin was confirmed by an echo that reports the byte written rather than the value the graph reads — a compile and an unlit capture were spent before the no-op surfaced, and the root cause had to be filed separately), #6 (a verifier replay round spent returning the ticket from IN-REVIEW after the shipped remedy turned out to be a wiki sentence pointing elsewhere), #8 (a second fix round lost — IN-REVIEW returned because the work addressed the graphs aspect and not the parameters aspect this ticket is named for), #9 (a chunk of a diagnosis session spent treating the stale store as the root cause of a four-round "the explosion has no fireball" defect, a conclusion #10 then had to retract in full). Reach also applies: the parameters aspect is the natural "did my value stick?" readback and these encounters span the Atlantis VFX stream, the FPS VFX stream and the board's own fix loop.
 - `#1-initial-repro` `OPEN` reporter — Replay-confirmed via `mcp__editor-automation__call` on a fresh `asset.duplicate` of `SimpleExplosion` → `/Game/FX/NS_BigExplosion_Replay`. `niagara.set_module_input` (UpwardMeshBurst SpawnBurst_Instantaneous "Spawn Count" = 160) returned `success:true, pinId:74553D62…, linked:false`. A subsequent `niagara.inspect includeProperties:true` reported the matching rapid-iteration param `Constants.UpwardMeshBurst.SpawnBurst_Instantaneous.Spawn Count` with `scope:"systemUpdateRapidIteration"` and `value:80` (the template default, unchanged, with no override marker), while `niagara.inspect includeGraphs:true` reported the override pin `74553D62…` `SpawnBurst_Instantaneous.Spawn Count` with `defaultValue:"160.0"` — same input, two contradictory values. Seed method was `niagara.set_module_input` (which worked correctly); the misreporting culprit is `niagara.inspect`'s parameters aspect. Outcome ergo. Ripgrep across OPEN/closed found no existing ticket on the params aspect showing the stale module-input default after an override (the two neighbor tickets are about response-size spill and runtime component overrides respectively — see "Distinct from").
 - `#2-retriage` `OPEN` triage — Low→High: inspect params aspect reports the stale template default after a successful override so a params-only verify reads as a no-op, silent wrong-readback, niche path keeps it from Critical.
 - `#3-reword-to-value-echo` `OPEN` developer — Reworded toward the narrower, higher-leverage scope (per the adversarial validity lens). The fat remedy in `#1`/`#2` (add an `overridden`/`effectiveValue` marker to every rapid-iteration entry in the inspect `parameters` aspect) is over-scoped: `BuildParameterStoreArray` (NiagaraDumpBuilder.cpp:467-492) iterates the whole store with no module-node context, so per-entry override detection would need to map each `Constants.<emitter>.<module>.<input>` back to its module node and walk its override pin — large/fragile for a niche verify path. Re-scoped Fix to the cheap remedy the ticket itself listed: echo the value `set_module_input` wrote. Severity High→Medium (readback omits a field, doable via the graphs aspect / now via the echoed result — no data loss, no silent false-success of a write). Status OPEN→IN-REVIEW; see `#4`.

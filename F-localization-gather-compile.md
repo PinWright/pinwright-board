@@ -6,6 +6,7 @@ severity: Medium
 category: feature
 tags: [localization, gather, compile, locres, archive, manifest, commandlet]
 encounters: 1
+costly: 1
 lastSeen: 2026-07-14T08:20:00Z
 ---
 

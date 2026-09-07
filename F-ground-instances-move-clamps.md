@@ -6,6 +6,7 @@ severity: Medium
 category: feature
 tags: [spatial, ground_instances, ism, hism, instanced-static-mesh, scatter, vegetation, apply, dry-run, clamp, max-lift, max-sink, delta, movedinstances, detail, undo, revert, game-thread-cost, placement, level-building]
 encounters: 1
+costly: 1
 lastSeen: 2026-08-29T20:50:00+03:00
 ---
 

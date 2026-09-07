@@ -6,6 +6,7 @@ severity: Medium
 category: feature
 tags: [render, camera, orbit_shots, capture_asset_preview, turntable, preview-scene, shot-cap, video, showcase]
 encounters: 1
+costly: 1
 lastSeen: 2026-09-02T00:00:00Z
 ---
 

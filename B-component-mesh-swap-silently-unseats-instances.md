@@ -6,6 +6,7 @@ severity: Medium
 category: bug
 tags: [actor, set_component_properties, add_component, static-mesh, ism, hism, instanced-static-mesh, mesh-swap, re-point, pivot, bounds, grounding, seating, ground_instances, silent-wrong-output, no-readback, diagnostic, vegetation]
 encounters: 1
+costly: 1
 lastSeen: 2026-08-29T18:20:00+05:00
 ---
 

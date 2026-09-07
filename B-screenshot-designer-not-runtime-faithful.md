@@ -6,6 +6,7 @@ severity: Medium
 category: bug
 tags: [widget, screenshot_designer, designer, preview, visibility, visibilityOverrides, chrome, silent-noop]
 encounters: 1
+costly: 1
 lastSeen: 2026-09-02T19:35:00Z
 ---
 

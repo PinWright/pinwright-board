@@ -6,6 +6,7 @@ severity: Medium
 category: feature
 tags: [texture, create_pattern_texture, combine_textures, annotate, render-target, glyph, letterform, text, stencil, decal, marking, pixel-data, missing-capability]
 encounters: 1
+costly: 1
 lastSeen: 2026-09-05T19:54:25Z
 ---
 

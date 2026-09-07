@@ -6,6 +6,7 @@ severity: Medium
 category: enhancement
 tags: [material, compile_mgir, add_custom_expression, connect_nodes, shader-compile, verification, silent-false-success, docs]
 encounters: 2
+costly: 1
 lastSeen: 2026-09-06T06:52:00Z
 ---
 

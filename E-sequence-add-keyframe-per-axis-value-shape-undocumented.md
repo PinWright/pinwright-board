@@ -2,10 +2,11 @@
 id: E-sequence-add-keyframe-per-axis-value-shape-undocumented
 title: "sequence.add_keyframe wiki documents the two call-shape param sets but not the per-axis value-object shape (flat {x,y,z}/{roll,pitch,yaw} vs nested {location,rotation,scale}), forcing source-reading"
 status: OPEN
-severity: Low
+severity: Medium
 category: ergonomic
 tags: [docs, sequencer, add_keyframe, transform-track, value-shape]
 encounters: 6
+costly: 4
 lastSeen: 2026-07-13T10:19:23.8158526+03:00
 ---
 
@@ -77,6 +78,7 @@ the same note in the auto-generated `RPC_PARAM_OPT` description for `value` in
 flat `{x,y,z}` (or `{roll,pitch,yaw}` for rotation).
 
 ## History
+- `#7-bumped-by-cost` `OPEN` orchestrator — Severity Low -> Medium by cost. Costly encounters counted: #1 (the `LogoIntro` run had to read `SequenceHandler.cpp` to learn the flat vs nested value shape), #4 (the `IntroFlyby` run learned the nested `Transform` shape only by reading `SequenceHandler.cpp`), #5 (the `IntroCutscene` run recovered both the method name and the nested shape by a self-declared last-resort read of `SequenceHandler.cpp:1619`), #6 (the `IntroShowcase` run read both `SequenceHandler`/`SequencerHandler` C++ plus two regression tests to recover the flat shape). Four independent cinematic tasks each paid a plugin-source dive, which is the README's own Medium impact band rather than pure friction. Reach also applies: the encounters span six unrelated cinematic tasks (`LogoIntro`, `IntroMaster`, `CS_Establishing`, `IntroFlyby`, `IntroCutscene`, `IntroShowcase`) and keying a transform is the canonical operation of every one of them.
 - `#1-initial-audit` `OPEN` reporter — Struggle-audit (PROCESS) of the SEED-mode
   `LogoIntro` cinematic task (seed `sequence.add_keyframe`, 17 calls; judge filed
   the section-range gap). This ticket covers a distinct PROCESS surface from the

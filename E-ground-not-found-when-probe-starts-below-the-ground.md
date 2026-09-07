@@ -6,6 +6,7 @@ severity: Medium
 category: ergonomic
 tags: [spatial, ground_actors, ground_instances, verify_grounding, probe-lift, error-message, error-code, actionable-hint, buried-actor, level-building]
 encounters: 1
+costly: 1
 lastSeen: 2026-08-29T00:00:00+05:00
 ---
 

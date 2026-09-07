@@ -6,6 +6,7 @@ severity: Medium
 category: bug
 tags: [tests, test-harness, scoped-guard, teardown, level-load, misattributed-failure, silent-failure, InvokeHandler, safe-point]
 encounters: 1
+costly: 1
 lastSeen: 2026-09-03T10:20:21Z
 ---
 

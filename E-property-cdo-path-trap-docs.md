@@ -6,6 +6,7 @@ severity: Medium
 category: ergonomic
 tags: [docs, property, property-get, property-list, cdo, class-resolution, c-suffix, readback, discovery]
 encounters: 3
+costly: 1
 lastSeen: 2026-09-07T00:00:00Z
 ---
 

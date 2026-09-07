@@ -6,6 +6,7 @@ severity: Medium
 category: feature
 tags: [actor, spatial, ism, hism, instanced-static-mesh, scatter, missing-verb, create, clear, add-instance, remove-instance, lifecycle-gap, data-loss, atomicity, python-execute, premise-corrected, vegetation]
 encounters: 2
+costly: 1
 lastSeen: 2026-08-29T18:20:00+05:00
 ---
 

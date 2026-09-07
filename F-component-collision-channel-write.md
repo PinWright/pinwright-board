@@ -6,6 +6,7 @@ severity: Medium
 category: feature
 tags: [actor, set_collision, set_component_properties, components, collision, collision-channel, collision-profile, body-instance, ism, hism, pawn, missing-verb, level-building, vegetation]
 encounters: 1
+costly: 1
 lastSeen: 2026-08-29T21:55:00+03:00
 ---
 

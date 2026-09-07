@@ -6,6 +6,7 @@ severity: Medium
 category: feature
 tags: [physics, physical-material, surface-type, project-settings, developer-settings, persistence, python-enum, escape-hatch]
 encounters: 1
+costly: 1
 lastSeen: 2026-09-02T22:25:00+03:00
 ---
 

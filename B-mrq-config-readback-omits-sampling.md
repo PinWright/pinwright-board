@@ -6,6 +6,7 @@ severity: Medium
 category: bug
 tags: [mrq, create_job, run_jobs, movie-pipeline, preflight, readback, anti-aliasing, warm-up, sampling, config-disclosure, response-honesty]
 encounters: 1
+costly: 1
 lastSeen: 2026-09-02T00:00:00Z
 ---
 

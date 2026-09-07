@@ -6,6 +6,7 @@ severity: Medium
 category: bug
 tags: [niagara, emitter, save, compile, compile-guard, deadlock, set_module_input, set_static_switch, asset-save, inconsistent-gate]
 encounters: 2
+costly: 2
 lastSeen: 2026-09-05T20:59:00+03:00
 ---
 

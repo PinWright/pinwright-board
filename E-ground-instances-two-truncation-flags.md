@@ -6,6 +6,7 @@ severity: Low
 category: ergonomic
 tags: [spatial, ground_instances, truncation, response-size, docs, naming, discoverability, detail, convention]
 encounters: 1
+costly: 1
 lastSeen: 2026-08-29T00:00:00+05:00
 ---
 

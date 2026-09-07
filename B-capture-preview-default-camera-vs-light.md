@@ -6,6 +6,7 @@ severity: Medium
 category: bug
 tags: [render, capture_asset_preview, default-camera, preview-scene, key-light, luminance, false-diagnosis, inverted-normals, docs-placement]
 encounters: 1
+costly: 1
 lastSeen: 2026-08-20T00:00:00Z
 ---
 

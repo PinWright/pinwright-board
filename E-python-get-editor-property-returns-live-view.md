@@ -6,6 +6,7 @@ severity: Medium
 category: ergonomic
 tags: [python, python-execute, wiki, wiki-src, docs, get_editor_property, reflection, read-modify-verify, silent-wrong-verification, snapshot, containers, elements, silent-write-loss, landscape-grass]
 encounters: 2
+costly: 2
 lastSeen: 2026-08-29T20:20:00+03:00
 ---
 

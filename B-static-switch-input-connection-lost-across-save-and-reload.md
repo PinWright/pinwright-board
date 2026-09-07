@@ -6,6 +6,7 @@ severity: High
 category: bug
 tags: [material, material-function, function-output, persistent-id, static-switch, serialisation, save, reload, default-material, silent-revert]
 encounters: 3
+costly: 2
 lastSeen: 2026-09-07T06:50:00Z
 ---
 

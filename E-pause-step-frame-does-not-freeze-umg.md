@@ -6,6 +6,7 @@ severity: High
 category: ergonomic
 tags: [editor, pause, step_frame, umg, slate, hud, animation, capture, visual-review, docs]
 encounters: 2
+costly: 2
 lastSeen: 2026-09-07T07:50:00Z
 ---
 

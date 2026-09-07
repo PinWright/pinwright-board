@@ -5,6 +5,7 @@ status: OPEN
 severity: Medium
 category: enhancement
 tags: [animation, authoring, two-bone-ik]
+costly: 1
 ---
 
 # `add_two_bone_ik` requires a target bone and exposes no effector/joint location, so component-space IK cannot be authored through the verb

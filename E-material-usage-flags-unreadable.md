@@ -6,6 +6,7 @@ severity: High
 category: ergonomic
 tags: [material, material-authoring, get_material_info, readback, usage-flags, ism, hism, instanced-static-mesh, nanite, shader-recompile, packaged-build, vegetation, niagara, vfx, compile-mgir, default-material]
 encounters: 3
+costly: 3
 lastSeen: 2026-09-07T07:06:30Z
 ---
 

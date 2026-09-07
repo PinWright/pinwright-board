@@ -6,6 +6,7 @@ severity: Low
 category: ergonomic
 tags: [static-mesh, static-mesh-describe, nanite, asset-dump, dump-parity, registry-tags, docs, misleading-doc]
 encounters: 4
+costly: 1
 lastSeen: 2026-09-03T00:00:00Z
 ---
 

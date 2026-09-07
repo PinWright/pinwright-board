@@ -6,6 +6,7 @@ severity: Low
 category: ergonomic
 tags: [docs, level-structure, world-partition, create-level, save, save-as, in-memory, persistence, discoverability, wiki, retry-loop]
 encounters: 1
+costly: 1
 lastSeen: 2026-06-25T07:14:35Z
 ---
 

@@ -6,6 +6,7 @@ severity: Medium
 category: bug
 tags: [build, live-coding, ubt, installed-engine, tooling, developer-experience]
 encounters: 1
+costly: 1
 lastSeen: 2026-08-13T00:00:00Z
 ---
 

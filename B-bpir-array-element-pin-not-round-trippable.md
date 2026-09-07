@@ -6,6 +6,7 @@ severity: High
 category: bug
 tags: [bpir, round-trip, foreach]
 encounters: 2
+costly: 1
 lastSeen: 2026-09-07T08:22:00Z
 ---
 

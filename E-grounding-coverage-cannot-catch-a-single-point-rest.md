@@ -6,6 +6,7 @@ severity: Medium
 category: ergonomic
 tags: [spatial, verify_grounding, ground_actors, ground_instances, coverage, contact-points, actor-columns, thresholds, single-point-rest, footprint-columns, placement, level-building, unsound-workaround]
 encounters: 1
+costly: 1
 lastSeen: 2026-08-29T00:00:00+05:00
 ---
 

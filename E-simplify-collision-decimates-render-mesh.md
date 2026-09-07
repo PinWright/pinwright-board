@@ -6,6 +6,7 @@ severity: Low
 category: ergonomic
 tags: [geometry, simplify_collision, docs, semantic-mismatch, render-mesh-decimation, collision, discoverability]
 encounters: 1
+costly: 1
 lastSeen: 2026-07-11T04:23:37+03:00
 ---
 

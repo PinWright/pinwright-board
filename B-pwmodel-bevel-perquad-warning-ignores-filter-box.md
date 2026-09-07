@@ -6,6 +6,7 @@ severity: Medium
 category: bug
 tags: [pwmodel, bevel, filter-box, diagnostics, false-positive, model.compile, model.validate]
 encounters: 2
+costly: 1
 lastSeen: 2026-09-03T04:35:00Z
 ---
 

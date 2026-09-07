@@ -6,6 +6,7 @@ severity: Low
 category: ergonomic
 tags: [docs, debug, gameplay-debugger, spawn-category, error-actionability, not-implemented, pie, console-command]
 encounters: 1
+costly: 1
 lastSeen: 2026-06-23T10:08:23Z
 ---
 

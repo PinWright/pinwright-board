@@ -6,6 +6,7 @@ severity: Low
 category: feature
 tags: [material, material-authoring, base-material-param-default, parameters, coverage-gap]
 encounters: 2
+costly: 1
 lastSeen: 2026-08-29T00:00:00+05:00
 ---
 

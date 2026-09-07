@@ -6,6 +6,7 @@ severity: Medium
 category: feature
 tags: [spatial, raycast, raycast_screen, ground_actors, ground_instances, verify_grounding, collision-channel, pawn, ECollisionChannel, custom-channel, duplicated-table, missing-parameter-values, level-building]
 encounters: 1
+costly: 1
 lastSeen: 2026-08-29T21:55:00+03:00
 ---
 

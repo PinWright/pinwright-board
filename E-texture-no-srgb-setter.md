@@ -6,6 +6,7 @@ severity: Low
 category: ergonomic
 tags: [texture, srgb, setter-parity, property-set, fallback, docs, set_compression_settings, material-compile-failure, delayed-failure]
 encounters: 3
+costly: 1
 lastSeen: 2026-08-27T19:35:00+05:00
 ---
 

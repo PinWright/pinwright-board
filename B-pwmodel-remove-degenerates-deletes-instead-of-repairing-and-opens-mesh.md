@@ -6,6 +6,7 @@ severity: Medium
 category: bug
 tags: [pwmodel, model-compile, model-validate, remove_degenerates, degenerate-triangles, mesh-not-closed, defaults, weapons]
 encounters: 1
+costly: 1
 lastSeen: 2026-09-06T06:45:00Z
 ---
 

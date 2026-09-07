@@ -6,6 +6,7 @@ severity: Low
 category: ergonomic
 tags: [no-rpc-route-undocumented, input, enhanced-input, docs, discoverability, wiki]
 encounters: 1
+costly: 1
 lastSeen: 2026-07-04T22:48:11.7838674+03:00
 ---
 

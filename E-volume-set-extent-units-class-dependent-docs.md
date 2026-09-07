@@ -6,6 +6,7 @@ severity: Low
 category: ergonomic
 tags: [volume, set_volume_extent, extent, units, scale, docs, wiki, discoverability]
 encounters: 2
+costly: 1
 lastSeen: 2026-07-01T19:06:56.5680937+03:00
 ---
 

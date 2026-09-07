@@ -6,6 +6,7 @@ severity: Medium
 category: bug
 tags: [spatial, ground_instances, ground_actors, verify_grounding, samples, grid-size, single-point-rest, coverage, contact-points, ground-spread, vacuous-check, degenerate, bounds-centre, aabb, docs, placement, level-building, vegetation]
 encounters: 1
+costly: 1
 lastSeen: 2026-08-29T20:10:00+03:00
 ---
 

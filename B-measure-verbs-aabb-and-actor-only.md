@@ -6,6 +6,7 @@ severity: Medium
 category: bug
 tags: [spatial, measure_distance, measure_overlap, verify_placement, aabb, clearance, hism, ism, instanced, proximity, false-clear]
 encounters: 1
+costly: 1
 lastSeen: 2026-09-02T00:00:00Z
 ---
 

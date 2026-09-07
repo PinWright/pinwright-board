@@ -6,6 +6,7 @@ severity: Medium
 category: feature
 tags: [foliage, procedural-foliage, spawner, readback, missing-verb, foliage-type, reflection, naming-convention, vegetation, premise-corrected]
 encounters: 1
+costly: 1
 lastSeen: 2026-08-29T18:00:00+05:00
 ---
 

@@ -6,6 +6,7 @@ severity: Medium
 category: bug
 tags: [spatial, ground_instances, ism, hism, instanced-static-mesh, scatter, vegetation, rocks, debris, bounds, aabb, rotation-inflated, underside, bounds-plane, seat-percentile, readback, zero-is-absence, placement, level-building]
 encounters: 2
+costly: 2
 lastSeen: 2026-08-29T22:15:00+03:00
 ---
 

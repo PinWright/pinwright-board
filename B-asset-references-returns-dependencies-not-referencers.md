@@ -6,6 +6,7 @@ severity: Medium
 category: bug
 tags: [asset, asset-references, dependencies, referencers, asset-registry, safe-delete, readback]
 encounters: 2
+costly: 1
 ---
 
 # `asset.references` returns what the asset depends ON, in both fields

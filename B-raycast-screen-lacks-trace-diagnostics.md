@@ -6,6 +6,7 @@ severity: Medium
 category: bug
 tags: [spatial, raycast_screen, raycast, trace, collision, foliage, hism, instance-index, incomplete-fix, sibling-verb-drift, diagnostics, vegetation]
 encounters: 2
+costly: 1
 lastSeen: 2026-08-29T18:20:00+05:00
 ---
 

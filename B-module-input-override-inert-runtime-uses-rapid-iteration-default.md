@@ -6,6 +6,7 @@ severity: Critical
 category: bug
 tags: [niagara, set-module-input, override-pin, rapid-iteration, silent-noop, silent-wrong-value, spawn-count, compile, measured-in-render, vfx]
 encounters: 2
+costly: 2
 lastSeen: 2026-09-07T08:00:00Z
 related: [E-niagara-inspect-params-stale-after-override, F-niagara-reset-module-input]
 ---

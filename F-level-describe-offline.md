@@ -6,6 +6,7 @@ severity: Medium
 category: feature
 tags: [level, actor, read-only, offline, umap, world-lock, asset-dump, level-describe, package-parse, weapons]
 encounters: 1
+costly: 1
 lastSeen: 2026-09-03T00:00:00Z
 ---
 
