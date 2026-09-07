@@ -4,7 +4,7 @@ title: "No `behavior_tree.*` verb can set or change a composite child's executio
 status: OPEN
 severity: High
 category: feature
-tags: [behavior-tree, authoring, node-position, execution-order, selector, sequence]
+tags: [behavior-tree, authoring, node-position, execution-order, selector, sequence, node-guid, decompile]
 ---
 
 # A Behavior Tree's execution order cannot be edited after the node exists
@@ -63,11 +63,34 @@ Either:
 Whichever lands, the response should echo the resulting order the way `decompile` prints it, so a
 caller can verify the priority it just asked for rather than re-decompiling to check.
 
+## The documented workaround does not work either: node GUIDs are undiscoverable
+
+Attempted on this tree, 2026-09-07:
+
+    behavior_tree.remove_node {assetPath:"/Game/FPS/AI/BT_Enemy", nodeId:"BTT_Reload_C_0"}
+    -> [NODE_NOT_FOUND] Node not found.
+
+`remove_node` takes a "Node GUID". `behavior_tree.decompile` is the only read verb for a tree and
+it emits **no GUIDs** — its nodes are printed by class, label and `@(x, y)` position, and the object
+paths it does print (`BT_Enemy:BTT_Reload_C_0`) are runtime node object names, which `remove_node`
+rejects. `decompile` takes `assetPath` and nothing else, so there is no flag to ask for ids.
+
+The consequence is wider than this ticket's own workaround. **Every** `behavior_tree` verb keyed on
+`nodeId` — `remove_node`, `set_node_properties`, `attach_decorator`, `attach_service`,
+`break_connections`, `connect_nodes` — is reachable only for nodes whose id the caller still holds
+from an `add_node` call in the same session. On a tree authored earlier, in another session, or by
+hand in the editor, none of them can be addressed at all. A BT is a long-lived asset that gets tuned
+repeatedly; that is the normal case, not the edge case.
+
+`decompile` printing each node's GUID alongside its position would unblock this ticket, the
+workaround, and every other nodeId-keyed verb at once, and is a smaller change than any of the three
+asks above.
+
 ## Workaround
 
-`remove_node` the leaf and `add_node` it at a new X, then re-attach every decorator and service and
-re-apply every instance property from a prior `decompile`. Lossy and easy to get wrong: nothing
-warns that a re-added node came back without its decorators.
+None. `remove_node` + `add_node` at a new X was the intended fallback, and it cannot be issued
+because the node cannot be named. Editing the tree by hand in the Unreal editor is the only route,
+which defeats the point of the authoring surface.
 
 ## Notes
 
