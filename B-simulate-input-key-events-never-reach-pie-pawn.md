@@ -6,7 +6,7 @@ severity: High
 category: bug
 tags: [editor, simulate_input, key_down, key_up, pie, enhanced-input, slate-focus, silent-false-success]
 encounters: 2
-lastSeen: 2026-09-05T21:00:00Z
+lastSeen: 2026-09-07T07:03:00Z
 ---
 
 # Simulated key events need measured PIE delivery
@@ -216,3 +216,8 @@ Enhanced Input action or pawn callback.
   Suggest the response distinguish "the key was injected" from "an Enhanced Input action triggered" — the subsystem knows which actions fired on that tick, and reporting them by name would make this self-diagnosing. Workaround in use: call the gameplay method directly (`Reload`) or set the driving variable, and label such captures as not-input-driven.
 
 - `#5-direct-pie-input-route` `IN-REVIEW` developer — Changed `DriveGameInput.cpp`/`.h` and `EditorCommandHandler.cpp` so explicit PIE input retains its response until the selected `UPlayerInput` processes the exact injected edge on its next tick; added `GameRouteSelection` and the owned-PIE `PiePlayerInputDelivery` counterfactual, and updated the editor/RPC contracts. Static inspection only: no build, automation, or live PIE proof.
+- `#6-delivery-half-measured-working` `IN-REVIEW` PLAYER — Evidence note, **not** a reopen: the delivery half this ticket's acceptance target names now measurably works, and the response is no longer a hardcoded success. Live PIE on `T_Player`, 2026-09-07T07:03Z: `editor.simulate_input {type:"key_down", key:"W", target:"game"}` returned `route:"viewport_client"`, `playerInputEventQueued:true`, `playerInputEventId:1`, `deliveredToGame:true`, `consumingRoute:"player_input"`, naming the correct controller and pawn — "Key down: W reached the selected PIE UPlayerInput on its next tick." Same for `LeftShift`. That is exactly the measured-delivery contract `#5` describes, and it is a real improvement over the old `playerInputRegistered:true` that read identically for keys that fired and keys that vanished.
+
+  **The second half is still open, and the ticket already says so, which is why this is only an evidence line.** With `W` delivered and held, the possessed pawn's `GetVelocity()` stayed `[0,0,0]` and `bIsSprinting` stayed false; `LeftShift` delivered likewise. So `UPlayerInput` receives the edge and no Enhanced Input action drives the pawn from it. Whoever finishes this should know the split is now cleanly observable from the caller side: `deliveredToGame:true` plus a game-side variable that never moves isolates the failure to the Enhanced Input mapping/trigger layer rather than to routing or focus. The `Axis2D`/`Triggered` shape of `IA_Move` is the obvious suspect — a `Started`-only edge cannot satisfy a trigger that wants to fire every tick while held — and reporting which Enhanced Input actions triggered on that tick (asked for in `#4`) remains the thing that would make this self-diagnosing.
+
+  Workaround in this session: drive the game-side variable directly and label such captures as not-input-driven.
