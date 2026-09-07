@@ -1,7 +1,7 @@
 ---
 id: B-asset-import-unconditional-replace-hidden-outputs
 title: "asset.import unconditionally replaces existing assets and reports only the first object produced by a potentially multi-output import"
-status: OPEN
+status: IN-REVIEW
 severity: Critical
 category: bug
 tags: [asset, import, overwrite, data-loss, partial-result, false-success]
@@ -36,32 +36,37 @@ them into final locations.
 
 ## Fix
 
-Verdict: TRUE. The root cause was a hard-coded replacement flag, no pre-import destination guard,
-and a response path that stopped at the first non-null factory output. `asset.import` now defaults
-`overwrite` to false and refuses before its production runner when any immediate-folder package
-has either the engine-sanitized source filename or requested destination raw basename prefix,
-compared case-insensitively. Explicit overwrite snapshots serialized-object fingerprints and every existing
-header/export/bulk/optional/memory-mapped/payload-sidecar resource reported by Unreal's public
-package-resource API, then moves every matching original UObject without redirectors into a
-request-scoped writable `/Game/__PinWrightAssetImportStage/<request-id>` package hierarchy that
-the existing rollback/commit cleanup retires. Fixed package-count and aggregate-byte budgets fail closed before
-the full snapshot is retained. Empty/failing import output, rename failure, invalid result
-verification, or commit failure restores all original identities, paths, dirty flags, and captured
-disk resources through atomic replacement. It also removes returned objects and resources in
-packages that did not exist before the request without deleting unrelated pre-existing content.
-Failure payloads retain sorted `staged[]`, `restored[]`, `removedCreated[]`, and
-`restoreSucceeded`, while per-output and top-level primary measurements are refreshed after
-rollback. Commit restores
-all untouched candidates before replaced originals are finalized together, so a fallible step never
-strands an earlier finalized original. Successful and failure responses enumerate every non-null
-output, including explicit invalid/unresolvable rows that force rollback,
-preserve primary-only rename fields and the top-level primary alias, and call an output replaced
-only when UObject identity or serialized content CRC changed. Import data is strongly retained
-through the runner. The raw-prefix bound is deliberately conservative because factory secondary
-output names are not known before import. `Utils/AssetImportPolicy.h/.cpp`,
-`AssetManageHandler.cpp`, `Tests/Assets/TestAssetImportPolicy.cpp`, and `Docs/wiki-src/asset.md`
-contain the implementation, handler-level refusal/rollback coverage, measured replacement coverage,
-and the public contract.
+Verdict: valid bug, wrong staged fix. `asset.import` keeps `overwrite:false` as the default and
+refuses an occupied conservative source/request-prefix destination before either runner. Empty
+destinations still use the real `IAssetTools::ImportAssetsAutomated` path. Its ordered `results[]`
+contains every non-null primary and `UFactory::AdditionalImportedObjects` output with its actual
+canonical path, primary-only rename metadata, created/update measurement, and persistence state.
+
+An occupied destination is admitted only when it is one exact, registry-identified `UTexture2D`
+and the source is one bounded, fully decoded PNG. Production strongly retains the existing pointer
+and a PinWright adapter modeled on UE 5.8's texture reimport factory, applies the requested source
+path, and passes that exact adapter to `FReimportManager`; success is rejected unless the adapter
+itself ran. The adapter imports the exact compressed bytes that passed preflight. Success requires
+the pointer, class, path, package, `StaticFindObject`, and Asset Registry resolution to remain
+identical, texture-source content identity to change, the package to be dirty, and every captured
+   disk resource to retain its timestamp, size, and streaming hash because the verb does not save.
+   The response reports
+`mode:"inPlaceReimport"`, `identityPreserved:true`, `updatedInPlace:true`,
+`contentChangeMeasured:true`, `textureContentChanged:true`, and `pendingSave`, with
+`replaced:false`.
+
+Every identity-changing, class-changing, multi-conflict, collateral, rename-over-occupied, or
+unsupported occupied case returns `OVERWRITE_UNSAFE` before import. A loaded but
+registry-unregistered exact object is still occupied and cannot fall through to AssetTools.
+Destination entries, matched packages, resource bytes, compressed source bytes, and decoded bytes
+are bounded; disk resources use streaming hashes, and referencer diagnostics return a capped sorted
+sample plus the uncapped unique count. There are no stage moves, import-path global reference
+   walks, automatic reference fixups, or generic atomic content rollback claims. Every failure
+   restores exact source metadata. A proven pre-adapter failure also restores prior dirty state;
+   after possible adapter mutation, failure or no-change leaves the package dirty and reports that
+   content may have mutated. The safe replacement workflow is explicit and
+caller-directed: import under a new path, repoint known consumers, then delete the old asset
+unforced.
 
 ## History
 - `#1-pattern-scan` `OPEN` reporter — Source-only confirmation from the data-loss and false-success catalogs; no editor, build, test, or RPC run was performed.
@@ -94,3 +99,4 @@ and the public contract.
   **Cost to this stream:** every `blueprint.graph.*` mutation is `pendingSave:true` until an explicit `asset.save`, so ~35 minutes of committed-to-memory graph surgery on `BP_WeaponBase` (penetration budget, falloff rewire, instigator, tracer phase, dry-fire gate, `CancelReload` contract) died with the process. Only the three `blueprint.add_variable`/`add_dispatcher` results, which save themselves, reached disk.
 
   **Cross-reference, added after filing:** the importing stream filed the crash itself as `B-asset-import-overwrite-commit-kills-editor` (Critical, `encounters: 2`) with the same log window and callstack. That ticket owns the crash; **this entry exists for the separate claim that `#3-staged-overwrite-restoration` must not stay `IN-REVIEW`**, since the code it added is the code that faulted and it was never run in an editor. Fix one, check the other before closing either.
+- `#5-safe-default-complete-results-same-identity-reimport` `IN-REVIEW` developer — Replaced the returned staged-overwrite design with a narrow same-object `UTexture2D` reimport lane and pre-import `OVERWRITE_UNSAFE` for every other occupied shape. Preserved real empty-destination AssetTools import and added a deterministic real-factory regression proving ordered primary plus `AdditionalImportedObjects` reporting, alongside the saved-loaded live-reference overwrite/refusal/failure tests. No build, editor, automation, or MCP run was performed in this implementation stream; the focused run of these four tests will be their first execution.

@@ -122,11 +122,16 @@ instances, while authored `UK2Node_InputKey`, legacy combined input-action/input
 the old base-class filter, but their internal function name was emitted instead of the authored axis
 identity.
 
-The shared collector now emits all five input-entry families with the key/action identity in the
-existing `name` field and the authored node class in `eventType`. Input entries add `execOutputs`
-using the established execution-flow shape (`pin`, `targetNodeId`, `targetNodeTitle`), so a single
-InputKey node reports its connected Pressed/Released edges and their actual targets. Because
-`blueprint.get` and `blueprint.inspect` share the collector, both surfaces receive the same fix.
+The shared collector now emits all six supported input-entry families — `K2Node_InputKey`,
+`K2Node_InputAction`, `K2Node_InputAxisEvent`, `K2Node_InputAxisKeyEvent`, `K2Node_InputTouch`, and
+`K2Node_EnhancedInputAction` — with the key/action identity in the existing `name` field and the
+authored node class in `eventType`. In UE 5.8, `K2Node_InputVectorAxisEvent` derives from
+`K2Node_InputAxisKeyEvent`, so the axis-key branch covers it while preserving the concrete vector
+class in `eventType`; axis-key identity comes from `AxisKey`, not an internal function name. Input
+entries add `execOutputs` using the established execution-flow shape (`pin`, `targetNodeId`,
+`targetNodeTitle`), so a single InputKey node reports its connected Pressed/Released edges and their
+actual targets. Because `blueprint.get` and `blueprint.inspect` share the collector, both surfaces
+receive the same fix.
 
 Files changed:
 - `Source/PinWright/Private/Handlers/Blueprint/BlueprintHandlerUtils.cpp`
@@ -134,10 +139,14 @@ Files changed:
 - `Source/PinWright/Private/Tests/Blueprint/TestBlueprintGetInputEvents.cpp`
 - `Docs/wiki-src/blueprint.md`
 
-Automation test: `PinWright.blueprint.get.InputEventsReadback` creates a transient Blueprint with a
+Automation tests: `PinWright.blueprint.get.InputEventsReadback` creates a transient Blueprint with a
 real `UK2Node_InputKey`, wires both exec edges to distinct targets, invokes both handlers through
-`InvokeHandlerWithCapture`, and asserts the key, node class, edges, and target GUIDs. Per the worker
-brief, no editor, build, or automation run was performed here; the test awaits the coordinated suite.
+`InvokeHandlerWithCapture`, and asserts the key, node class, edges, and target GUIDs. The companion
+`PinWright.blueprint.get.OtherInputEntryKinds` test uses the same transient harness for legacy action,
+axis, axis-key/vector-axis, touch, and Enhanced Input nodes, checking authored `eventType` values and
+execution targets through both handlers. Its optional vector-axis coverage is compile-time guarded;
+when `InputBlueprintNodes` is unavailable it skips only the Enhanced Input assertions. Per the worker
+brief, no editor, build, or automation run was performed here; the tests await the coordinated suite.
 
 Deliberately not changed: the inherited-defaults issue and BPIR input round-trip tickets named in
 Related are separate defects with their own ownership and verification scope.
@@ -145,3 +154,8 @@ Related are separate defects with their own ownership and verification scope.
 ## History
 - `#1-filed` `OPEN` WEAPONS-critic — Measured during a WEAPONS critic review round 3. `blueprint.get {assetPath:"/Game/FPS/Weapons/Test/BP_WeaponTestPawn"}` returns `events: [ReceiveActorBeginOverlap, ReceiveTick, ReceiveBeginPlay, AddRecoil]` — **4** — while `blueprint.graph.get_execution_flow` on the same asset in the same session returns **11** entry points; the 7 missing are all `K2Node_InputKey`. Four of them are the pawn's whole firing input surface: `K2Node_InputKey_0` (LMB Pressed → `StartFire`), `_7` (LMB Released → `StopFire`), `_1` (RMB Pressed → `StartADS`), `_3` (RMB Released → `StopADS`), all `enabledState:"enabled"`. Not stubs, not orphans: `find_orphaned_nodes` returns 0 of 60 nodes, and the asset mtime is 2026-09-02 23:00:56 — untouched since before the review that got this wrong. **This produced a false High defect in a published review:** `Docs/fps/reviews/weapons-review-02.md` claimed the pawn had no `StopFire`/`StopADS` binding and named two orphan nodes as the stumps of the missing handlers; both bindings exist and the pawn has zero orphans. The verb returned a complete-looking list over a graph with seven more entry points than it reported, with nothing in the response marking a filtered node class. Ask: emit `K2Node_InputKey` entries in `events[]` with key name, pressed/released edge and call target (shared with `blueprint.inspect` via `CollectBlueprintEvents`); or, if the exclusion is deliberate, name it in the response and the wiki Notes and route to `get_execution_flow`; plus a regression test that a BP with one input key does not produce an `events[]` sized to its `K2Node_Event` count only. Also measured on the same call: `defaults` is populated from class-own `NewVariables` only, so `BP_Weapon_AR` with **19 overridden inherited properties** returns `defaults: {}` — appended as evidence to `E-blueprint-get-defaults-always-empty` (IN-REVIEW) whose shipped fix does not reach inherited overrides. Root cause is a **guess**: `CollectBlueprintEvents` likely filters on `UK2Node_Event` plus the custom-event path and never considers the sibling class `UK2Node_InputKey` — inferred from response shapes, no plugin source opened, no `file:line` claimed. Severity **High** on the silent-false-success band, evidenced by the published false defect; held at High rather than stepped down because `blueprint.get` is the primary Blueprint summary read.
 - `#2-input-events-readback` `IN-REVIEW` developer — Changed `CollectBlueprintEvents` to enumerate InputKey, legacy input-action/input-axis/input-touch, and Enhanced Input action nodes with authored identity plus connected exec-edge targets; added handler-harness coverage in `PinWright.blueprint.get.InputEventsReadback` and documented the additive input-entry shape. Source verification only; coordinated compile/suite pending.
+- `#3-axis-key-coverage-correction` `IN-REVIEW` developer — Source audit correction: `K2Node_InputAxisKeyEvent` was not covered by the existing input-axis branch, and on UE 5.8 its `K2Node_InputVectorAxisEvent` subclass must be covered through the base type while retaining the concrete `eventType`. The collector now reads `AxisKey` identity and the transient `PinWright.blueprint.get.OtherInputEntryKinds` harness verifies action, axis, axis-key/vector-axis, touch, and Enhanced Input entries through both summary handlers; the Enhanced Input portion skips only when `InputBlueprintNodes` is unavailable. Source verification only; coordinated compile/suite pending.
+- `#4-verifier-hygiene-correction` `IN-REVIEW` developer — The verifier rejected the source-only test for two hygiene defects: the Enhanced Input action fixture was registered with `RF_Standalone` and had no scoped owner/teardown, and the direct `blueprint.inspect` payload carried undeclared `includeDecompile`. Corrected the test to create the action under `/Temp/PinWrightTests/<GUID>`, retain the package and action with `TStrongObjectPtr` through both handler calls, unregister and mark them transient/garbage in `ON_SCOPE_EXIT`, and removed `includeDecompile`. Test IDs are unchanged; build and automation remain pending.
+- `#5-enhanced-input-class-match-correction` `IN-REVIEW` developer — The coordinated suite log for `PinWright.blueprint.get.OtherInputEntryKinds` showed the Enhanced Input entry missing from both `blueprint.get` and `blueprint.inspect` while the other input-entry assertions completed. Source audit found the collector gated Enhanced Input on an exact class-name `FName`; it now resolves the optional `K2Node_EnhancedInputAction` class and accepts that class and derived node variants with `IsA`, while retaining the reflected `InputAction` readback and authored node class in the response. This is a source-only correction; build and automation remain pending.
+- `#6-enhanced-input-fixture-lifetime-correction` `IN-REVIEW` developer — Independent source verification found the class-match correction could not explain the suite failure: the fixture node is instantiated from the exact resolved `K2Node_EnhancedInputAction` class, but its scoped teardown ran before either handler assertion, explicitly marking the referenced action and package as garbage and collecting them. The fixture ownership and teardown scope now spans both `blueprint.get` and `blueprint.inspect` calls, so the reflected `InputAction` remains bound and its `/Temp/PinWrightTests/<GUID>.<GUID>` path matches the unchanged expected name; cleanup still runs on function exit. Source verification only; coordinated compile/suite pending.
+- `#7-remove-unnecessary-class-match-change` `IN-REVIEW` developer — Removed the unnecessary resolved-class/`IsA` collector change after tracing the real suite failure to the Enhanced Input fixture's teardown scope. The fixture creates its node from the exact `K2Node_EnhancedInputAction` class, so the original exact class-name predicate is sufficient; identity and `execOutputs` behavior are unchanged, and both handler assertions remain unchanged. Source verification only; coordinated compile/suite pending.

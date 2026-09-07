@@ -107,6 +107,9 @@ old variable resolves its parent to the Blueprint class, so a bare retarget inco
 old accessor's self/external context for bare targets, applies UE's Blueprint-owner ancestry rule
 to qualified targets, sets `SetSelfMember` or `SetExternalMember` accordingly, and reconstructs
 the configured node before pin migration.
+The same-class no-op path now also compares qualified owner/context: bare same-name requests
+remain no-ops, while qualified same-name requests are skipped only when the requested owner and
+self/external context already match the existing reference.
 
 Files changed:
 - `Source/PinWright/Private/Handlers/Blueprint/BlueprintGraphCrudHandler.cpp`
@@ -116,6 +119,7 @@ Files changed:
 Tests:
 - `PinWright.blueprint.graph.replace_node.VariableGet_SelfMember_RemainsSelfBound`
 - `PinWright.blueprint.graph.replace_node.VariableGet_QualifiedOtherClass_RemainsExternal`
+  now exercises a same-name self-member to `Pawn::BaseEyeHeight` transition.
 - Strengthened `PinWright.blueprint.graph.replace_node.VariableGet_To_VariableSet_SameVariable`
   to assert the parallel VariableSet path remains self-bound.
 
@@ -133,3 +137,6 @@ for Blueprint variables; response fields and pin migration semantics are also un
   replacement factories to preserve self context for bare self-member retargets, retain external
   context for unrelated owners, reconstruct the configured node, and cover both contexts through
   handler-level transient Blueprint tests.
+- `#3-qualified-same-name-noop` `IN-REVIEW` developer — Tightened the same-class variable no-op
+  check to honor qualified owner/context changes, and strengthened the external-owner regression
+  test with a same-name Blueprint member retargeted to `Pawn::BaseEyeHeight`.

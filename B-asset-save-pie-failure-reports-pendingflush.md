@@ -143,8 +143,8 @@ Files changed:
   `Package->IsDirty() || bForce` so a clean unforced save keeps its existing already-clean
   verdict; the outcome -> state mapping; the wire spelling `blockedByPie` and its `saveDetail`;
   `AddAssetSaveReport` and `AddMarkDirtySaveReport` now publish the PIE block on the
-  requested-but-not-durable branch, which fixes the ~90 un-threaded save-flag verbs
-  (`material.authoring.*`, `audio.synth.export`, ...) without touching them; new
+  requested-but-not-durable branch for handlers that already emit a shared save report;
+  handlers that emit no persistence fields require separate fixes; new
   `AddAssetSaveSizeReport` emits `sizeBytes` plus `sizeBytesIsStale:true` when a non-durable save
   reported a pre-existing file's size. Also sharpened the `deferred` detail to name the 0.5s
   throttle and to say it is the one state a retry fixes right now.
@@ -189,15 +189,12 @@ Reviewer verification:
    vanished, a dot-prefix collision was introduced.
 2. Live editor, no PIE: `asset.save` a dirty asset twice inside 0.5s. The second must answer
    `saved:false, pendingFlush:true, saveState:"deferred"` and NO `pieActive`.
-3. Start PIE (`editor.play`), mutate an asset, `asset.save {force:true}`. Expect
-   `saved:false, saveState:"blockedByPie", pieActive:true, editorMode:"PIE"`, a `pieWorlds` entry
-   naming the running map, and - over an asset that already exists on disk -
-   `sizeBytesIsStale:true`. Confirm the `.uasset` mtime did not move.
+3. Start PIE (`editor.play`), mutate an asset, `asset.save {force:true}`. Expect a `PIE_ACTIVE`
+   error carrying `saved:false, pendingFlush:false, saveState:"blockedByPie", pieActive:true,
+   editorMode:"PIE"`, a `pieWorlds` entry naming the running map, and - over an asset that
+   already exists on disk - `sizeBytesIsStale:true`. Confirm the `.uasset` mtime did not move.
 4. `editor.stop`, re-issue the same `asset.save`, require `saveState:"written"` and a moved mtime.
-5. In the same PIE window, call a `save:true` verb that threads no state (e.g.
-   `material.authoring.set_material_instance_parameters`) and confirm it now carries
-   `pieActive` / `pieWorlds` beside its `pendingFlush`.
-6. Confirm nothing regressed for the clean-package case: `asset.save` an already-clean asset
+5. Confirm nothing regressed for the clean-package case: `asset.save` an already-clean asset
    during PIE must still not be turned into a false refusal by the new gate.
 
 ### Wave 10 correction

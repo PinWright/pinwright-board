@@ -96,19 +96,34 @@ compile fails, which is the ordinary outcome of any BPIR snippet that is not rig
 ## Fix
 
 `Source/PinWright/Private/Utils/BlueprintGraphSnapshot.{h,cpp}` now captures the pre-image of
-every authored output-pin connection using the surviving nodes' GUIDs, pin names, and directions.
-`RollbackToSnapshot` removes newly created graphs and nodes as before, then removes links absent
-from the snapshot and restores every captured link that is missing, using the owning graph schema
-with a direct-link fallback. This covers the anchor-to-downstream splice even when transaction
-undo does not restore `LinkedTo` state. `BpirCompilerHandler.cpp` continues to use this shared
-snapshot for all BPIR rollback paths; it does not keep a handler-local edge snapshot.
+every authored connection using the surviving nodes' GUIDs, recursive pin paths, and directions.
+For this `insert_bpir_at_node` path, the existing rollback removes the BPIR-inserted nodes, then
+recursively inspects both link endpoints (including split sub-pins), removes post-snapshot or
+asymmetric links, and restores each captured link exactly once in both `LinkedTo` arrays.
+Restoration uses the graph schema first and the pin API as the authoritative-pre-image fallback.
+`VerifyLinkTopology` then checks that no unexpected link remains and that every captured endpoint
+still resolves symmetrically.
+
+`BpirCompilerHandler.cpp` captures this shared snapshot before `InsertCodeAfterNode`. Every explicit
+failure after that call rolls the transaction and snapshot back. The handler now verifies the final
+link topology and returns typed `INTERNAL_ERROR` rollback diagnostics (while preserving the original
+failure code/message in the payload) instead of silently returning the original error if restoration
+is incomplete.
 
 `Tests/Bpir/TestBpirInsertRollbackAnchorExec.cpp` now creates and saves a valid on-disk Actor
-Blueprint with a CustomEvent wired to PrintString, invokes the real
+Blueprint under a GUID-isolated `/Game/PinWrightTests` path with a CustomEvent wired to PrintString.
+It proves the baseline whole Blueprint compiles and records the exact symmetric edge and node count,
+then invokes the real
 `blueprint.insert_bpir_at_node` handler with `call K2Node_CallFunction()` (a node that reaches the
-post-splice whole-Blueprint compile and should fail validation), and asserts the typed
-`BLUEPRINT_COMPILE_FAILED` response plus symmetric restoration of the original edge. Source and
-whitespace checks are complete; the Unreal compile and automation run remain verifier work.
+post-splice whole-Blueprint compile and fails validation). It asserts `BLUEPRINT_COMPILE_FAILED`,
+proves at least one node was inserted, then proves the original edge is symmetric, the node count is
+restored, and every reported inserted GUID is absent. The Unreal compile and automation run remain
+verifier work.
+
+Broader new-graph rollback coverage is unchanged and out of scope for this ticket: capture uses
+`GetAllGraphs`, while new-graph removal still covers only the Blueprint's ubergraph, function, and
+macro arrays. `insert_bpir_at_node` mutates an existing graph, so this ticket makes no general claim
+about removing newly created graphs from other graph categories.
 
 ## History
 - `#1-filed` `OPEN` reporter — Hit on EAContentExamples58 (UE 5.8) while adding a penetration-budget
@@ -121,3 +136,4 @@ whitespace checks are complete; the Unreal compile and automation run remain ver
   edge by hand and doing the decrement with `create_node` + `connect_pins` instead.
 - `#2-correction` `OPEN` reporter — **My `#1` misattributed the cause of the compile failure and the correction sharpens this ticket rather than weakening it.** The BPIR snippet was not wrong. The compile failed because an *unrelated* node elsewhere in the same graph was already broken — a `Get PenetrationsLeft` that `blueprint.graph.replace_node` had produced without self context (`B-replace-node-variableget-loses-self-context`), which `insert_bpir_at_node`'s whole-Blueprint compile then tripped over (the mechanism in `E-compile-bpir-preexisting-errors-block-repair`). Proof: after wiring that one node's `self` pin by hand, `blueprint.compile` returned `{"compiled":true,"status":"UpToDate","errors":[]}` with the BPIR nodes long since deleted. **So the severed edge is not collateral damage from bad caller input — it is what this verb does to a healthy caller whose Blueprint happens to carry a pre-existing error in any graph.** A caller who is using `insert_bpir_at_node` *to repair* a broken Blueprint — the exact case `E-compile-bpir-preexisting-errors-block-repair` is about — gets a second break for free, in a different place, every attempt.
 - `#3-shared-snapshot-rollback` `IN-REVIEW` developer — Added connection pre-image capture and restoration to `Utils/BlueprintGraphSnapshot`, which is the common rollback path used by the BPIR handlers. The regression now drives the real `insert_bpir_at_node` handler on a saved valid Blueprint and supplies an invalid generic BPIR node so the handler's post-splice full compile fails; it verifies `BLUEPRINT_COMPILE_FAILED` and the original anchor-to-PrintString edge in both directions. Static source/diff checks pass; no Unreal build or automation run was performed in this implementation pass.
+- `#4-corrective-rollback-verification` `IN-REVIEW` developer — Corrected the shared snapshot implementation to recurse through split pins, clean links from either endpoint without leaving one-sided state, resolve endpoints by recursive pin path, and verify exact restored topology. The insert handler now surfaces `INTERNAL_ERROR` if rollback verification fails. Strengthened the saved-Blueprint regression with a clean baseline compile, baseline node count, proof that BPIR inserted a node before whole-Blueprint compile failure, and proof that rollback removes every reported inserted GUID. Static review only; no Unreal build or automation run was performed.

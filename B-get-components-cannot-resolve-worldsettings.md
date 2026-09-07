@@ -1,7 +1,7 @@
 ---
 id: B-get-components-cannot-resolve-worldsettings
 title: "actor.get_components cannot resolve WorldSettings by the exact object path actor.find_by_class just returned — the editor-world candidate set comes from GetAllLevelActors(), which excludes AWorldSettings by construction"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: bug
 tags: [actor, get_components, worldsettings, actor-resolution, GetAllLevelActors, ACTOR_NOT_FOUND, decals, asymmetry, weapons]
@@ -148,5 +148,32 @@ workaround for reading values, not for the bulk enumeration this verb exists to 
 - `B-actor-find-by-class-short-name-fails` (IN-REVIEW) — the sibling verb, which resolves
   WorldSettings fine and is the source of the path this verb rejects.
 
+## Fix
+
+`ResolveActorFiltered` now builds the candidate-world order first (explicit world, or
+PIE then editor when omitted). For each selected world, a slash-prefixed identifier is
+resolved with `FindObject<AActor>(nullptr, FStringView(Path), EFindObjectFlags::None)`
+before enumeration, and the result is accepted only when it is valid, passes the caller's
+`CandidateFilter`, and belongs to that exact world. This makes any live actor addressable
+by its emitted object path, including WorldSettings, brushes, AInfo-derived actors, hidden
+actors, and transient actors, without widening label/name enumeration. The existing
+PIE-first fallback, precedence ladder, and ambiguity handling remain. The pre-existing
+path-shaped asset fallback remains after all selected-world live-actor attempts, unchanged.
+
+Added `PinWright.actor.get_components.WorldSettingsObjectPath`, a handler-harness regression
+that creates a transient decal component on the editor world's WorldSettings, calls the real
+`actor.get_components` handler with `WorldSettings->GetPathName()`, and checks the returned
+component path, name, class, count, and relative location/rotation/scale. The test skips only
+when there is no editor world, no WorldSettings actor, or an active PIE world that would win
+the resolver's intentional null-world precedence. Added
+`PinWright.actor_utils.ResolveActor.ExactPathLiveActorClasses`, which switches the editor
+context to a guarded transient world, spawns a transient `ABlockingVolume` and concrete
+`AGameStateBase` (`AInfo`-derived) plus a same-class actor in another world, and asserts
+exact-path resolution for the first two and refusal of the wrong-world path. Verification
+in this pass is static only; no Unreal build, automation run, or live MCP call was performed.
+
 ## History
 - `#1-filed` `OPEN` WEAPONS-critic — Measured during a WEAPONS critic review round 4. `actor.get_components {"actorName":"WorldSettings","componentClass":"DecalComponent"}` returned `[ACTOR_NOT_FOUND] Actor or Blueprint not found`; retried with the full object path `/Game/FPS/Maps/FPS_Compound.FPS_Compound:PersistentLevel.WorldSettings`, obtained from `actor.find_by_class {className:"WorldSettings"}` seconds earlier, and got the identical error, while the same path resolved without complaint through `system.inspect.inspect_object` and `property.get` and `actor.get_components` worked on ordinary actor paths in the same world. Root cause **confirmed in source** for this entry (unlike the audio sibling, which inferred it): `actor.get_components` calls `McpActorUtils::FindActorByName(nullptr, TargetName)` (`Handlers/Actor/ComponentHandler.cpp:503`), and with a null world `ResolveActorFiltered` builds its editor-world candidate set from `UEditorActorSubsystem::GetAllLevelActors()` (`Utils/ActorUtils.cpp:209`), which filters WorldSettings out by name — `!Actor->IsA(AWorldSettings::StaticClass())`, `C:/UE_5.8/Engine/Source/Editor/UnrealEd/Private/Subsystems/EditorActorSubsystem.cpp:388`. So the whole precedence ladder (object path, internal name, label) runs over a set the actor was removed from, which is why every key form fails identically and why the full object path fails too; the `/`-prefixed fallback does not rescue it either, because it gates on `UEditorAssetLibrary::DoesAssetExist` (`ActorUtils.cpp:230`), a registry-only probe that returns false for a level-actor object path. The asymmetry is fully explained by the same read: `actor.find_by_class` iterates `TActorIterator<AActor>(World, ClassToFind)` (`Handlers/Actor/QueryHandler.cpp:467`) with no exclusion, `ResolveActorFiltered`'s own explicit-world and PIE branches also use `TActorIterator` (`ActorUtils.cpp:176`), and only the no-world editor branch goes through `GetAllLevelActors` — but `actor.get_components` declares no `world` parameter (`ComponentHandler.cpp:481-488`) and hardcodes `nullptr`, so no argument reaches the working branch. Consequence measured on this project: `UGameplayStatics::SpawnDecalAtLocation` parents every decal component to WorldSettings and spawns no actor, so this verb is the only one-call bulk route to decal transforms, and without it reading N decal rotations costs N `property.get` calls after separately discovering N component paths. Ask: accept the path forms the inspect verbs accept (resolve a full object path directly), or expose the `world` parameter the resolver already supports, or align the editor branch onto `TActorIterator` like its two siblings. Dedup: `E-spawned-audio-component-not-actor-readable` (IN-REVIEW, docs) first measured the same ACTOR_NOT_FOUND behaviour on audio components and explicitly rejected the resolver fix as over-scoped on the grounds that the spawn response already returns a usable `componentPath` — that rationale does not cover a decal spawned by game code, which has no MCP spawn response and therefore no returned handle; a cross-reference entry was appended there rather than reopening it. Also distinct from `E-actor-verbs-reject-actorpath-slot` (key-name aliases, whose fix is visible in this source read and which this ticket is downstream of: the key is accepted, the value still does not resolve) and `E-actor-name-resolution-label-collision` (which recommends the internal object name as collision-safe — advice that fails here, where no key works).
+- `#2-added-worldsettings-candidate` `IN-REVIEW` developer — Changed `Utils/ActorUtils.cpp` so the shared resolver preserves `GetAllLevelActors()` filtering and explicitly adds the selected editor world's live `AWorldSettings` when the caller's filter accepts it; added the handler-level `actor.get_components` WorldSettings object-path regression and documented the round-trip contract in `Docs/wiki-src/actor.md`. Static checks only; live compile and automation verification remain for the tester.
+- `#3-exact-live-object-path-resolution` `IN-REVIEW` developer — Replaced the WorldSettings-only candidate addition with world-scoped direct object-path resolution before enumeration. `FindObject<AActor>(nullptr, FStringView(Path), EFindObjectFlags::None)` is accepted only for a valid actor passing the caller filter whose `GetWorld()` equals the selected candidate world; candidate order remains explicit world or PIE then editor, while editor label/name enumeration keeps `GetAllLevelActors()` filtering. Removed the shared resolver's asset-registry/`UEditorAssetLibrary` fallback. Extended `TestActorGetComponentsWorldSettings.cpp` with `PinWright.actor_utils.ResolveActor.ExactPathLiveActorClasses`, covering transient `ABlockingVolume`, concrete `AGameStateBase` (`AInfo`-derived), and wrong-world refusal; retained the handler-level WorldSettings component readback. Updated `Docs/wiki-src/actor.md` to document exact-path access to live WorldSettings, brushes, info, hidden, and transient actors. Static source checks only; no build, automation run, Unreal editor, MCP, or commit performed.
+- `#4-restored-asset-fallback` `IN-REVIEW` developer — Restored the pre-existing `UEditorAssetLibrary::DoesAssetExist` / `LoadAsset` fallback exactly after selected-world live actor path/name/label attempts; the new direct live-actor path resolution and both regression tests are unchanged.

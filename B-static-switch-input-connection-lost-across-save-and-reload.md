@@ -1,15 +1,21 @@
 ---
 id: B-static-switch-input-connection-lost-across-save-and-reload
-title: "A StaticSwitchParameter input bound AFTER construction is lost across save and reload - it binds, reads back, compiles, renders and saves written, then comes back NULL; the same input set during construction by compile_mgir survives"
-status: OPEN
+title: "New material-function outputs lack persistent IDs, so saved function-call consumers can disconnect on reload"
+status: IN-REVIEW
 severity: High
 category: bug
-tags: [material, static-switch, serialisation, save, reload, default-material, silent-revert, connect-nodes, compile-mgir, post-hoc-connection]
+tags: [material, material-function, function-output, persistent-id, static-switch, serialisation, save, reload, default-material, silent-revert]
 encounters: 2
 lastSeen: 2026-09-06T06:40:00Z
 ---
 
-# The connection is live, rendered and saved — and gone after a restart
+# Function-output IDs can invalidate a saved consumer on reload
+
+## Current diagnosis and accepted scope
+
+Classification: reformulate. Worker brief: PARTLY TRUE. PinWright's typed and generic FunctionOutput creation paths omitted ConditionallyGenerateId. A caller can serialize an invalid output ID while its transient output pointer remains usable; loading the function creates an ID and caller remapping drops the old reference. This is a source-confirmed defect matching the reported null/-1 state. The original failed graph and IDs are unavailable, so attribution of the historical M_FPSArms incident remains an inference. A/B serialization and post-hoc connection timing are not established causes.
+
+Production sites are `Source/PinWright/Private/Material/MaterialExpressionFactory.cpp` (both owner overloads) and `Source/PinWright/Private/Handlers/Material/MaterialAuthoringHandler.cpp` (`add_function_output`). Engine `Runtime/Engine/Private/Materials/MaterialExpressions.cpp` initializes output IDs in `UMaterialExpressionFunctionOutput::PostLoad`, caches them in function calls, and remaps callers by ID in `UpdateFromFunctionResource`; an unmatched ID clears the consumer input to null/INDEX_NONE. `Runtime/Engine/Public/Materials/MaterialExpressionMaterialFunctionCall.h` serializes `ExpressionOutputId` but marks `ExpressionOutput` transient. The native creation precedent is `Editor/MaterialEditor/Private/MaterialEditingLibrary.cpp`.
 
 ## What happened, in order, all measured
 
@@ -51,14 +57,12 @@ defeats the workaround for that one: the connection **was** made (by the engine 
 **was** saved with the strongest success signal the save verb has. Every check available to a caller
 passed. It still did not survive serialisation.
 
-That makes it unfalsifiable in-session: there is no measurement I can take before a restart that
-distinguishes "this will persist" from "this will silently revert". The only test is to restart the
-editor and look, which is not a check anyone can run per-edit.
+The original report treated restart as the only verification route. The current tree has asset.reload for eviction and disk readback. The regression below saves and unloads both the function dependency and its consumer before reloading. Ordinary load_asset/LoadObject on a resident object is not disk verification.
 
 Cost here: three builds of a first-person viewmodel rendering as the engine Default Material. Twice
 I reported the material fixed on evidence that was, at the time, complete and correct.
 
-## Asked for
+## Original requested investigation
 
 1. Find why input 0 of `MaterialExpressionStaticSwitchParameter` is not serialised, or is dropped on
    load, when input 1 on the same node is. `A` and `B` are both `FExpressionInput` on the same
@@ -69,6 +73,8 @@ I reported the material fixed on evidence that was, at the time, complete and co
    saved package rather than from memory and diff. `asset.save`'s own docs already warn that reading
    back from `load_asset` returns the in-memory object — this is exactly the case that warning
    exists for, and nothing currently acts on it.
+
+Accepted implementation scope is output-ID initialization and regression coverage. General automatic post-save graph comparison and changes to asset.save are out of scope: writing an invalid ID is still a real package write, followed here by semantic invalidation during load.
 
 ## Workaround, and why I took it
 
@@ -87,9 +93,21 @@ exists.
 Anyone who needs the switch (a material shared between viewmodel and world) cannot take this
 workaround, which is why the ticket stands.
 
-severity rationale: impact=silently reverts a material to the engine Default Material across a
-restart, with every in-session check passing x reach=any material using a static switch, the
-standard way to gate an optional feature -> High
+severity rationale: impact=valid-looking function-call connections can disappear on reload and cause fallback rendering x reach=consumers of newly created function outputs missing persistent IDs -> High. Reach is not every static-switch material.
+
+## Fix
+
+The root cause is missing persistent identity on newly created function outputs. Both owner overloads in `Source/PinWright/Private/Material/MaterialExpressionFactory.cpp` now call `ConditionallyGenerateId(false)` after successful property application and before collection insertion. `Source/PinWright/Private/Handlers/Material/MaterialAuthoringHandler.cpp` applies the same initialization in `material.authoring.add_function_output`. A valid explicitly supplied ID is preserved.
+
+Added `Source/PinWright/Private/Tests/Material/TestStaticSwitchFunctionOutputPersistence.cpp`, test `PinWright.material.authoring.connect_nodes.StaticSwitchFunctionOutputPersistence`, and documented the creation contract in `docs/wiki-src/material.authoring.md`. Deliberate non-changes: no FunctionInput, engine, MGIR, asset.save, generic post-save comparison, connection-time ID regeneration, or repair of existing malformed assets/lost connections. The original incident attribution remains inferred.
+
+## Regression and verification
+
+`PinWright.material.authoring.connect_nodes.StaticSwitchFunctionOutputPersistence` creates function outputs through both production handler routes in independent `/Game/PinWrightTests/<GUID>` fixtures. It asserts an immediate nonzero output ID and the matching caller ID, connects StaticSwitch A through authoring and B through graph handlers, and also covers the reporter's direct engine True-pin connection. It saves the function dependency first and the consumer second, releases strong owners, unloads both through native package unloading (including safe ResetLoaders), proves eviction, then reloads the consumer and its dependency. Readback checks stable output/caller IDs, the reconstructed output pointer, and surviving A/B connections to nodes in the reloaded material. Local assertions also cover the material factory overload and preservation of an explicitly supplied ID.
+
+Counterfactual: reverting initialization fails the immediate output-ID validity assertion; the old caller can save a zero ID, then fail to match the function's postload-generated ID and lose A while B survives. Resident-only readback fails the eviction assertions.
+
+NOT RUN: build, automation, editor, and runtime verification. Source-only implementation; IN-REVIEW.
 
 ## History
 - `#1-filed` `OPEN` reporter — Found on the FPS PLAYER stream after the arms viewmodel rendered pale in a frame that followed two editor restarts, having rendered dark before them. The measurement chain above is the whole story; the earlier ticket's `connect_nodes` defect is real but separate, and this one survives its workaround.
@@ -108,3 +126,4 @@ compile_material -> compileSucceeded true, shaderCompile.rendersDefaultMaterial 
   It also makes this and `B-connect-nodes-accepts-true-false-pin-names-on-static-switch-and-wires-nothing` two depths of one problem rather than two problems: `connect_nodes` reports success and binds nothing at all; `connect_material_expressions` binds something that passes every in-session check — read-back, shader compile, rendered frame, `saveState: "written"` — and then does not serialise. Both are the post-hoc connection path being unreliable on this node. **Practical guidance until it is fixed: author expression inputs at construction (`material.compile_mgir` `Extend`) rather than connecting them afterwards**, which is a working route past both tickets and is what the other stream did without hitting either.
 
   Credit where due: the control was theirs, run at my request after I warned them their hook might have the same defect. It did not, and their negative result is worth more to the fix than my positive one.
+- `#3-function-output-id-initialization` `IN-REVIEW` developer — Reformulated from general post-hoc StaticSwitchParameter persistence to missing persistent FunctionOutput IDs. Initialized new output IDs in both FMaterialExpressionFactory::Create overloads and material.authoring.add_function_output while preserving valid IDs. Added PinWright.material.authoring.connect_nodes.StaticSwitchFunctionOutputPersistence with production-handler creation, saved dependency/consumer packages, genuine eviction, and reloaded ID/A/B assertions. Updated material.authoring documentation. Static inspection only; build, automation, editor, and runtime verification were not run. The original incident attribution remains inferred; asset.save graph verification is outside this fix.

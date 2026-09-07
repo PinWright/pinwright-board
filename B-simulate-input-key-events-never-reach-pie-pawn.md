@@ -1,7 +1,7 @@
 ---
 id: B-simulate-input-key-events-never-reach-pie-pawn
-title: "editor.simulate_input key_down/key_up report success but never reach a running PIE session — the possessed pawn's input state does not change, so no verb can drive a game under test"
-status: OPEN
+title: "editor.simulate_input key events need measured PIE delivery; pawn/action execution remains a separate live assertion"
+status: IN-REVIEW
 severity: High
 category: bug
 tags: [editor, simulate_input, key_down, key_up, pie, enhanced-input, slate-focus, silent-false-success]
@@ -9,12 +9,15 @@ encounters: 2
 lastSeen: 2026-09-05T21:00:00Z
 ---
 
-# Simulated key events never reach the PIE pawn
+# Simulated key events need measured PIE delivery
 
-`editor.simulate_input {type:"key_down"}` returns `{success:true, message:"Key down: W"}` while a
-PIE session is running and possessing a pawn, but nothing in the game observes the key. Every
-gameplay review that needs the game *driven* — movement feel, weapon bob, sprint, ADS, recoil — has
-no route at all, because this is the only input-injection verb.
+The original `editor.simulate_input {type:"key_down"}` path returned
+`{success:true, message:"Key down: W"}` while a PIE session was running, even when nothing in the
+game observed the key. The acceptance target for this ticket is now **measured event delivery**:
+resolve the selected PIE world/player, dispatch through its game viewport, and report whether the
+target `UPlayerInput` queued the edge. That proves the input route; it does not by itself prove that
+an Enhanced Input mapping, action, or possessed-pawn callback executed. Those remain separate live
+game-side assertions for reviews that need movement feel, weapon bob, sprint, ADS, or recoil.
 
 ## What I called
 
@@ -53,9 +56,10 @@ fired — it is not a movement-component or collision question.
 
 ## What I expected
 
-The key to reach the focused game viewport and be consumed by the PIE player's input stack, the way
-a real keystroke is, so a critic can hold W and photograph the result. Failing that, an error saying
-the event was not routed — not `{success:true}`.
+The key to reach the selected game viewport and be registered by the PIE player's input stack, the
+way a real keystroke is, so the response can distinguish delivered-and-ignored from not-routed.
+Whether the game's binding then triggers an action or pawn effect must be verified against an
+authoritative game-side state value, not inferred from transport or `UPlayerInput` registration.
 
 ## Why this is not the game's fault
 
@@ -85,10 +89,10 @@ the player's binding work", which is often the question being asked.
 
 ## Suggested fix
 
-Return the handled-bool from `FSlateApplication::ProcessKeyDownEvent` rather than hardcoding
-`true`, and route to the game viewport widget (`UGameViewportClient`'s Slate viewport) when a PIE
-session is active — or add an explicit `target: "pie" | "editor"` parameter — so the caller can tell
-"delivered and ignored" from "never delivered".
+Resolve a concrete PIE world and its `UGameViewportClient` / local player / controller, repair Slate
+focus when needed, and report route handling separately from a measured `UPlayerInput` edge. An
+explicit `target: "game" | "editor"` plus the existing PIE world selector keeps editor injection
+and game delivery distinct. Do not claim an action or pawn effect without a live game-side probe.
 
 ## Fix
 
@@ -137,13 +141,13 @@ focused in-game UMG widget never sees the key, which is exactly the second encou
 (pause-menu `Escape` then `Down`/`Enter`). Rejected alternative: Slate-only. It leaves the verb dead
 whenever focus cannot be moved onto the game — the reported failure mode.
 
-**Response is now measured, never hardcoded:** `route` (`slate` | `viewport_client`), `handled`,
-`playerInputRegistered`, `focusRepaired`, `focusedWidget`, `pieInstance`, `kind`, `netMode`, `map`,
-`worldPath`, `playerController`, `pawn`. `success` = `handled || playerInputRegistered`; a key
-nothing received is `INPUT_FAILED` naming the focused widget. New params: `target`
-(`auto` default | `game` | `editor`) and `world`. `target:"game"`, and any call naming a `world`,
-refuses with `NO_ACTIVE_SESSION` instead of degrading into an editor keystroke. A missing `key` is
-`INVALID_ARGUMENT` and an unknown FKey name is `INVALID_KEY` (both used to be `INPUT_FAILED` prose).
+**Response is measured after the selected player's next input tick.** Game-targeted keys go through
+the resolved PIE `UGameViewportClient`; `deliveredToGame` is true only when the exact event id queued
+by that dispatch appears in the same `UPlayerInput`'s processed event counts with the requested
+pressed/released state. `handled` is diagnostic only. `consumingRoute` distinguishes `player_input`
+from consumption or failure before it; handled-but-not-delivered is `INPUT_FAILED`. `target:"game"`
+and named-world calls with no PIE return `PIE_NOT_ACTIVE`. This proves PlayerInput delivery, not an
+Enhanced Input action or pawn callback.
 
 **Files changed**
 - `Plugins/PinWright/Source/PinWright/Private/Handlers/Drive/DriveGameInput.h` (new)
@@ -153,7 +157,11 @@ refuses with `NO_ACTIVE_SESSION` instead of degrading into an editor keystroke. 
   delegates to it, contract unchanged for `drive.key`.
 - `Plugins/PinWright/Source/PinWright/Private/Handlers/Editor/EditorCommandHandler.cpp` — key
   branches rewritten; mouse branches untouched.
-- `Plugins/PinWright/Source/PinWright/Private/Tests/Drive/TestDriveGameInput.cpp` (new) — 5 tests.
+- `Plugins/PinWright/Source/PinWright/Private/Tests/Drive/TestDriveGameInput.cpp` — exactly two tests
+  added by this fix: `PinWright.drive.game_input.GameRouteSelection` and the owned-session latent
+  `PinWright.editor.simulate_input.PiePlayerInputDelivery`. The latter invokes the real handler and
+  proves key-down and key-up through a real PIE viewport and `UPlayerInput`, while a global Slate
+  preprocessor consumes the same key as a counterfactual.
 - `Plugins/PinWright/docs/wiki-src/editor.md`, `docs/wiki-src/drive.md`, `docs/rpc-design.md` §1.
 
 **Not compiled, not run** — a separate compile pass follows this change.
@@ -168,7 +176,7 @@ refuses with `NO_ACTIVE_SESSION` instead of degrading into an editor keystroke. 
    `playerInputRegistered:true` — delivered and ignored, distinguishable from never delivered.
 3. Pause-menu path: `key_down`/`key_up` on `Escape` with a menu-opening binding, then `Down` /
    `Enter`. The menu must open and navigate (this is the route-through-Slate half).
-4. No PIE running: `{type:"key_down", key:"W", target:"game"}` must answer `NO_ACTIVE_SESSION`,
+4. No PIE running: `{type:"key_down", key:"W", target:"game"}` must answer `PIE_NOT_ACTIVE`,
    never `success:true`.
 5. Multi-instance PIE (`editor.play {numClients:2, netMode:"listen"}`): `world:"client:1"` and
    `world:"server"` must report different `pieInstance` / `playerController` values.
@@ -206,3 +214,5 @@ refuses with `NO_ACTIVE_SESSION` instead of degrading into an editor keystroke. 
   Two things make this expensive to a caller. First, `playerInputRegistered: true` is reported identically for the action that fired and the three that did not, so there is no in-band way to tell a delivered key from a swallowed one — the only signal is a game-side variable the caller has to know to read. Second, it is **intermittent across sessions**: in an earlier slot the same `W` key did move the pawn several metres, and in this one it produced zero velocity, so a caller cannot even learn a stable workaround.
 
   Suggest the response distinguish "the key was injected" from "an Enhanced Input action triggered" — the subsystem knows which actions fired on that tick, and reporting them by name would make this self-diagnosing. Workaround in use: call the gameplay method directly (`Reload`) or set the driving variable, and label such captures as not-input-driven.
+
+- `#5-direct-pie-input-route` `IN-REVIEW` developer — Changed `DriveGameInput.cpp`/`.h` and `EditorCommandHandler.cpp` so explicit PIE input retains its response until the selected `UPlayerInput` processes the exact injected edge on its next tick; added `GameRouteSelection` and the owned-PIE `PiePlayerInputDelivery` counterfactual, and updated the editor/RPC contracts. Static inspection only: no build, automation, or live PIE proof.

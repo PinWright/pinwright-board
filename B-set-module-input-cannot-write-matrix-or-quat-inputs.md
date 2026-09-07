@@ -1,7 +1,7 @@
 ---
 id: B-set-module-input-cannot-write-matrix-or-quat-inputs
 title: "niagara.set_module_input silently truncates a NiagaraMatrix to its first 4 floats and reports success — and that corrupting write is the ONLY way to create the override pin the working string form needs"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: bug
 tags: [niagara, set-module-input, matrix, quat, silent-truncation, data-loss, success-no-effect, shape-location, bootstrap, unsupported-input-value]
@@ -99,5 +99,43 @@ authoritative, producing a degenerate transform that still compiles and renders 
 `NiagaraMatrix` input, including `ShapeLocation`'s `Custom Matrix` mode, the engine's only
 sanctioned shape/owner decoupling -> High
 
+## Fix
+
+Verdict: **PARTLY TRUE**. The Matrix truncation is source-confirmed: a fresh 16-number array
+was converted by `JsonValueToPinDefaultString` into a four-component vector literal before the
+override pin was created. The Quat values were preserved as four floats, but the fresh override
+was also inferred as `Vec4`, and no quaternion normalization was applied.
+
+`Source/PinWright/Private/Handlers/Niagara/NiagaraEditHandler.cpp` now validates fresh declared
+`NiagaraMatrix` values as exactly 16 finite float-representable numbers in row-major order and
+fresh declared `Quat4f` values as exactly four finite components, rejects a zero quaternion, and
+normalizes an `FQuat4f`. It asks `UEdGraphSchema_Niagara::TryGetPinDefaultValueFromNiagaraVariable`
+for the engine's pin-default encoding. UE 5.8's Matrix editor utility has no pin-default encoder,
+so Matrix literals now refuse with `INVALID_INPUT_VALUE` before graph mutation; the fix makes no
+claim that Matrix writes succeed on UE 5.8. For Quat, the handler writes the schema-encoded value,
+decodes the actual override with `UEdGraphSchema_Niagara::PinToNiagaraVariable`, compares every
+component, and echoes the decoded canonical string. Raw text equality is retained only for
+untyped string paths.
+
+Files changed:
+
+- `Source/PinWright/Private/Handlers/Niagara/NiagaraEditHandler.cpp`
+- `Source/PinWright/Private/Tests/Niagara/TestNiagaraSetModuleInputMatrixQuat.cpp`
+- `Plugins/PinWright/Docs/wiki-src/niagara.md`
+
+Regression tests:
+
+- `PinWright.niagara.set_module_input.RefusesUnsupportedMatrixLiteral`
+- `PinWright.niagara.set_module_input.WritesNormalizedQuatLiteral`
+- `PinWright.niagara.set_module_input.RefusesWrongMatrixArity`
+
+Deliberately not changed: no separate parser/bootstrap for a fresh UE struct-literal string or a
+`{Row0..Row3}` Matrix object was added. On UE 5.8 the exact 16-number Matrix path is intentionally
+unsupported and refuses before graph mutation; Quat remains supported through schema encode and
+decoded component readback. No Unreal build, editor run, or automation execution was performed
+under this source-only brief.
+
 ## History
 - `#1-initial-repro` `OPEN` VFX — Filed while retrying six workaround tickets against the rebuilt plugin (PLAN rule 2) on the FPS VFX stream, EAContentExamples58, UE 5.8, live editor port 27145, 2026-09-05. Every call and every response above was executed and is quoted verbatim; the on-disk evidence is a `grep -a` over the saved `.uasset` at the mtime given. Scratch asset `/Game/FPS/VFX/Scratch_TicketRetry/E_TR_Curve` is deleted after the run, so the repro must be rebuilt from the `asset.duplicate` + `add_module` + `set_static_switch` steps above. Not source-confirmed: no read of `NiagaraEditHandler.cpp`'s value-parsing path was made; the "array path takes a prefix" reading is inferred from the echoed `Vector4f` literal plus the absent components on disk, not from the code. The brief this ticket was filed under asserted the object form and the 16-float string both fail — both confirmed — and predicted `Quat4f` fails too, which is **wrong** and is corrected above.
+- `#2-typed-matrix-quat-write` `IN-REVIEW` developer — Verdict PARTLY TRUE. Changed `NiagaraEditHandler.cpp` to use declared Matrix/Quat types for fresh numeric literals, enforce finite exact arity, normalize non-zero `FQuat4f` values, verify override-pin type/default readback, and echo the read-back string; added `TestNiagaraSetModuleInputMatrixQuat.cpp` coverage for the UE 5.8 Matrix refusal, normalized non-identity Quat, and wrong Matrix arity. Deliberately left fresh struct-literal bootstrap and Matrix row-object parsing unchanged; no build, editor, or automation run was performed.
+- `#3-schema-typed-readback-correction` `IN-REVIEW` developer — Corrected the rejected proof: Quat values are encoded through `UEdGraphSchema_Niagara::TryGetPinDefaultValueFromNiagaraVariable` and decoded through `PinToNiagaraVariable`, with component-wise readback verification; UE 5.8 Matrix values refuse pre-mutation because its type utility lacks pin-default encoding/decoding. Tests no longer derive expected text with `ToString`; the Quat fixture is non-identity so an identity decoder cannot pass. Added `Plugins/PinWright/Docs/wiki-src/niagara.md` to the changed-files list.

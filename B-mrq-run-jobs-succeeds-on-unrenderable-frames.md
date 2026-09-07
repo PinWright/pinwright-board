@@ -1,7 +1,7 @@
 ---
 id: B-mrq-run-jobs-succeeds-on-unrenderable-frames
 title: "mrq.run_jobs reports jobSucceeded:true with four healthy-looking 8.8 MB PNGs whose lower 47% is a flat white void and whose Nanite geometry has shattered — every field in the response is a file fact, and none of them is a picture fact"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: bug
 tags: [mrq, run_jobs, silent-false-success, movie-render-queue, nanite, lumen, warm-up, image-stats, acceptance-render]
@@ -147,19 +147,23 @@ render the suspect frames fall: all measured frames suspect ⇒ *not* first-fram
 warm-up will not fix it; only the earliest ⇒ it is. That is exactly the conclusion this ticket
 records taking two builds to reach by hand.
 
-**Also surfaced, same defect class.** `mrq.run_jobs` now binds
-`UMoviePipelineExecutorBase::OnExecutorErrored` and publishes `executorErrors[]`
-(`fatal`, `message`, `jobName`). This is not redundant with `success`: `OnExecutorFinishedImpl`
-broadcasts `!bAnyJobHadFatalError` and that flag is set only on the fatal branch, so a **non-fatal**
-executor error left `success: true` and reached the caller nowhere — `executorWarning` now names
-that combination. Each job also carries `shots[]` (`name`, `state` from `ShotInfo.State`) and warns
+**Also surfaced, same defect class.** `mrq.run_jobs` retains
+`UMoviePipelineExecutorBase::OnExecutorErrored` details in `executorErrors[]` when that delegate is
+available, and now treats the finished `bSuccess:false` signal and per-job
+`FMoviePipelineOutputData::bSuccess:false` as terminal `MRQ_EXECUTOR_FAILED`, preserving the
+executor status message or a job-specific fallback. This matters on UE 5.8 because
+`OnExecutorErroredImpl` routes through the finished delegate instead of broadcasting the native
+errored delegate. Each job also carries `shots[]` (`name`, `state` from `ShotInfo.State`) and warns
 when a shot is not `Finished`. `jobSucceeded` is kept (renaming it breaks every existing caller) but
 is documented in the verb description and the wiki as "the pipeline ran to completion and wrote its
 files", which is all it ever meant.
 
 Deliberately NOT done here: the anti-aliasing / warm-up / sampling config read-back. That is
 `B-mrq-config-readback-omits-sampling`, still OPEN, and implementing it here would clobber its
-scope.
+scope. UE 5.8's `FMoviePipelineOutputData` exposes a job success bit and shot output/state, not
+separate shot error strings; executor failures are therefore reported from the finished success
+signal, executor status, and the job evidence available to the handler. Source-only worker
+constraints prohibit compile, automation and live-render claims.
 
 ### Files changed
 
@@ -212,6 +216,48 @@ Not compiled and not run — a separate compile pass follows.
 4. Cost check: on a render writing >8 still frames, confirm only 8 are decoded and that the
    sampling warning is present.
 
+### Corrective fix: gradient detection and terminal refusal
+
+**Verdict: PARTLY TRUE on the current source.** Wave 9 already decoded a bounded frame sample,
+published per-frame evidence, bound `UMoviePipelineExecutorBase::OnExecutorErrored`, exposed
+`FMoviePipelineOutputData::bSuccess` as `jobSucceeded`, and returned shot state. Two defects
+remained: even a fully black sample only warned while the terminal ticket completed successfully,
+and the seed-equality spatial detector missed the reviewer-observed shallow-gradient lower-half
+void because local dither widened each block's min/max range.
+
+The spatial detector now classifies blocks by local luminance variance and joins them only within
+an eight-level seed-anchored band. This accumulates the shallow few-level void without allowing an
+ordinary long gradient to chain across the frame. Independently, every decoded PNG now publishes
+normalized RGB means and population variances; a frame is `unrenderable` when all three channel
+variances are at most `(2/255)^2`, and `mrq.run_jobs` fails with
+`RENDER_UNRENDERABLE_FRAMES` when every successfully decoded sample from any job has that verdict.
+The failed result preserves `jobs[]`, file facts and pixel statistics. Intentional solid-colour
+renders require the explicit `allowUnrenderableFrames: true` opt-in and still return a warning.
+
+Files changed:
+
+- `Source/PinWright/Private/Handlers/Render/FlatRegionStats.h/.cpp`
+- `Source/PinWright/Private/Handlers/MRQ/MRQFrameEvidence.h/.cpp`
+- `Source/PinWright/Private/Handlers/MRQ/MRQArtifactReport.h/.cpp`
+- `Source/PinWright/Private/Handlers/MRQ/MRQHandler.cpp`
+- `Source/PinWright/Private/Handlers/MRQ/MRQHandlerTestHooks.h` (new dev-only executor-result seam)
+- `Source/PinWright/Private/Handlers/ErrorCodes.h`
+- `Source/PinWright/Private/Tests/Media/TestMRQArtifactReport.cpp`
+- `Source/PinWright/Private/Tests/Media/TestMRQHandlers.cpp`
+- `Docs/wiki-src/mrq.md`
+
+Tests added:
+
+- `PinWright.mrq.run_jobs.LowVarianceGradientVoidIsSuspect`
+- `PinWright.mrq.run_jobs.UnrenderableFramesFailTerminalJob`
+
+Deliberately not changed: the underlying Nanite/Lumen/streaming render defect, which cannot be
+diagnosed from pixels alone; MRQ sampling-config readback, owned by
+`B-mrq-config-readback-omits-sampling`. UE 5.8's `FMoviePipelineOutputData` exposes a job success
+bit and shot output/state, not separate shot error strings; executor failures are reported from the
+finished success signal, executor status, and the job evidence available to the handler. Source-only
+worker constraints prohibit compile, automation and live-render claims.
+
 ## History
 - `#1-filed` `OPEN` reporter — Filed from the ENV round-2 blind-A/B critic pass. `mrq.run_jobs` on
   `LS_ENV_Hero` + `MPC_ENV_Hero_4K` over `/Game/FPS/Maps/FPS_Compound` returned `jobSucceeded:true`,
@@ -262,3 +308,20 @@ Not compiled and not run — a separate compile pass follows.
   **What would catch it**, offered as the same class of measure the verb already computes: low LOCAL variance over a large connected area, not equality of level. A block-wise variance map at, say, 32x32 with a threshold on the largest connected low-variance component would score this frame near 0.47. `flatBlockFraction` is already reported (0.034 here) and looks like the right quantity measured at the wrong scale or threshold.
 
   Not re-filed as a new ticket because it is this ticket's own acceptance criterion - a frame whose lower half is a void must not come back `suspect: false`. **Workaround back in force:** the hero frame is captured with `render.capture_open_level` at 3840x2160 instead (litPixelFraction 0.9967, toneLevelsUsed 256, verified by eye), and MRQ output is not trusted without opening the file. `encounters` 1 -> 2.
+- `#3-gradient-and-terminal-corrected` `IN-REVIEW` developer — Verified PARTLY TRUE against current
+  source: Wave 9 already decoded sampled frames and surfaced `OnExecutorErrored`, job success and
+  shot state, but uniform black output still completed the terminal ticket and the min/max
+  equality detector missed the returned shallow-gradient void. Replaced block equality with local
+  luminance variance plus bounded seed-anchored merging; added per-channel means/variances and a
+  default `RENDER_UNRENDERABLE_FRAMES` terminal failure when every decoded sample from a job is
+  near-uniform, with `allowUnrenderableFrames:true` as the explicit opt-in. Added real-PNG tests
+  `PinWright.mrq.run_jobs.LowVarianceGradientVoidIsSuspect` and
+  `PinWright.mrq.run_jobs.UnrenderableFramesFailTerminalJob`; not compiled or run under the worker
+  brief.
+- `#4-executor-failure-propagated` `IN-REVIEW` developer — Verifier REJECT: installed UE 5.8 routes
+  `OnExecutorErroredImpl` through `OnExecutorFinished` and does not broadcast the native errored
+  delegate, so the prior `executorErrors[]` binding could miss the terminal failure. The handler now
+  treats finished `bSuccess:false` and per-job `FMoviePipelineOutputData::bSuccess:false` as a typed
+  `MRQ_EXECUTOR_FAILED` result, preserving the executor status message or a job-specific fallback.
+  Added `PinWright.mrq.run_jobs.ExecutorFailureIsTerminal`, which injects the real UE executor error
+  path through `OnExecutorErroredImpl` and checks the failed registry ticket, typed code, and message.

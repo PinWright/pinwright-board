@@ -1,7 +1,7 @@
 ---
 id: B-pwmodel-compound-boolean-tool-oversubdivides-and-leaves-slivers
 title: "One `subtract` holding an array_linear of 34 boxes returns 13,106 triangles and 5 zero-area slivers for a solid that needs 950 and 0 — the same cuts issued one boolean at a time are clean"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: bug
 tags: [pwmodel, model-compile, model-validate, boolean, subtract, array_linear, degenerate-triangles, triangle-count, weapons]
@@ -101,6 +101,31 @@ its degenerate output disables an entire audit check on the asset with no in-for
   which is what puts a chamfer strip under the tool in the first place.
 - `E-geometry-array-radial-merges-in-place`, `B-array-linear-first-copy-at-origin` — the array ops.
 
+## Fix
+
+`PwModelCompiler` now detects a `subtract` tool with multiple edge-connected components, splits
+those components with `FMeshConnectedComponents` and `FDynamicMeshEditor::SplitMesh` (preserving
+mesh attributes and groups), and applies them sequentially through `GeometryOps::Boolean`. This
+path is limited to disconnected `subtract` tools; connected tools and `union`, `intersection`, and
+`trim` retain the existing one-call behavior. The final regression lives in
+`Source/PinWrightGeometry/Private/Tests/Model/TestModelHandlers.cpp` as
+`PinWright.Model.Handlers.ValidateCompoundSubtractComponentsIndividually` and invokes
+`model.validate` through `InvokeHandlerWithCapture`, comparing the response's final mesh health.
+
+Every successful boolean now runs the targeted repair layer: coincident boundary edges are welded
+with unique-pair matching, then `DeleteOnly` removes zero-area/short-edge triangles without a
+topology-changing QEM repair. The response publishes the most recent boolean's
+`trianglesBefore`/`trianglesAfter`/`sliversRemoved` window on both `model.validate` and
+`model.compile`, while `meshTriangleCount` and `health.degenerateTriangles` continue to describe
+the final merged mesh. Cleanup tolerances are derived from the larger target/tool characteristic
+extent in the fixed 1:1 `.pwmodel`-to-Unreal-centimetre space: length uses `extent * 1e-6` clamped
+to `[1e-6, 1e-3]`, and area uses `extent² * 1e-9` clamped to `[1e-12, 1e-3]`. Sequential component
+failures retain earlier warnings and identify the failed component index without changing the
+engine error code.
+
+Files: `Source/PinWrightGeometry/Private/Model/PwModelCompiler.cpp` and
+`Source/PinWrightGeometry/Private/Tests/Model/TestModelHandlers.cpp`.
+
 ## History
 - `#1-filed` `OPEN` reporter — Filed while closing WEAPONS review 04 defect 3 (7 degenerate
   triangles on `SM_WPN_AR`). Four spellings measured with `model.validate` on the isolated rail
@@ -108,3 +133,33 @@ its degenerate output disables an entire audit check on the asset with no in-for
   model from 23,266 to 11,110 mesh triangles and from 7 to 0 degenerates, and made
   `geometry.audit_static_meshes` `inverted` runnable and clean on all four weapon meshes for the
   first time.
+- `#2-split-disconnected-subtract-tools` `IN-REVIEW` developer — Source confirms the compound
+  path: `PwModelCompiler.cpp` built the block into one appended tool mesh and called
+  `GeometryOps::Boolean` once; UE 5.8 `FMeshBoolean` consequently solved every disconnected shell
+  in one global cut arrangement. `array_linear` itself places copies correctly. Added a compiler
+  helper using `FMeshConnectedComponents` plus `FDynamicMeshEditor::SplitMesh` to preserve tool
+  attributes/groups, then apply disconnected `subtract` components sequentially with the existing
+  material-ID reservation and failure handling. Union/intersection/trim remain unchanged. Added
+  `PinWright.Model.Compiler.CompoundSubtractProcessesDisconnectedToolComponentsIndividually`,
+  which compares the 34-box compound spelling with 34 explicit cuts and checks zero degenerates,
+  bounded triangle count, equal volume, and equal boundary-edge count. Source-only review; build,
+  editor, and automation execution remain for the tester.
+- `#3-handler-capture-regression-test` `IN-REVIEW` developer — Replaced the direct compiler
+  regression with `PinWright.Model.Handlers.ValidateCompoundSubtractComponentsIndividually` in
+  `TestModelHandlers.cpp`. The test invokes both the compound and 34-explicit-cut spellings via
+  `InvokeHandlerWithCapture` and asserts response success, final triangle bound, zero
+  `health.degenerateTriangles`, cleanup telemetry, closedness/boundary-edge equivalence, and
+  signed-volume equivalence. The obsolete direct compiler test was removed. Static-only review
+  remains; build, editor, and automation execution remain for the tester.
+- `#4-cleanup-telemetry-and-warning-retention` `IN-REVIEW` developer — Added post-boolean unique
+  boundary-edge welding plus `DeleteOnly` degenerate cleanup, and surfaced
+  `trianglesBefore`/`trianglesAfter`/`sliversRemoved` in the shared compile/validate response.
+  Sequential subtract warnings now carry component context and survive a later component failure;
+  the original engine error code remains intact. Extended the handler-capture regression and
+  updated `docs/wiki-src/model.md` plus `docs/pwmodel-format.md`. Source-only verification; build,
+  editor, and automation execution remain for the tester.
+- `#5-scale-derived-cleanup-window` `IN-REVIEW` developer — Replaced absolute cleanup defaults with
+  operand-derived tolerances in the fixed Unreal-centimetre model space: `extent * 1e-6` for weld/
+  short-edge cleanup, clamped to `[1e-6, 1e-3]`, and `extent² * 1e-9` for triangle area, clamped to
+  `[1e-12, 1e-3]`. Updated the model contract wording. Source-only verification remains; build,
+  editor, and automation execution remain for the tester.

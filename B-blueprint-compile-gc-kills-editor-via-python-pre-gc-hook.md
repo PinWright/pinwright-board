@@ -1,8 +1,8 @@
 ---
 id: B-blueprint-compile-gc-kills-editor-via-python-pre-gc-hook
 title: "blueprint.set_default / blueprint.compile kill the whole editor: CompileSynchronouslyImpl forces CollectGarbage(), whose pre-GC broadcast faults inside FPythonScriptPlugin::OnPreGarbageCollect — with NO Python frame on the stack, 8 s after another agent's python.execute returned"
-status: OPEN
-severity: High
+status: IN-REVIEW
+severity: Critical
 category: bug
 tags: [blueprint, compile, set_default, crash, garbage-collection, python, engine-fault, cross-agent, shared-editor, weapons]
 encounters: 1
@@ -109,28 +109,31 @@ the compile. The blueprint edit itself did not land — `BP_WeaponBase.uasset` m
 
 ## Fix
 
-The engine fault is upstream, so the candidates are about not letting a GC reach a poisoned Python
-plugin — or about telling the caller before the fact:
+Verdict: **PARTLY TRUE** (`valid-bug-wrong-fix`). The callstack proves that PinWright's shared full
+Blueprint compile path reached compile-end `CollectGarbage()`, which broadcast pre-GC into
+`FPythonScriptPlugin::OnPreGarbageCollect` and crashed the editor. It does not prove the broader
+claim that any completed `python.execute` permanently poisons the editor session, so no session
+flag, response warning, or documentation contract was added for that theory.
 
-1. **Establish whether the poisoning is permanent for the session.** The measurement that settles
-   this ticket's scope: after a single `python.execute` in a fresh editor, does the *first*
-   subsequent `blueprint.compile` fault, or only one after some allocation threshold? If it is
-   deterministic, every blueprint verb in an editor that has ever run Python is unsafe, which is a
-   far larger statement than this ticket currently makes. Cheap to run, expensive to guess at.
-2. **A session-scoped "python has run" flag, surfaced in responses.** PinWright dispatches both
-   verbs; recording that `python.execute` has run in this editor and adding a `warnings[]` entry to
-   every subsequent compile-route response costs nothing and converts a fatal surprise into a
-   decision the caller can make. Does not fix; does inform.
-3. **Ask the PythonScriptPlugin side why its pre-GC hook faults with no live frame.**
-   `PythonScriptPlugin.cpp:2178` is the same site as the sibling ticket's `:2173` (a 5.8.2 line
-   shift). Whatever wrapper table it walks there is being left unwalkable by an ordinary completed
-   script, and that is the actual bug.
-4. **Document it now**, in `blueprint.md` / `blueprint.compile.md` and in `python.md`. `python.md`'s
-   "Calls that crash the editor" states the hazard as a property of a live Python frame ("Moving
-   where the script starts leaves the frame exactly where it was"). That is now known to be too
-   narrow, and that page is the only protection that exists. It should say that a *completed*
-   `python.execute` leaves the editor unsafe for any later synchronous GC, and that a blueprint
-   compile forces one.
+`BlueprintHandlerUtils::CompileBlueprintWithDiagnostics` now passes
+`EBlueprintCompileOptions::SkipGarbageCollection` at the sole full-compile choke point. Compilation,
+diagnostics, reinstancing, and Blueprint broadcasts remain active, but the handler no longer forces
+the compile-end GC that entered the Python pre-GC hook. It immediately requests an equivalent full
+purge with `GEngine->ForceGarbageCollection(true)`, so cleanup is deferred to the next engine GC
+opportunity after the handler stack unwinds. That later collection still invokes PythonScriptPlugin's
+pre-GC callback; this changes the observed call-stack ordering but does not prove the broader
+persistent-Python-corruption theory safe. Existing safe-point entries remain because reinstancing is
+independently unsafe during ticker re-entrancy.
+
+`PinWright.blueprint.compile.FullCompileRoutesSurvivePythonThenLaterGarbageCollection` first invokes
+real `python.execute`, then real `blueprint.compile` and `blueprint.set_default` handlers against a
+transient fixture. It uses named skips when the Python module or interpreter is unavailable, requires
+zero synchronous pre-GC broadcasts during the handlers, explicitly collects afterward, and requires
+exactly one pre-GC callback and zero handled ensures. The infrastructure ratchet independently
+requires exactly one `SkipGarbageCollection` compile option and one deferred full-GC request. This is
+source-only rework: compile, automation, editor, and crash-reproduction proof remain unverified. The
+deferred collection also runs outside `GIsGCingAfterBlueprintCompile` and may remain pending in a
+commandlet that never reaches an engine GC opportunity.
 
 ## History
 - `#1-initial-crash-report` `OPEN` reporter — Editor PID 30516 killed by `blueprint.set_default` on
@@ -154,3 +157,17 @@ plugin — or about telling the caller before the fact:
   while another stream held an active PIE session (`editor.status` at 05:59Z: `inPie: true`,
   `pieIsPaused: true`, `T_Weapons`) — the compile guard's `pie_status` probe was truthful for the
   caller's own map and blind to the sibling's.
+- `#3-skip-blueprint-compile-gc` `IN-REVIEW` developer — Changed `BlueprintHandlerUtils::CompileBlueprintWithDiagnostics` to pass `EBlueprintCompileOptions::SkipGarbageCollection`, so every PinWright full Blueprint compile still compiles and reinstantiates but no longer forces the compile-end `CollectGarbage()` that entered `FPythonScriptPlugin::OnPreGarbageCollect`. Added handler-level pre-GC counter coverage for `blueprint.compile` and `blueprint.set_default`, and updated the compile-route ratchet. Kept the existing safe-point gate because reinstancing remains independently tick-unsafe. The broader claim that any completed `python.execute` permanently poisons the session remains unverified.
+- `#4-verifier-returned-deferred-gc-and-python-repro` `OPEN` tester — Returned the submission because
+  removing immediate compile-end GC provided no replacement cleanup, and the regression never ran
+  `python.execute` or a later explicit GC. Engine source does not support the proposed PinWright
+  GIL-imbalance diagnosis: Python execution and the pre-GC callback already own balanced private
+  scoped GILs. Rework requires deferred full GC, a real Python/compile/explicit-GC regression, and a
+  structural ratchet for both source invariants.
+- `#5-deferred-gc-and-python-repro` `IN-REVIEW` developer — Retained
+  `SkipGarbageCollection` and added the guarded deferred `ForceGarbageCollection(true)` request at
+  the shared compile helper. Expanded the handler-level regression to run real `python.execute`,
+  `blueprint.compile`, and `blueprint.set_default`, with named Python-availability skips, zero
+  synchronous pre-GC broadcasts, one later explicit pre-GC broadcast, and zero handled ensures.
+  Updated the structural ratchet to pin both compile-helper invariants and corrected the wiki's
+  cleanup and Python-callback claims. No compile, automation, editor, or runtime proof was run.
