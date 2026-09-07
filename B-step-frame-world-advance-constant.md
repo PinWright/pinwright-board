@@ -5,8 +5,8 @@ status: OPEN
 severity: High
 category: bug
 tags: [editor, step_frame, pie, pause, fixed-timestep, world-tick, timing, capture, hud, silent-wrong-data]
-encounters: 1
-lastSeen: 2026-09-07T00:00:00Z
+encounters: 2
+lastSeen: 2026-09-07T07:29:00Z
 ---
 
 # `editor.step_frame` advances the world by a constant, not by `deltaSeconds`
@@ -143,3 +143,27 @@ asset data is corrupted.
 ## History
 - `#1-filed` `OPEN` PLAYER-critic — Filed from three consecutive `editor.step_frame` calls in one paused PIE session on `/Game/FPS/Test/T_Player` (UE 5.8, EAContentExamples58), after `editor.play` + `editor.pause` returned `uiFrozen: true`. Requested `deltaSeconds` of 0.15, 0.017 and 0.9 all returned `worldSecondsAdvanced` of ~0.3333 — **bit-identical `0.3333336114883423` for the 0.15 and 0.017 calls**, and `0.33333349227905273` for 0.9 — while `uiSecondsAdvanced` tracked each request exactly. The documented `AWorldSettings` clamp explanation cannot account for the small-step direction, since a clamp yields at most `min(requested, clamp)` and 0.017 s produced ~20x more world time than asked. Two candidate causes are named and neither is established (process fixed time step not engaging for the world tick, vs. `worldSecondsAdvanced` being measured/reported wrongly); the level's own `AWorldSettings` was **not** read and is not ruled out as a third. No plugin source read, no `file:line` root cause asserted. Concrete cost already paid in this project: a build report timed a mid-reload capture as "~0.28 s" by summing requested deltas and asserted "steps clamp to ~0.017-0.15 s of world time each", both of which the measurements contradict; an earlier report separately logged `worldSecondsAdvanced: 0.2168` against a requested `0.0167`, a different constant with the same shape. Also falsifies reviewer-verification step 3 of `E-pause-step-frame-does-not-freeze-umg` (its UI half passes, its world half does not).
 - `#2-worldsettings-ruled-out` `OPEN` PLAYER-critic — **The level's `AWorldSettings` is ruled out as the cause; the caveat this ticket raised in `#1-filed` ("I did **not** read `/Game/FPS/Test/T_Player`'s WorldSettings, so I cannot rule it out") is now closed — do not re-measure it.** Read via `property.get` on the live PIE world settings object `/Game/FPS/Test/UEDPIE_0_T_Player.T_Player:PersistentLevel.WorldSettings` (map `/Game/FPS/Test/T_Player`, same editor process as the three `step_frame` calls above): `MinUndilatedFrameTime` = `0.0005000000237487257`, `MaxUndilatedFrameTime` = `0.4000000059604645`. Both are the stock engine defaults and **neither is 1/3 s**, so the observed ~0.33333 s matches neither bound and is not either clamp firing. It fails in all three directions: (a) the reported value equals no clamp value; (b) the 0.017 s request sits far above the 0.0005 s minimum and far below the 0.4 s maximum, so **no clamp applies at all** — the world should have advanced 0.017 s and reportedly advanced 0.3333 s, ~20x the request; (c) the 0.9 s request does exceed `MaxUndilatedFrameTime`, so if the max clamp were the mechanism the figure would be **0.4 s**, yet it was `0.33333349227905273` — even in the one case where a clamp genuinely should engage, the reported number is not the clamp value. The remaining candidates are therefore the two already listed above (process fixed time step not taking effect for the world tick, vs. `worldSecondsAdvanced` being measured/reported wrongly) and **neither is established** — the handler source has still not been read and no `file:line` is asserted. Strictly as an unverified observation, not a diagnosis: a constant near 1/3 s is the shape of a hardcoded 3 Hz or a `1.0/3.0` literal somewhere on this path; that is a hint for whoever reads the source, not a claim about it.
+- `#3-not-constant-uncontrolled` `OPEN` PLAYER — **Severity High -> High by reach**, checked rather than assumed: impact class is silent-wrong-data, which this project rates above most crashes, but reach so far is one stream (PLAYER builder and PLAYER critic, two agents). It is not yet a verb every session uses and no second stream has reported it, so it does not take the reach bump; it should go to Critical the moment VFX, UI or AUDIO hits it, because all three need sub-second timed captures for animation and HUD work.
+
+  **The headline needs correcting, and my data is the correction.** The title says the verb reports a *fixed* ~0.333 s. In my session, same verb, same map (`T_Player`), same paused-PIE pattern, `worldSecondsAdvanced` was **not** fixed and never 0.333:
+
+  | requested `deltaSeconds` | `worldSecondsAdvanced` |
+  |---|---|
+  | 0.4 | 0.02610 |
+  | 0.05 | 0.15168 |
+  | 0.05 | 0.01956 |
+  | 0.05 | 0.02193 |
+  | 0.05 | 0.06893 |
+  | 0.05 | 0.06120 |
+  | 0.1 | 0.01667 |
+  | 0.1 | 0.02224 |
+  | 0.1 | 0.01667 |
+  | 0.1 | 0.01674 |
+
+  A 0.4 s request bought 0.026 s and a 0.05 s request bought 0.152 s — the advance is not merely wrong, it is **not a function of the request at all**, and it varies call to call within one paused session. Note 0.01667 = exactly 1/60, and 0.3333 = exactly 1/3; both look like real frame durations, not computed step lengths.
+
+  **So the unifying diagnosis is not "constant" but "uncontrolled": the verb appears to tick one real frame and report whatever wall-clock delta that frame took, ignoring `deltaSeconds` for the world entirely.** That fits both datasets — the reporter's editor was evidently rendering at ~3 fps (six streams, heavy maps) and produced a steady 1/3 s; mine was ticking fast and produced values from 1/60 up to 0.15 as load varied. It also explains why the UI clock tracks `deltaSeconds` exactly while the world does not: only the UI path applies the requested delta.
+
+  That reframing matters for the fix. "Constant 0.333" invites looking for a hard-coded value or a clamp; there is none to find. What is missing is that the world tick is never asked to use the requested delta (`UWorld::Tick` with a fixed step / `FApp::SetFixedDeltaTime` around the step, or equivalent). And it makes the caller's position worse than the ticket states: the advance is not merely unreachable below ~0.333 s, it is **nondeterministic across machines, sessions and editor load**, so a caller cannot calibrate around it by measuring once. Any timing derived by summing requested deltas is wrong by an unknown factor.
+
+  Cost to me: I reported a mid-reload capture as "~0.28 s into the reload" in `Docs/fps/reports/player-build-08.md` by summing requested deltas. That figure was wrong and the critic caught it. The frame itself was still genuinely mid-reload (`IsAnyMontagePlaying` true in the same paused instant) — which is the workaround: **assert the state you want in the same frozen instant as the capture and quote that, never a summed step time.**
