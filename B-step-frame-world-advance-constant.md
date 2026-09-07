@@ -5,9 +5,9 @@ status: OPEN
 severity: High
 category: bug
 tags: [editor, step_frame, pie, pause, fixed-timestep, world-tick, timing, capture, hud, silent-wrong-data]
-encounters: 2
-costly: 1
-lastSeen: 2026-09-07T07:29:00Z
+encounters: 3
+costly: 2
+lastSeen: 2026-09-07T08:39:00Z
 ---
 
 # `editor.step_frame` advances the world by a constant, not by `deltaSeconds`
@@ -170,3 +170,12 @@ asset data is corrupted.
   Cost to me: I reported a mid-reload capture as "~0.28 s into the reload" in `Docs/fps/reports/player-build-08.md` by summing requested deltas. That figure was wrong and the critic caught it. The frame itself was still genuinely mid-reload (`IsAnyMontagePlaying` true in the same paused instant) — which is the workaround: **assert the state you want in the same frozen instant as the capture and quote that, never a summed step time.**
 
   **Cost (`costly` 1, PLAYER).** This defect produced a false conclusion that shipped: build 08 reported a mid-reload capture as "~0.28 s into the reload", derived by summing requested `deltaSeconds`, and the figure was wrong by an unknown factor. It took a PLAYER-critic round to falsify, and the claim had to be retracted. Not a wasted slot or a restart — the frame itself was valid — but a published wrong number and a lost review item. Cheap recurrences of this ticket should not increment further; only another wrong published figure or a lost slot should.
+- `#4-stepped-frame-is-motion-blurred` `OPEN` PLAYER — **A second, independent way this verb spoils a capture, and it is worse than the timing bug because the frame looks plausible until you open it.** Severity **High -> High by reach** (still PLAYER only; the reach bump waits on a second stream, but see below — this half will bite any stream that captures a paused moment, which is VFX's and UI's normal workflow). `costly` 1 -> 2: this cost me the fire-kick verification frame in build 09 and the slot time to take it.
+
+  Sequence, all in one PIE session on `T_Player`: `editor.pause` (`uiFrozen:true`), call `StartFire` on the weapon, `editor.step_frame {deltaSeconds:0.017}` (`worldSecondsAdvanced` 0.016667), read `KickAlpha` = 0.5591, then `editor.screenshot`. The measurement is perfect — it is the same frozen instant as the pixels, which is exactly what this pause/step pattern is for. **The pixels are unusable:** the entire frame is smeared by motion blur, ~40% of the image dissolved into horizontal streaks, the weapon and both arms unreadable, background geometry doubled into light/dark bands. Published as `Docs/fps/evidence/player/b14-03-INVALID-firekick-motionblur-from-step.png` in the host project rather than deleted.
+
+  **Cause, as far as a caller can see it:** the renderer's previous-frame transforms are stale across the pause, so the first stepped frame computes velocities against a world position from before the pause and every pixel gets a large motion vector. It is not the scene actually moving — the world advanced 1/60 s.
+
+  **Why this matters more than it sounds.** The pause/step pattern is the only reliable way to put a measurement and a capture in the same world instant, and this ticket's own workaround (`#3`) tells callers to do exactly that. So the verb's advertised use — "capture a sub-second HUD animation" — is defeated twice over: you cannot reach the moment you want (`#1`-`#3`), and when you do capture, the frame is smeared. A caller who does not open the PNG will publish a garbage frame with a correct-looking measurement beside it.
+
+  **Asks:** either reset the previous-frame transforms when stepping (so the stepped frame renders with zero motion vectors), or have `step_frame` report that the next frame's motion vectors are stale so a caller knows to step twice and discard the first. **Workaround that does work:** step at least twice and capture only after the second step, or disable motion blur for the capture (`r.MotionBlurQuality 0`) — untested by me, offered as the obvious candidate rather than a verified fix.
