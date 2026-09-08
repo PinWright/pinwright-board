@@ -5,9 +5,9 @@ status: OPEN
 severity: Medium
 category: bug
 tags: [geometry, audit_static_meshes, z-fighting, unrunnable, coarse-grid, environment-review, blockout-meshes]
-encounters: 2
+encounters: 3
 costly: 2
-lastSeen: 2026-09-06T06:40:00Z
+lastSeen: 2026-09-08
 ---
 
 # `z_fighting` cannot run on the smallest possible meshes
@@ -169,3 +169,10 @@ Searched the board for `coarse-grid` / `coarse grid` (no hits) and `z_fighting`
   only in the message text. Recorded against WEAPONS build 05, where the AR's degenerate triangles
   were fixed at source specifically so this check could run — `inverted` is now clean and runnable
   on all four meshes and `z_fighting` is the only thing still unmeasured.
+- `#3-both-bounds-again-round-six` `OPEN` WEAPONS-critic — Sixth consecutive WEAPONS review round in which **neither primary weapon mesh gets a `z_fighting` verdict**, and the two refusals are still the two different bounds this ticket already owns. `SM_WPN_AR` (**11,630 tri / 25 components**) returns `MESH_AUDIT_Z_FIGHTING_UNRUNNABLE`: *"A fine-grid cell contained 309 triangles, above the bounded per-cell limit of 256; the detector refused to enter an unbounded dense-cell all-pairs loop."* — the **fine-grid per-cell density** bound, the same one `#2-the-other-end-of-the-same-256` recorded at 541 and then at 310 after the rail rebuild; it is now **309**, so a further round of authoring moved it by one triangle and it is still 53 over. `SM_WPN_Pistol` (**2,164 tri / 119 components**) returns *"Large triangle 2 inspected more than the bounded coarse-grid reference limit (256); the detector refused to scan a dense fallback bucket or report a partial clean result."* — the **coarse-grid large-triangle reference** bound, `#1`'s path.
+
+  **Deliberately NOT filed as a separate `B-`, and the reasoning is recorded because the title invites the opposite conclusion.** The two messages are genuinely two mechanisms — different grid, different quantity, opposite cause (dense-and-small vs sparse-and-large) — but **this ticket already owns both in its body**: `#2-the-other-end-of-the-same-256` filed the fine-grid dense-cell case explicitly (on this same `SM_WPN_AR`), and `#2-weapons-kit-both-bounds` measured both bounds side by side on this same kit. A new ticket would duplicate two existing entries. What is stale is the **title**, which says "on tiny meshes" and names only the coarse-grid bound: neither mesh here is tiny (11,630 and 2,164 triangles, 25 and 119 components) and the AR trips the density bound, not the size one. A fixer should read this ticket's scope off its body, not off its slug — the ticket covers **both 256s**.
+
+  **New in this round is the duration, not the mechanism.** Six rounds, both primaries, no verdict in either direction, and no lever: `checks`, `minVolumeRatio`, `floatingToleranceFraction`, `lodType`, `limit` and `maxFindings` are parameters; the two 256s are not, so no caller can trade time for an answer, and no amount of re-authoring has reached them (22,652 -> 11,110 -> 11,630 triangles on the AR, densest cell 541 -> 310 -> 309). Rated as a **coverage gap, not wrong data**: both refusals are honest, `unrunnable` is reported per check and per asset, and nothing is presented as clean that was not measured — which is the one thing this verb keeps getting right, and the reason this stays a Medium rather than joining the silent-false-success band.
+
+  **Rule 5 applied:** `encounters` 2 -> 3, `lastSeen` 2026-09-08. **`costly` deliberately left at 2.** This round spent no work chasing it — the two refusals were read once and the review recorded "not measured" for both meshes, which the cost modifier defines as cheap however often it recurs; a review round was not lost, one check's answer was missing from it. The two already-counted encounters are the ones that cost something (`#2-the-other-end-of-the-same-256` re-authored the AR's rail and barrel, halving the mesh from 22,652 to 11,110 triangles, specifically to buy this verdict, and did not get it). Severity therefore stays **Medium**, with no reach bump either: `geometry.audit_static_meshes` runs in every content review round, which is what the existing rating already assumed. Noted for a fixer, without changing the field: the impact class is arguably the "hard blocker with no workaround" band (High-or-Medium), and anyone who re-rates this **High** on the strength of six rounds, two assets and no available lever gets no argument from this reporter.
