@@ -2,12 +2,12 @@
 id: E-capture-blind-to-renderer-error-banner
 title: "render.capture_open_level publishes four channels of frame-contamination warnings but not the one that was actually burned into my frames: the renderer's own on-screen error text ('Video memory has been exhausted'), which no show flag, game view or hideEditorSprites removes"
 status: OPEN
-severity: Medium
+severity: High
 category: enhancement
 tags: [render, capture_open_level, capture, contamination, warning, acceptance-shot, vram, on-screen-message]
-encounters: 1
-costly: 1
-lastSeen: 2026-09-05T19:00:00Z
+encounters: 2
+costly: 2
+lastSeen: 2026-09-08T15:06:00Z
 ---
 
 # The capture verb warns about four kinds of contamination and misses a fifth
@@ -74,3 +74,25 @@ available directly.
 
 ## History
 - `#1-filed` `OPEN` ENV reporter — Observed 2026-09-05 building the FPS compound map (map as forcing function; host `CLAUDE.md` § "What this project is for"), UE 5.8, PinWright at this checkout's HEAD after the wave-4-9 rebuild. Ten `render.capture_open_level` acceptance frames came back with the renderer's "Video memory has been exhausted (1197.488 MB over budget)" burned into them in red, while `showFlagOverrides.forced` was `[]`, `editorSprites.visible` was `false`, `gameView` was `true`, and `blank`/`crushed`/`blownOut` were all clean — every contamination channel the verb publishes read fine. `hideEditorSprites` governs billboards only and game view does not cover on-screen messages, so there is no caller-side way to suppress or even detect it short of opening the PNG. The set was discarded and re-shot in a restarted editor, costing a world-lock slot. Asked for a `viewport.onScreenMessages` array sourced from `GEngine->GetOnScreenDebugMessages()` plus a warning when non-empty, matching how `showFlagOverrides` already reports forced cvars.
+
+- `#2-returned-by-second-stream` `OPEN` ENV reporter — Hit again 2026-09-08 15:05Z in an ENV
+  build-08 world-lock slot on `/Game/FPS/Maps/FPS_Compound`, three days and one editor restart
+  after `#1`, so the restart does not retire it. `render.capture_open_level` at the pinned
+  `env_poses.py` pose 01 returned `blank:false`, `crushed:false`, `blownOut:false`,
+  `toneLevelsUsed:256`, `litPixelFraction:0.99966`, `showFlagOverrides.forced:[]`,
+  `editorSprites.visible:false`, `exposure.pinned:true` — every contamination channel clean — and
+  the PNG carries `Video memory has been exhausted (377.549 MB over budget). Expect extremely poor
+  performance.` in red across the upper third. Note the overrun is 377 MB here against 1197 MB in
+  `#1`: the banner fires well below the earlier figure, so a caller cannot infer it from uptime or
+  from a remembered threshold either. Cost: two acceptance frames discarded and the whole exterior
+  re-shoot deferred to a fresh editor, spending the slot on placement only (`costly` 1 -> 2).
+  **Severity Medium -> High by reach**, naming ENV and PLAYER-critic: the orchestrator reports the
+  PLAYER critic hit the same banner in the slot immediately before mine, which is a second stream
+  on the same verb — recorded as the orchestrator's report rather than my own measurement, since I
+  did not see that stream's frames. Cost alone would not have bumped it (`costly` 2, below the
+  threshold of 3). `#1`'s ask is unchanged and is still the fix: a `viewport.onScreenMessages`
+  array from `GEngine->GetOnScreenDebugMessages()` plus a warning when it is non-empty. A second
+  observation worth recording for whoever implements it: the banner is drawn into scene colour
+  before readback, so it also corrupts `imageStats` — `meanLuminance` 0.2908 on this frame includes
+  the red text, which is why no luminance-based heuristic should be used in place of reading the
+  message list.
