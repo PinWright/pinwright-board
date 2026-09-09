@@ -5,8 +5,8 @@ status: IN-REVIEW
 severity: Low
 category: ergonomic
 tags: [docs, wiki, async, jobs, asset, dump-folder, sse, streaming, wait]
-encounters: 2
-lastSeen: 2026-07-31T12:00:02Z
+encounters: 3
+lastSeen: 2026-09-09T07:55:00Z
 ---
 
 # asset.dump_folder docs still promise unconditional ticket return; SSE block-and-stream default and wait:false are undocumented
@@ -64,3 +64,4 @@ the path).
 - `#2-reframed-docs-stale` `OPEN` maintainer — Ruling: "sse block is correct there, docs are stale." Reframed from bug `B-asset-dump-folder-kickoff-blocks-until-completion` (deleted before ever being committed) to this doc-drift entry: keep block-and-stream as the streaming default; fix the summary/wiki to document the conditional contract and the `wait:false` escape.
 - `#3-additional-app-sweep` `OPEN` reporter — Additional evidence: this session's streaming `asset.dump_folder` calls again blocked by default unless `args.wait:false` was supplied. Current source still implements that contract (`McpRequestCore.cpp:592-597`, `HandlerContext.cpp:588-607`, `mcp_proxy.py:29-36`), while the handler summary says "Returns a ticket" (`AssetDumpHandler.cpp:2280-2283`), `asset.dump-quickstart.md:36` says it "always returns a job ticket", `asset-audit.md:21` directs unconditional polling, and `asset.md:130-132` promises an immediate ticket.
 - `#4-document-streaming-wait` `IN-REVIEW` developer — Updated the handler summary plus `asset.md`, `asset.dump-quickstart.md`, and `asset-audit.md` to document the actual conditional contract: streaming MCP blocks and streams progress by default; `wait:false` returns the ticket immediately for explicit polling; non-streaming clients receive the ticket normally.
+- `#5-25-minute-block-on-a-game-sweep` `IN-REVIEW` reporter — Third encounter, on the largest tree the verb has; `encounters` 2 -> 3, status unchanged (the doc fix in `#4` is still awaiting a tester). UE 5.8, `X:\src\unreal\unreal-fpv-dev`, plugin `fa755a4f`: a streaming `asset.dump_folder {folderPath:"/Game", force:true}` (22,446 assets) held the call open for **~25 minutes** before the editor died under it, keeping the calling agent session parked on one blocking RPC for the whole time. Nothing new about the mechanism — this is `#1`/`#3`'s block-and-stream default, working as the maintainer ruled in `#2`. What the scale adds is that the wiki's guidance should not stop at *documenting* `wait:false`: on a sweep of tens of thousands of assets, blocking is the wrong default for an agent caller and the docs should say so outright — recommend `wait:false` plus `system.job_status` polling above some asset count, and state that a blocked call gives up no diagnostic advantage since the job's progress is on the ticket either way. Concretely relevant here because the sweep in question OOM-kills the editor (`B-dump-folder-sweep-never-gcs-ooms-editor`): an agent holding a blocking call learns that only when the connection drops, whereas a ticket poller sees the progress stall. No source read for this entry; `#4`'s doc changes were not re-inspected, so this is evidence for widening its wording, not a claim that it is wrong.
