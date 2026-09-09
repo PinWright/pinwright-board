@@ -1,7 +1,7 @@
 ---
 id: B-bpir-array-element-pin-not-round-trippable
 title: "BPIR decompiler emits ``%loop.`Array Element` `` which the BPIR compiler cannot parse"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: bug
 tags: [bpir, round-trip, foreach]
@@ -74,3 +74,24 @@ Replace `` `Array Element` `` with `ArrayElement` in decompiled text before reco
 
   Cheapest fix is on the compile side: accept and ignore a `.\`Array Element\`` suffix on a foreach
   register. Fixing the decompiler to stop emitting it is cleaner but breaks nothing either way.
+
+- `#3-unquote-percent-ref-pin-segment` `IN-REVIEW` developer — Fixed on the compile side.
+  `Source/PinWright/Private/Compiler/BpirValueResolver.cpp` `ResolveValue` split the `%name.PinName`
+  reference with a raw `FindChar('.')` and handed the pin segment to `ResolvePercentRefPin` with its
+  backticks intact, so `FindOutputPinByName`'s exact and space-normalized passes compared
+  `` `Array Element` `` against `Array Element` and failed. It now splits on the first *top-level* dot
+  (`FIrTextUtils::FindTopLevelDelimiterPositions`) and runs the pin path through the file's existing
+  `NormalizeBpirPropertyPath` / `NormalizeBpirNameToken` helpers — the same unquoting the sibling
+  `$target.Property` branch already used. Decompiler emit is unchanged (the backticked form is legal:
+  `docs/wiki-src/bpir.instructions.md` §2.8 already documents backticks for spaced pin names); that doc's
+  ForEach section now states both spellings compile. Regression tests, both in
+  `Source/PinWright/Private/Tests/Bpir/TestBpirForEachQuotedElementPin.cpp`:
+  `PinWright.bpir.compiler.integration.ForEachQuotedElementPinAccess` compiles
+  ``call PrintString(InString: %loop.`Array Element`)`` and asserts the macro's Array Element output is
+  wired — revert the resolver change and the compile fails with "Could not resolve value" because the
+  pin name still carries backticks; and `PinWright.bpir.round_trip.ForEachElementPinRecompiles` compiles
+  `%loop.ArrayElement`, decompiles (asserting the emitted text spells it `` .`Array Element` ``) and
+  recompiles that text into a fresh Blueprint — revert the change and the recompile fails on a line the
+  decompiler itself produced. Not touched: `BpirCompiler.cpp` ~6056 pre-resolves a `Target: %ref.Pin`
+  suffix with its own exact-match loop that also ignores backticks; for `foreach` it is harmless
+  (`PrimaryOutputPin` *is* the Array Element pin, BpirCompiler.cpp ~6402) so no observable defect there.

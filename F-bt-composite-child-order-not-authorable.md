@@ -1,7 +1,7 @@
 ---
 id: F-bt-composite-child-order-not-authorable
 title: "No `behavior_tree.*` verb can set or change a composite child's execution order — order is graph-X position, `add_node` is the only verb that writes it, and it cannot be re-written"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: feature
 tags: [behavior-tree, authoring, node-position, execution-order, selector, sequence, node-guid, decompile]
@@ -118,3 +118,53 @@ which defeats the point of the authoring surface.
   loss. Reach and cost move a ticket **within** its impact class, and a hard blocker with no
   workaround tops out at High. This one destroys no data and crashes nothing — it makes an
   authoring operation impossible — so High is the ceiling and the reach argument does not lift it.
+- `#3-emit-node-ids-and-set-child-order` `IN-REVIEW` developer — Both halves fixed.
+  (a) **Ids.** `BTIRDecompiler::BuildGraphNodeFields` (`Source/PinWright/Private/BTIR/BTIRDecompiler.cpp`)
+  now leads every graph-node-backed field list with `nodeId: <guid>` — `FGuid::ToString()`, byte-identical
+  to what `add_node` returns and what `FindBTGraphNode` matches — so composites, tasks, attached
+  decorators/services, the composite-decorator wrapper and the `root_aux` block are all addressable
+  from a decompile alone. Inner conditions of a composite decorator get none (they live in a bound
+  sub-graph and no `nodeId` verb reaches them). `btir.txt` gained an aspect-version row (1 → 2) in
+  `Private/Handlers/Asset/AssetDumpCache.cpp` so cached dumps regenerate. `FindBTGraphNode`
+  (`Private/Handlers/AI/BehaviorTreeHandler.cpp`) gained a **second** pass matching the NodeInstance
+  object name (`BTT_Reload_C_0`, the name this ticket's repro was rejected on); it runs only after
+  every graph-node identity has missed, so a GUID always wins and existing resolution is unchanged.
+  (b) **Order.** New verb `behavior_tree.set_child_order {assetPath, parentNodeId, childNodeIds[]}`
+  in the same file: `childNodeIds` must be a permutation of the parent's current children (a short,
+  long, duplicated or foreign list is rejected with the parent's `currentChildOrder`), the children's
+  own existing X values are re-dealt in the requested order under one `FScopedTransaction` (ties
+  pushed apart by 200), and the rebuild goes through the engine's own
+  `UBehaviorTreeGraph::RebuildChildOrder`, which sorts each output pin's `LinkedTo` with
+  `FCompareNodeXLocation` and calls `UpdateAsset(KeepRebuildCounter)` — the same routine the BT editor
+  runs on a node drag, not a reimplementation. The response echoes `childOrder` read back off the
+  runtime `UBTCompositeNode::Children` (falling back to pin order for the Root entry node and for an
+  orphaned parent), each entry carrying `nodeId`, the `name` decompile prints, and `x`/`y` matching
+  its `@(x, y)`. Docs: new `## Node ids` and `## Child execution order` sections plus the `nodeId:`
+  grammar in the decompile section of `docs/wiki-src/behavior_tree.md`, and the `btir.txt` line in
+  `docs/wiki-src/asset.dump-sidecars.md`. Tests (new file
+  `Source/PinWright/Private/Tests/Gameplay/TestBehaviorTreeChildOrder.cpp`):
+  `PinWright.behavior_tree.decompile.EmitsResolvableNodeIds` builds a tree through the RPCs, scrapes
+  every `nodeId:` out of the decompile **text**, asserts the scraped set contains each id `add_node`
+  returned, and feeds each scraped string back to `set_node_properties` — revert the decompiler change
+  and the scrape returns nothing, so the count and containment assertions fail;
+  `PinWright.behavior_tree.set_child_order.ReordersCompositeChildren` asserts the runtime composite
+  runs left-then-right, calls `set_child_order` with the order reversed, and asserts both the echoed
+  `childOrder` and `UBTCompositeNode::Children` now start with the formerly-second task — revert the
+  verb and the invoke finds no handler. Not compiled or run here (orchestrator's phase).
+  **Verifier follow-up, same entry:** `set_child_order` now refuses any parent with more than one
+  output pin, with `INVALID_ARGUMENT` and an `outputPinCount` field. `UBehaviorTreeGraphNode_SimpleParallel`
+  is the one BT node with two (`Task` + `Out`, `BehaviorTreeGraphNode_SimpleParallel.cpp` ~28-29) and the
+  engine sorts each pin's `LinkedTo` independently, so the flattened cross-pin list `CollectBTLinkedChildren`
+  produced validated as a permutation, moved the X positions, and left both child arrays unchanged while
+  reporting success — a silent no-op with an echoed order that had not changed. Documented in the wiki-src
+  `## Child execution order` section; regression test
+  `PinWright.behavior_tree.set_child_order.RefusesMultiOutputPinParent` (same file) builds a real
+  `UBehaviorTreeGraphNode_SimpleParallel` by reflection (the class carries no export macro, and `add_node`
+  cannot make one — it builds every composite on the single-pin `_Composite` graph node), guards that the
+  fixture really has two output pins, wires one Wait task to each pin directly (`connect_nodes` only ever
+  uses the first output pin), and asserts the swapped-order call comes back `bSuccess == false` /
+  `INVALID_ARGUMENT` / `outputPinCount == 2` — revert the guard and the call succeeds instead.
+  Deliberately left alone: the Root entry node still gets no BTIR line when it carries no
+  decorators/services, so on a tree from an earlier session its id is still not readable out of
+  `decompile` — that gap is `E-bt-root-entry-node-undiscoverable`'s, which fixed it by returning
+  `rootNodeId` from `create`, and widening the `root_aux` emission here would collide with it.

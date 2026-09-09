@@ -1,7 +1,7 @@
 ---
 id: E-overflow-spill-file-double-encoded
 title: "tools/call overflow spill file stores the whole MCP envelope — payload duplicated in content[0].text AND structuredContent, ~2x on disk"
-status: OPEN
+status: IN-REVIEW
 severity: Low
 category: ergonomic
 tags: [http, response-size, spill, mcp-adapter, encoding]
@@ -20,3 +20,4 @@ Distinct from `E-http-response-spill` (DONE) — that is the `/rpc` `MaybeBuildS
 
 ## History
 - `#1-initial-repro` `OPEN` reporter — Verified in source: `MarkOversizedToolResult` (`Utils/HttpResponseSpill.cpp:326`) writes `SerializeJsonObject(ToolResult)`, and `ToolResult` from `MakeToolCallSuccess` (`Transport/McpTransport.cpp:57-68`) holds the payload as both escaped `content[0].text` and `structuredContent`, so the spill file is the double-encoded MCP envelope at ~2x payload size. Session evidence: `blueprint.decompile` (18042 chars), `widget.describe` (103638), `blueprint.graph.find_nodes` (26064) all spilled with this shape this session; each read needed an unwrap step. Dedup: ripgrep across the board — no ticket covers the spill *file encoding*; `E-http-response-spill` (DONE) is the single-copy `/rpc` envelope path, the `*-no-limit-spills` family is per-method payload size. Proposed: spill only the raw payload (structuredContent), or add a `payloadPath` sidecar if the envelope shape is depended on.
+- `#2-closed-by-primary` `IN-REVIEW` developer — Duplicate of `B-response-spill-file-wraps-payload-in-mcp-envelope` (same defect, same line: `MarkOversizedToolResult`'s `SerializeJsonObject(ToolResult)`), and closed by that ticket's change — no separate code. The fix is this ticket's own proposal: `BuildSpillBody` in `Source/PinWright/Private/Utils/HttpResponseSpill.cpp` writes the `structuredContent` object when present and the text content verbatim otherwise, so the ~2x on-disk duplication is gone and no unwrap step is needed. The `payloadPath` sidecar idea was not taken in that form — the payload is at the file's top level now, so nothing needs a path into it; instead `file.payload` (`"structuredContent"` / `"text"`) plus `file.contentType` name which of the two bodies was written. Verify against the primary ticket's regression tests `PinWright.infra.http_response_spill.SpillFileIsThePayloadNotTheEnvelope` and `...SpillFileForTextOnlyResultIsTheTextVerbatim`.

@@ -1,7 +1,7 @@
 ---
 id: B-niagara-set-parameter-emitter-scope-arms-di-mismatch
 title: "niagara.set_parameter on an emitter-scoped rapid-iteration store flips a system from dataInterfaceCheck 'consistent' to 'mismatched', one emitter per write, arming the VectorVM assert — the response reports the state it just created but never says the write caused it"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: bug
 tags: [niagara, set-parameter, rapid-iteration, data-interface, vectorvm, dataInterfaceCheck, latent-corruption, editor-kill, spawnRapidIteration, updateRapidIteration, vfx]
@@ -107,3 +107,43 @@ editor for every other agent, minutes later, with nothing in the crash naming th
 ## History
 
 - `#1-filed` `OPEN` reporter — `niagara.set_parameter` on `spawnRapidIteration` / `updateRapidIteration` flips a Niagara system from `dataInterfaceCheck: "consistent"` to `"mismatched"`, adding exactly the written emitter's Spawn/Update scripts to `mismatchedScripts` (0 compiled vs 1-3 resolved) while a `systemUpdateRapidIteration` write on the same system in the same batch adds nothing. Measured on `/Game/FPS/VFX/NS_Impact_Concrete` with `niagara.validate {level:"strict"}` before (`consistent`, `valid:true`, no errors) and after (`mismatched`, `valid:false`, 8 x `NIAGARA_DATA_INTERFACE_MISMATCH`), with an untouched control system staying green until its own first emitter-scoped write; reproduced 10/10 across the `/Game/FPS/VFX/` package. That is the precondition `B-niagara-di-count-mismatch-vectorvm-assert-kills-editor` records as a VectorVM `appError` that kills the shared editor on the next tick, and the response reports the flag without ever saying the call set it. `niagara.compile {force:false, wait:true}` clears it in under a second and preserves the emitter-scoped values, so the working order is emitter-scope writes, one unforced compile, then system-scope writes, then save.
+
+- `#2-delta-reported-verdicts-separated-live-writes-repaired` `IN-REVIEW` developer — Both fix
+  directions this ticket names are implemented. The full file list and the engine-semantics argument
+  are in `B-niagara-di-count-mismatch-vectorvm-assert-kills-editor` `#11`; this change is the same
+  one, read from this ticket's side.
+  **The mechanism, from engine source rather than inferred.** An emitter-scoped `set_parameter`
+  reaches `NiagaraEdit::NotifyNiagaraObjectChanged`
+  (`Plugins/PinWright/Source/PinWright/Private/Handlers/Niagara/NiagaraEditTypes.cpp`), which calls
+  `FVersionedNiagaraEmitterData::InvalidateCompileResults()` whenever the target resolved an emitter
+  — and that resets each of that emitter's scripts' `FNiagaraVMExecutableData`
+  (`NiagaraScript.cpp:3895`). The compiled count drops to 0 while the system's serialized resolved
+  set keeps its 1-3 entries. `systemUpdateRapidIteration` leaves `Target.EmitterData` null, which is
+  exactly why this ticket's control write adds nothing. So the priming is not the engine resolving
+  data interfaces against stale bytecode; it is the compiled side being emptied under an unchanged
+  resolved side — which is also why a value-identical no-op write re-arms it.
+  **Attribution.** Every mutating verb now measures the verdict before the mutation
+  (`NiagaraEdit::RecordDataInterfaceVerdictBefore`, called from `ModifyResolvedTarget` and
+  `NiagaraJsonHelpers::BeginEmitterMutationScope`) and publishes `dataInterfaceDelta {before, after,
+  changed, armedByThisWrite, repair, liveInstancesAtRepair}`. `armedByThisWrite` is true only for a
+  real pass turning into a mismatch, so an inherited mismatch and an unmeasured before both read
+  false rather than claiming authorship the response cannot support.
+  **The two verdicts are separated.** `CheckDataInterfaceCounts` returns `Consistent` only when at
+  least one compared script still carries compiled results (`FNiagaraVMExecutableData::IsValid()`);
+  the 0-against-0 case on invalidated bytecode — the vacuous pass this ticket calls out — now reads
+  `unverified`. A script that genuinely owns no data interfaces still reads `consistent`, so the
+  change does not flag DI-free systems as unrunnable.
+  **The write no longer leaves a live system armed.** When the delta says this write armed it and
+  something holds a live instance, `FinalizeNiagaraEdit` quiesces and compiles before returning
+  instead of only refusing the save. Narrow on purpose: with nothing live, the batch order this
+  ticket documents (emitter-scope writes, one unforced compile, system-scope writes, save) is
+  unchanged and is not charged a compile per edit.
+  Tests: `PinWright.niagara.data_interface_delta.MutationReportsBeforeAndAfter` drives an
+  emitter-scoped `niagara.set_parameter` on a fixture system and asserts the response carries the
+  before/after verdict, that `after` agrees with `dataInterfaceCheck`, and that the system is not
+  left mismatched; `PinWright.niagara.data_interface_delta.NoOpWriteIsReportedAndNotLeftArmed` is the
+  value-identical repeat from `#10` of the sibling ticket
+  (`Source/PinWright/Private/Tests/Niagara/TestNiagaraDataInterfaceDelta.cpp`). Counterfactual:
+  remove `NiagaraEdit::AddDataInterfaceDelta` from `MakeMutationResult` and `dataInterfaceDelta` is
+  absent, so the first assertion of both tests fails and the response is back to echoing a flag it
+  cannot attribute.

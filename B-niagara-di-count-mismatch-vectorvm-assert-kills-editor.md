@@ -1,7 +1,7 @@
 ---
 id: B-niagara-di-count-mismatch-vectorvm-assert-kills-editor
 title: "Editor crash: a Niagara system left with 0 compiled DataInterfaceInfos against 2 resolved ones asserts in VectorVM on its NEXT TICK, so any verb that forces a re-tick (sequencer.set_playhead opening the Level Sequence editor) kills the shared editor minutes after the write that broke it"
-status: OPEN
+status: IN-REVIEW
 severity: Critical
 category: bug
 tags: [niagara, vectorvm, data-interface, compile, presave, autosave, sequencer, set-playhead, editor-kill, game-thread-hang, delayed-fault, shared-editor, latent-corruption, no-op-write, save-refusal]
@@ -408,3 +408,133 @@ logs are UTC+0, machine UTC+5). Log: `Saved/Logs/EAContentExamples58.log:4421-44
   `COMPILE_STATE_UNINITIALIZED`) — validated `dataInterfaceCheck: "consistent"`, `valid:true`. So
   `mismatched` is not the ordinary post-load reading of an uncompiled system in this session; it
   followed the write.
+
+- `#11-arming-attributed-live-systems-repaired-playhead-preflighted` `IN-REVIEW` developer — Three
+  changes, all in `Plugins/PinWright/`. **(1) The arming step is named, and it is ours.** An
+  emitter-scoped edit reaches `NiagaraEdit::NotifyNiagaraObjectChanged`
+  (`Source/PinWright/Private/Handlers/Niagara/NiagaraEditTypes.cpp`), which calls
+  `FVersionedNiagaraEmitterData::InvalidateCompileResults` unconditionally; that resets each of that
+  emitter's scripts' `FNiagaraVMExecutableData` (`NiagaraScript.cpp:3895`, `CachedScriptVM.Reset()`),
+  so the compiled data-interface list reads 0 while the system's *serialized*
+  `ScriptRuntimeCompiledDataForEditor` still holds its N resolved entries. That is `#8`'s
+  one-emitter-per-write growth, `#9`'s first-touch immediacy and `#10`'s value-identical re-arm, all
+  three, from one line — and it explains why a renderer `SortOrderHint` write arms it: a renderer
+  target still resolves `Target.EmitterData`.
+  **(2) Verdict separation.** `CheckDataInterfaceCounts`
+  (`Handlers/Niagara/NiagaraDataInterfaceConsistency.{h,cpp}`) now classifies through one
+  `ClassifyComparison` shared with `FindOrphanResolvedDataInterfaces`, and refuses to call a
+  comparison a pass unless at least one compared script still carries compiled results
+  (`FNiagaraVMExecutableData::IsValid()`, the engine's own `LastCompileStatus != NCS_Unknown`). A
+  0-compiled-against-0-resolved equality on a script whose bytecode was thrown away now reads
+  `unverified`, not `consistent`; a script that genuinely owns no data interfaces still reads
+  `consistent`, so DI-free systems are not falsely flagged. A new `FDataInterfaceComparisonCounts`
+  out-parameter publishes the two population counts behind the verdict.
+  **(3) Before/after delta on every mutating verb.** `FNiagaraResolvedTarget` carries
+  `DataInterfaceVerdictBefore` + `bDataInterfaceVerdictBeforeMeasured`, recorded by
+  `NiagaraEdit::RecordDataInterfaceVerdictBefore` from the two pre-mutation seams —
+  `ModifyResolvedTarget` (now non-const; 23 call sites in `NiagaraEditHandler.cpp`) and
+  `NiagaraJsonHelpers::BeginEmitterMutationScope` — so no per-handler line was needed.
+  `NiagaraEdit::AddDataInterfaceDelta` publishes `dataInterfaceDelta {before, after, changed,
+  armedByThisWrite, repair, liveInstancesAtRepair}` from `MakeMutationResult` and from the three
+  handle verbs in `NiagaraHandler.cpp` (`add_emitter`, `remove_emitter`, `refresh_emitter`, whose
+  shared `RejectOnDataInterfaceMismatch` now takes the before-verdict and carries the delta in its
+  refusal payload too). `before` reads `"unmeasured"` when no seam ran, which is deliberately not
+  `"unverified"`.
+  **(4) A write that arms a LIVE system repairs itself.** `FinalizeNiagaraEdit`, after measuring the
+  after-verdict, checks `DidWriteArmDataInterfaceMismatch(before, after)` and only then
+  `PinWrightNiagara::CountLiveSystemInstances` (new, `NiagaraInstanceUtils.{h,cpp}` — counts without
+  quiescing, which is what lets the cheap batch workflow stay cheap). With live instances it
+  quiesces via `RequestNiagaraCompile(force)` — which kills the detonator before it even asks —
+  waits, and re-measures: `repair: "recompiled"` or `"failed"`, with the existing save gate still
+  refusing on `mismatched`. **Recompile rather than refuse, and why:** the resolved set is rebuilt in
+  exactly one engine place, `UNiagaraSystem::InitScriptCompiledData`, whose only caller is
+  `ProcessCompilationResult` after a compile completes (`NiagaraSystem.cpp:3609`) — there is no
+  engine entry point that re-resolves without compiling, so "re-resolve it" and "compile it" are the
+  same operation, and refusing instead would refuse an ordinary parameter write on any system an
+  actor in the level happens to be playing. `#4`'s occurrence B is the measurement that removing the
+  live instance is what saves the editor.
+  **(5) The `sequencer.set_playhead` pre-flight `#1` asked for.** New
+  `Handlers/Niagara/NiagaraTickPreflight.{h,cpp}` sweeps the editor world for components holding a
+  live `FNiagaraSystemInstanceController` and returns the distinct systems whose DI counts disagree;
+  `SequencePlayheadUtils::EnsureSequenceOpenInSequencer` refuses with the existing
+  `NIAGARA_DATA_INTERFACE_MISMATCH` before opening **and** before the already-open early return, so
+  evaluating an already-open sequence is gated too. Scope is the level, not the sequence's bindings,
+  for the reason `niagara.audit_level` documents: a scrub promotes the next frame to a full
+  tick-group pass over every simulation in the world, and `SetForceSolo` pulls the bound systems out
+  of exactly that batch. `camera.animation_shots`, which only calls `ApplyPlayheadPosition` on a
+  sequence already gated by that open, is deliberately not charged a per-frame sweep.
+  Docs: `docs/wiki-src/niagara.md` (delta, repair, and the new `unverified` case — as bold labels,
+  not `###`, which would truncate the page), `docs/wiki-src/sequencer.md` (both the namespace
+  section and the `set_playhead` method section), `Handlers/ErrorCodes.h` (the code's new emitter).
+  Tests: `PinWright.niagara.data_interface_delta.MutationReportsBeforeAndAfter`,
+  `PinWright.niagara.data_interface_delta.NoOpWriteIsReportedAndNotLeftArmed` and
+  `PinWright.niagara.tick_preflight.PlayheadGateIsScopedToLiveInstances`
+  (`Source/PinWright/Private/Tests/Niagara/TestNiagaraDataInterfaceDelta.cpp`).
+  **Counterfactuals:** revert `ClassifyComparison`'s `ScriptsWithCompiledResults == 0` branch and the
+  seeded invalidated-script system measures `Consistent`, failing the `Unverified` assertion; remove
+  `AddDataInterfaceDelta` from `MakeMutationResult` and `dataInterfaceDelta` is absent from the
+  `niagara.set_parameter` response, failing the first assertion of both delta tests; drop the
+  `GetSystemInstanceController().IsValid()` filter from `FindTickUnsafeNiagaraSystems` and the seeded
+  mismatch held by an unregistered component is reported, failing the negative assertion — which is
+  the shape that would refuse every scrub in a level merely referencing such an asset.
+  **What is NOT proven here, stated rather than glossed:** no test takes the positive direction of
+  either new gate, because both need a LIVE component of a mismatched system in the editor world, and
+  the next tick of that is the `appError` this ticket is about — it would kill the automation host.
+  Every seeded subject is held by an unregistered, worldless component, so what is asserted is the
+  measurement, the reporting, and the false-positive direction. `#5` and `#6`'s standing ask — one
+  live pass that takes the refusal branch — is still open and still wants a human at a live editor.
+  Also deliberately unchanged: `NotifyNiagaraObjectChanged`'s blanket `InvalidateCompileResults`
+  stays. Removing it is the root fix and is a wider decision than this ticket — `niagara.compile
+  {force:false}` relies on that invalidation to consider a graph-edited system non-current, so
+  dropping it would silently stop compiling real graph edits. That belongs in its own ticket.
+
+- `#12-verifier-corrections-to-11` `IN-REVIEW` developer — Three defects the verifier found in `#11`,
+  fixed, plus one correction to `#11`'s own text and one scope limit `#11` did not state.
+  **Correction to `#11`: `Handlers/ErrorCodes.h` gained no new code.** `#11` lists it as "the code's
+  new emitter"; what actually landed there is a comment paragraph on the existing
+  `ERR_NIAGARA_DATA_INTERFACE_MISMATCH` constant recording that the playhead path now emits it. No
+  new `ERR_*` was declared and none was needed — the pre-flight reuses the existing spelling, which
+  is what this ticket asked for.
+  **(a) Both delta tests could not have passed as written.** `niagara.set_parameter` writes EXISTING
+  parameter-store entries only (`NiagaraEditHandler.cpp`, `PARAMETER_NOT_FOUND` when the name is
+  absent; creation is `niagara.add_parameter`), and `NiagaraEditTestUtils::MakeAuthorableSystem`
+  produces a fixture with no rapid-iteration entries, so every invoke would have failed the lookup
+  rather than reaching the code the delta is measured around. Both tests now seed the probe into the
+  named emitter's `SpawnScriptProps.Script->RapidIterationParameters` via
+  `SetParameterData(..., bAdd=true)` before the first call — the same preparation
+  `Tests/Niagara/TestNiagaraSetParameterEmitterScope.cpp` does — and read the value back afterwards,
+  so the envelope assertions describe a write that actually landed. The no-op test additionally
+  asserts the store holds the first write's value before the repeat, which is what makes the repeat
+  value-identical rather than a second first-write.
+  **(b) `PinWright.niagara.tick_preflight.PlayheadGateIsScopedToLiveInstances` had a false
+  counterfactual.** `#11` claimed dropping `FindTickUnsafeNiagaraSystems`'s
+  `GetSystemInstanceController().IsValid()` filter would make the negative assertion fail. It would
+  not: the probe component is outered to the transient package, so its `GetWorld()` is null and the
+  world filter already excludes it — either filter alone excludes the subject, so neither is
+  individually load-bearing there. Registering the probe in the editor world instead was rejected
+  deliberately: that is the arming step this ticket's whole chain exists to prevent, and the sibling
+  audit test already records why no fixture here may take it. The test now carries the honest
+  split — the load-bearing assertions are on `CountLiveSystemInstances` (drop its controller test and
+  the bound-but-unregistered probe counts as live, returning 1, which fails; that function is what
+  decides whether the repair quiesces and compiles, so the broken version would force a compile on
+  every emitter-scoped edit of any loaded system) and on `CountLiveSystemInstances ==
+  KillSystemInstances` (one definition of "live" across both sweeps; disagreement is how the repair
+  would quiesce a system it counted as idle). The `FindTickUnsafeNiagaraSystems` assertion is kept
+  and labelled as asserting the COMPOSITION only, in the test comment and here. **So the pre-flight's
+  own filtering still has no test that fails when it breaks in isolation; only a live pass would
+  give one, and that remains the standing ask from `#5` / `#6`.**
+  **(c) A repair that recompiled reported `compiled: false`.** `FinalizeNiagaraEdit` ran the repair
+  compile without touching `bOutCompiled`, so the envelope could publish `compiled: false` beside
+  `dataInterfaceDelta.repair: "recompiled"` — a response contradicting itself about a compile that
+  demonstrably ran. It now sets `bOutCompiled` when `PinWrightNiagara::DidCompileLand` says the
+  repair compile landed, so the honest pairing is `compileRequested: false` with `compiled: true`
+  and `repair` naming who asked.
+  **Scope limit `#11` did not state.** The self-heal is unreachable from the
+  `NiagaraJsonHelpers::BeginEmitterMutationScope` seam — the advanced-edit and curve verbs — because
+  that scope calls `KillSystemInstances` before the mutation, so by the time `FinalizeNiagaraEdit`
+  asks, `CountLiveSystemInstances` reads 0 and the repair is skipped. Those verbs still report the
+  delta and still have the save refused on a mismatch; what they do not get is the compile. The fix
+  is to treat `Target.QuiescedInstances` as evidence alongside the live count, and it was left out
+  here deliberately rather than overlooked: it widens the repair to every advanced-edit/curve write
+  on a system with an open preview, and it needs a decision about double-compiling when the caller
+  already passed `compile: true`. Worth its own pass.
