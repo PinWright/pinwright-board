@@ -5,9 +5,9 @@ status: OPEN
 severity: Low
 category: ergonomic
 tags: [asset-dump, dump-folder, cache, telemetry, fingerprint]
-encounters: 1
+encounters: 2
 costly: 1
-lastSeen: 2026-07-17T07:06:00Z
+lastSeen: 2026-09-09T07:55:00Z
 ---
 
 # asset.dump_folder reports dumped/unchanged counts but never why entries re-dumped
@@ -84,3 +84,4 @@ in the started/completion payloads alongside `unchanged`/`queued`. Cheap
 
 ## History
 - `#1-initial-finding` `OPEN` reporter — Routine `/App` re-sweep re-dumped 8161/8168 with 3 cache hits, no `force`. Root-caused as an expected dumper-fingerprint invalidation: last full sweep (92d87494fe, 07-10) ran at plugin VersionName 0.4.0; the 07-16 "refresh" (affa310718) re-dumped only 25 files; VersionName bumped 0.4.0→0.5.0→0.6.0 (01b1ffe5, 07-15), so ~8161 pre-bump markers failed `AreDumperFingerprintsEqual` on pluginVersion (`AssetDumpCache.cpp:478,768,1055`). NOT a bug. Filed as ergonomic because `asset.dump_folder`'s completion payload surfaces `dumped`/`unchanged` counts but never the invalidation reason — the per-asset `FAssetDumpFreshnessResult::Reason` is computed then discarded by the bool-only `IsDumpFresh` (`AssetDumpHandler.cpp:1796` → `AssetDumpCache.cpp:1123`), leaving an agent unable to tell "cache broken" from "version bump". Proposed fix: aggregate stale reasons into a `staleReasonCounts` field on the started/completion payload.
+- `#2-second-version-bump-invalidation-on-game` `OPEN` reporter — Second encounter of the same mechanism, on a much larger tree; `encounters` 1 -> 2, `costly` deliberately left at 1. UE 5.8, `X:\src\unreal\unreal-fpv-dev`, plugin `fa755a4f`. The committed mirror was current in content, but the plugin `VersionName` had moved since it was written, so every `.dumpcache.json` failed `AreDumperFingerprintsEqual` on `PluginVersion` and the whole tree requeued — for `/Game` that is **22,446 assets**, which then OOM-killed the editor twice (`B-dump-folder-sweep-never-gcs-ooms-editor`). Source re-verified against this checkout: the fingerprint still compares `PluginVersion` at `X:\src\unreal\unreal-fpv-dev\Plugins\PinWright\Source\PinWright\Private\Handlers\Asset\AssetDumpCache.cpp:481-486`, and `GetPluginVersion` at `:487-491` still reads the descriptor's `VersionName`. This ticket's ask is unchanged and still correct — the response should say *why* entries requeued — and the `staleReasonCounts` shape proposed in `#1` covers this case verbatim. What this encounter adds is that the reason is worth more than diagnosis time on a large tree: it is the difference between "expected, run it in subtrees" and "start debugging the cache" before committing an editor to a sweep that can crash it. `costly` not bumped: the diagnosis here cost one `.dumpcache.json` read and one source re-check, i.e. the cheap path, and the expensive part (the reload itself) is attributable to the fingerprint *policy* rather than to the missing telemetry. That policy is now disputed separately as `B-dumpcache-fingerprint-includes-marketing-version` (OPEN, bug) — filed rather than appended here because this ticket rules the invalidation correct-by-design and asks only for reporting; the two fixes are independent and both are wanted.
