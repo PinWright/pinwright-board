@@ -5,6 +5,8 @@ status: IN-REVIEW
 severity: Medium
 category: bug
 tags: [tests, hygiene, asset-cleanup]
+encounters: 2
+lastSeen: 2026-09-10T17:23:34Z
 ---
 
 # Automation tests leave dirty /Game packages that an editor-wide save-all leaks into host Content
@@ -67,3 +69,4 @@ and `_FT_<i>` packages in the foliage test. No production-code change and no
 ## History
 - `#1-initial-repro` `OPEN` reporter — Found 30 leaked .uasset files + a dirty L_Core.umap in the PDS host repo after automation runs dated 2026-07-05/07-10; traced to sequencer, merge_actors, and procedural-foliage tests saving without cleanup (sequencer ones at Content root).
 - `#2-reword` `IN-REVIEW` fuzz2 — Reworded (real mechanism: dirty non-transient /Game packages flushed by the suite's own editor-wide save-all tests, NOT handlers saving to disk — McpSafeAssetSave is mark-dirty-only). Shipped test-side fix: de-dirty the sequencer fixture package in ~FScopedRegisteredSequence (Tests/Media/TestSequencerHandlers.cpp) plus new regression test PinWright.sequencer.fixture.LeavesNoDirtyPackage; CleanupTestAsset + de-dirty the foliage handler's hardcoded /Game/ProceduralFoliage/<name>_Spawner and _FT_0 packages in PinWright.foliage.create_procedural.ReportsInstancesSpawned (Tests/World/TestEnvironmentHandlers.cpp). Merge_actors vector dropped (already CleanupTestAssets its merged asset, TestDebugHandlers.cpp:760); the /Game/PinWrightTests reroute rejected (inapplicable to handler-hardcoded paths). Severity kept Medium. Plugin compiles clean; both scoped tests pass green.
+- `#3-l-core-resave-survives-fix` `IN-REVIEW` reporter — Additional evidence, status unchanged (verification is the tester's call). The `L_Core.umap` resave named in `#1` is NOT fixed by the `#2` per-fixture work (`1d41d670`, 2026-07-13): `Saved/Logs/Automation_PinWright_verify2.log` (2026-08-10, i.e. post-fix) shows `Saving Map: /Game/System/FrontEnd/Maps/L_Core` at `:21743` and `L_Core_BuiltData` at `:21752`, both inside the start/complete window of `PinWright.editor.save_all.RespondsSynchronously` (`:21740`/`:21799`) — the writer is that test invoking the real unfiltered `editor.save_all` (TestEditorHandlers.cpp:292/:310), not any one dirty fixture. The PDS host reproduced it again on 2026-09-10 (`M L_Core.umap`, `M L_Core_BuiltData.uasset`, `?? Content/PinWrightTests/` 368 KB). Filed `B-suite-run-dirties-host-repo` for the writer plus the missing suite-level `/Game/PinWrightTests` sweep, so this ticket can stay scoped to the sequencer/foliage dirt sources it fixed.
