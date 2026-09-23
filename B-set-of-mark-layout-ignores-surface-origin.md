@@ -5,8 +5,8 @@ status: OPEN
 severity: High
 category: bug
 tags: [drive, drive.observe, set-of-mark, screenshot, geometry, coordinate-space, desktop-space, viewport-origin, marks-omitted, silent-wrong-data]
-encounters: 1
-lastSeen: 2026-09-10T00:00:00Z
+encounters: 2
+lastSeen: 2026-09-23T20:55:00Z
 ---
 
 # The marks are in desktop space; the image they are drawn on is not
@@ -104,3 +104,4 @@ target by `handle`; treat the numbered screenshot as an inventory, not as a map.
 
 ## History
 - `#1-marks-drawn-at-desktop-coords-on-local-bitmap` `OPEN` reporter — Filed out of the `B-drive-geometry-window-space-injected-as-desktop` fix on UE 5.8, host `X:\src\unreal\unreal-fpv-new`, plugin `d5dfb11b`. Read verbatim in source, not reproduced live. `FDriveSetOfMarkLayout::BuildLayout` accepts a frame SIZE and no ORIGIN (`DriveSetOfMarkLayout.cpp:16-18`) and compares `Element.AbsolutePosition` against `[0,0]..[Width,Height]` (`:33-34`), while `FDriveSetOfMarkRenderer` passes only the captured bitmap's dimensions (`DriveSetOfMarkRenderer.cpp:172-174`) for a bitmap that is viewport-local on `game`/`web` (`FViewport::ReadPixels` + `GetSizeXY()`, `:110-134`) or window-local on `editor_chrome` (`FDriveEditorChrome::CaptureWindow`, `:102-108`). Element geometry is desktop space (confirmed in the sibling ticket: `SWidget::GetCachedGeometry()` -> `GetTickSpaceGeometry()` -> `PersistentState.DesktopGeometry`, which `SWidget::Paint` stores with the owning window's `GetPositionInScreen()` appended, `SWidget.cpp:1494-1495`), so every mark is displaced by the captured surface's desktop origin. Severity High rather than Medium because, unlike the injection path in the sibling ticket, the GAME surface is wrong in the ORDINARY configuration: PIE hosted in the level-editor viewport puts the viewport's top-left inside the editor frame even with the editor maximized at (0,0), and that offset was measured at (+37,+254) in that ticket's `#1`. Both consequences are silent — a mark drawn over the wrong widget, and an on-screen element reported in `marks_omitted` as if offscreen — which is the rubric's silent-wrong-data class. No fix attempted; deliberately out of scope of the geometry ticket's diff, which changed no coordinate values.
+- `#2-live-repro-and-missing-umg` `OPEN` reporter - **Reproduced live**, UE 5.8, host `X:\src\unreal\unreal-fpv-new`, plugin `8748c637`, PIE in the level viewport (viewport 1036x755 at desktop origin about (617,295), DPI scale 0.54). `drive.observe {screenshot_mode: file}` on `W_MyDrones`: marks were drawn at the raw desktop x/y (for example mark 6 at 736,484), so they land about 617 px right and 295 px below their elements and most were reported `marks_omitted`. Separate defect filed for the second thing the same image showed: it contains no UMG at all (`B-drive-observe-screenshot-omits-umg`). Cheap.
