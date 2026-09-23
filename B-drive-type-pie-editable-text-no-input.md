@@ -5,8 +5,8 @@ status: OPEN
 severity: Medium
 category: bug
 tags: [drive, drive.type, drive.key, pie, editable-text, focus, keyboard, editor-chrome]
-encounters: 1
-lastSeen: 2026-09-23T18:30:00Z
+encounters: 2
+lastSeen: 2026-09-23T20:55:00Z
 ---
 
 # drive.type does not reach a PIE text box
@@ -21,3 +21,4 @@ PIE in the level-editor viewport, popup `W_ChangeServer` pushed on `UI.Layer.Men
 
 ## History
 - `#1-type-lost-in-pie` `OPEN` reporter — UE 5.8, host `X:\src\unreal\unreal-fpv-new`, plugin `8748c637`.
+- `#2-worked-around-again` `OPEN` reporter - UE 5.8, host `X:\src\unreal\unreal-fpv-new`, plugin `8748c637`. Avoided `drive.type` for every PIE text field in a login regression pass (login name/password, change-nickname box, change-server URL box, save-as-drone name) and set the text with Python `EditableTextBox.set_text` on the live widget instead. Note for the workaround: `set_text` does not fire `OnTextChanged`, so a button gated on it (W_SaveAsDroneDialog `SaveButton`) stays disabled until `set_is_interaction_enabled(True)` is also called. Cheap per field.
