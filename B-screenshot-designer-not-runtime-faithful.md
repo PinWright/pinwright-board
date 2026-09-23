@@ -5,9 +5,9 @@ status: OPEN
 severity: Medium
 category: bug
 tags: [widget, screenshot_designer, designer, preview, visibility, visibilityOverrides, chrome, silent-noop]
-encounters: 1
+encounters: 2
 costly: 1
-lastSeen: 2026-09-02T19:35:00Z
+lastSeen: 2026-09-23T18:30:00Z
 ---
 
 # `widget.screenshot_designer` `target:"preview"` is not a runtime-faithful render
@@ -94,3 +94,4 @@ workaround, so not High).
 
 ## History
 - `#1-filed` `OPEN` reporter — Hit while building `/Game/FPS/UI/WBP_HUD` on EAContentExamples58 (UE 5.8). Authored six widgets with `Visibility="Collapsed"` through `widget.import_xml`; `widget.describe` confirms `Visibility: "Collapsed"` on the asset, but `widget.screenshot_designer target:"preview"` draws them. Ran a controlled probe in one call with `hide:["FeedRow0","FeedRow1"]` and `visibilityOverrides:{"ReloadText":"Collapsed","PromptRoot":"Collapsed"}`: the response reported `hiddenOverrideCount:2, visibilityOverrideCount:2`, the two `hide` targets vanished from the PNG, and neither `visibilityOverrides` target changed — so the eye path works and the runtime-Visibility path is inert, in both the authored and the override direction. Evidence PNGs: `Saved/Screenshots/WidgetDesigner/hud_layout_01.png` (1920x1080) and `Saved/Screenshots/WidgetDesigner/hud_vis_probe.png` (1200x675). Both also show a dashed outline around every widget, which the same wiki page says preview captures omit. Cross-refs: `F-widget-screenshot-transient-overrides` (DONE) added `visibilityOverrides` on the premise that the preview honours runtime Collapsed — that premise is false on this build; `E-widget-screenshot-docs-eye-vs-visibility` (DONE) wrote the wiki paragraph that is now inverted; `B-widget-screenshot-preview-includes-chrome` (DONE) covered window-chrome cropping, not per-widget outlines. Root cause not source-verified.
+- `#2-show-direction-also-inert` `OPEN` reporter - Additional evidence, merged from the duplicate `B-screenshot-designer-visibility-overrides-noop` (UE 5.8, host `X:\src\unreal\unreal-fpv-new`, plugin `8748c637`). `widget.screenshot_designer` on `/App/App/UI/LobbyAndMenu/Popups/W_AppSchoolNameLogin` twice, once with `visibilityOverrides: {NoPupilsPanel: Visible}` and once with `{ErrorModal: Visible}`: both PNGs are the same size (127041 bytes) with identical pixels, and both draw the authored-`Collapsed` `ErrorModal` overlay over the panel. Confirms Symptoms 1 and 2 on a second project and in the show direction. No lost work recorded, so `costly` is unchanged.
