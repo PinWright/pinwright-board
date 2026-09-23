@@ -5,8 +5,8 @@ status: OPEN
 severity: Medium
 category: bug
 tags: [drive, drive.hover, pie, pie-in-viewport, umg, on-mouse-enter, slate-injection, hover]
-encounters: 1
-lastSeen: 2026-09-23T18:30:00Z
+encounters: 2
+lastSeen: 2026-09-23T20:55:00Z
 ---
 
 # drive.hover does not trigger UMG OnMouseEnter in PIE
@@ -21,3 +21,4 @@ PIE hosted in the level-editor viewport, `/Game/System/FrontEnd/Maps/L_Core`. `W
 
 ## History
 - `#1-hover-no-enter` `OPEN` reporter — UE 5.8, host `X:\src\unreal\unreal-fpv-new`, plugin `8748c637`. Possibly the same inactive-application path as `B-drive-click-misses-pie-game-viewport`; filed separately because clicks worked here.
+- `#2-non-repro-on-cpp-panel` `OPEN` reporter - **Non-repro**, UE 5.8, host `X:\src\unreal\unreal-fpv-new`, plugin `8748c637`, same map (`L_Core`, PIE in the level viewport). The hover target is now `W_AppUserPanel` (C++ `UAppUserPanel`, which replaced `W_LobbyLoginButton` and plays the same `OnHovered` animation from `NativeOnMouseEnter`). `drive.hover {handle: NickName}` returned `settled_changed` and the dropdown opened on every one of about ten attempts (screenshot evidence in the calling session). Difference from `#1`: no other top-level editor window was open this time, and the hovered widget's enter handler is native, not a Blueprint `Event OnMouseEnter`. Worth checking whether `#1` had an occluding window (see `B-drive-click-misses-pie-game-viewport` `#4`). Cheap.
