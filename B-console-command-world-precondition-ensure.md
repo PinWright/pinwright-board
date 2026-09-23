@@ -5,8 +5,8 @@ status: OPEN
 severity: Medium
 category: bug
 tags: [editor, console-command, world-precondition, ensure, pie, crash-reporter]
-encounters: 1
-lastSeen: 2026-09-23T18:49:49Z
+encounters: 2
+lastSeen: 2026-09-23T20:55:00Z
 ---
 
 # A successful console command raises an engine ensure while decorating its response
@@ -44,3 +44,4 @@ selector or a PIE world, or have `editor.console_command` report its target unde
 
 ## History
 - `#1-ensure-on-console-command-in-pie` `OPEN` reporter - Filed from a UMG pass on UE 5.8, host `X:\src\unreal\unreal-fpv-new`, plugin `8748c637`. Two `editor.console_command` calls during PIE (one with `world: "pie:0"`, one default) each raised the ensure above and wrote a crash report (`UECC-Windows-F5BEB123...`, `UECC-Windows-B666C3AC..._0000`).
+- `#2-worked-around-via-python` `OPEN` reporter - UE 5.8, host `X:\src\unreal\unreal-fpv-new`, plugin `8748c637`. Avoided `editor.console_command` during PIE (`App.ListTracks`, `App.ListExperiences`, `App.Launch ...`, `App.CompleteRace`) and ran them with Python `unreal.SystemLibrary.execute_console_command(<PIE world>, cmd)`; no ensure. Output then has to be read from `Saved/Logs/PDS.log`. Cheap.
