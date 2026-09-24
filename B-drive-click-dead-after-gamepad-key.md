@@ -32,6 +32,11 @@ UE 5.8 Linux, host `/sdb-disk/src/unreal/unreal-fpv`, plugin `ba115afb`. `editor
 Either make `drive.click`/`drive.hover` move CommonUI back to mouse input (a real mouse move does), or report the
 current CommonUI input type in the action response when a click lands on a button that ignores it.
 
+## Related
+
+- `B-drive-click-misses-pie-game-viewport` (OPEN) - clicks that actuate nothing in PIE with no trace; may share the root cause if that session's CommonUI input type was not mouse.
+- `E-drive-click-no-change-on-slow-transition` (OPEN) - the same `no_change_within_budget` outcome for a different reason.
+
 ## History
 
 - `#1-gamepad-key-kills-clicks` `OPEN` reporter - Filed from a school lesson-attempt PIE session (plugin
