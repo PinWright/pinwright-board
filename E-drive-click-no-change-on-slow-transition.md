@@ -5,8 +5,8 @@ status: OPEN
 severity: Medium
 category: ergonomic
 tags: [drive, drive.click, settle, quiet-budget, changed-false, no-change-within-budget, ambiguous-outcome]
-encounters: 1
-lastSeen: 2026-07-17T12:00:00+03:00
+encounters: 2
+lastSeen: 2026-09-24T09:06:00+03:00
 ---
 
 # drive.click reports `no_change_within_budget` when a successful click's screen transition begins after the quiet budget
@@ -159,3 +159,4 @@ Medium. (Matches how the sibling value-edit false-negative was rated.)
   Secondary friction: `settle_ms` -> `UNKNOWN_PARAMS`; valid name is `settle_budget_ms`
   (`DriveActionHandlers.cpp:50`), though the error already lists valid params
   (`RpcDispatcher.cpp:136`).
+- `#2-diff-contradicts-outcome` `OPEN` reporter — Second sighting (UE 5.8, PDS PIE, school-computer verification). Two `drive.click` calls returned `outcome:"no_change_within_budget"`, `changed:false`, `settled:false` while the SAME response's one-shot `diff` reported the transition: (a) closing the auto-opened Message Log tab (`surface:"editor_chrome"`, tab close `SButton`) -> `elapsed_ms:502`, `diff.disappeared_count:72`, and `drive.list_windows` right after showed the window gone; (b) `W_SchoolNameLogin/AnonymousLoginButton` in PIE -> `elapsed_ms:553`, `diff.appeared_count:228`, `disappeared_count:284` (login overlay dismissed, main menu shown). New evidence for the fix: the response is self-contradictory, so the caller needs no follow-up observe to see the false negative, and the handler could derive `changed` (or at least a warning) from its own non-empty final diff when the settle loop exits via the never-changed branch.
