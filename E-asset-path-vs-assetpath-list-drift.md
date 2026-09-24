@@ -5,8 +5,8 @@ status: IN-REVIEW
 severity: Low
 category: ergonomic
 tags: [asset, param-alias, path, assetpath, asset-list, asset-exists, asset-dump, drift]
-encounters: 15
-lastSeen: 2026-07-20T10:48:17Z
+encounters: 16
+lastSeen: 2026-09-24T03:10:00Z
 ---
 
 # Within `asset.*`, `asset.list` names its slot `path` but `asset.exists` / `asset.dump` require `assetPath`
@@ -445,3 +445,4 @@ list->probe chain is the natural friction.
   data point that promotes the deferred "optional symmetry" aliasing to a real,
   caller-observed need on `asset.delete`.
 - `#17-repoint-citations-after-module-rename` `DONE` reporter — Citation maintenance only; **no claim in this ticket changes and the status is untouched**. The plugin module directory was renamed `Source/EditorAutomationRpcGateway/` → `Source/PinWright/` (plugin commit `8962f163`), and `Source/EditorAutomationRpcGatewayTests/` was folded into `Source/PinWright/Private/Tests/`, so every citation under the old root was an **unresolvable path** a fixer could not open — not a stale line number. The body needed no edit. 2 citations sit in history rows and are left verbatim per the append-only rule, mapping by the same rule; the mapped paths was confirmed present at HEAD too. No citation in this ticket carries a line number, so nothing here required line re-verification. Sweep-wide record, including the cases that could not be repointed: `E-module-rename-citation-sweep`.
+- `#18-asset-save-path-still-rejected` `IN-REVIEW` reporter - Additional evidence, UE 5.8, host `unreal-fpv-new`, plugin `8748c637`: `asset.save {path:"/App/App/UI/LobbyAndMenu/Elements/W_AppUserPanel"}` still fails `MISSING_REQUIRED_PARAM 'assetPath'`, right after `blueprint.compile {path: <same>}` accepted `path`. One retry with `assetPath` saved it. Status untouched (reporter, not tester); the `#13` asset.save gap is still live on this plugin build.
