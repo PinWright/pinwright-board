@@ -5,8 +5,8 @@ status: OPEN
 severity: High
 category: bug
 tags: [drive, drive.observe, set-of-mark, screenshot, umg, pie, silent-wrong-data]
-encounters: 1
-lastSeen: 2026-09-23T20:55:00Z
+encounters: 2
+lastSeen: 2026-09-24T03:10:00Z
 ---
 
 # The Set-of-Mark image shows a different frame from the one on screen
@@ -31,3 +31,4 @@ for the game surface, or render the game-layer Slate tree over the scene as the 
 
 ## History
 - `#1-som-image-has-no-umg` `OPEN` reporter - Seen on two observes in a login regression pass; UE 5.8, host `X:\src\unreal\unreal-fpv-new`, plugin `8748c637`. Cheap (switched to editor.screenshot), but the misleading image is on the main observe path.
+- `#2-school-login-pass-same-symptom` `OPEN` reporter - Seen again, UE 5.8, host `unreal-fpv-new`, plugin `8748c637`: first `drive.observe {instance_name:"W_OverallUILayout", screenshot_mode:"file"}` of a PIE session on `L_Core` returned `DriveObserve_20260924_050923_813_0001.png` showing only the stadium scene while the element list (and an `editor.screenshot` taken seconds later) had the full `W_LoginOverlay` name form on screen. Cheap: switched to `editor.screenshot {width:1920,height:1080}` for every capture.
