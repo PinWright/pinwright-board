@@ -5,8 +5,8 @@ status: OPEN
 severity: High
 category: bug
 tags: [drive, drive.observe, set-of-mark, screenshot, umg, pie, silent-wrong-data]
-encounters: 2
-lastSeen: 2026-09-24T03:10:00Z
+encounters: 3
+lastSeen: 2026-09-24T09:00:00Z
 ---
 
 # The Set-of-Mark image shows a different frame from the one on screen
@@ -32,3 +32,4 @@ for the game surface, or render the game-layer Slate tree over the scene as the 
 ## History
 - `#1-som-image-has-no-umg` `OPEN` reporter - Seen on two observes in a login regression pass; UE 5.8, host `X:\src\unreal\unreal-fpv-new`, plugin `8748c637`. Cheap (switched to editor.screenshot), but the misleading image is on the main observe path.
 - `#2-school-login-pass-same-symptom` `OPEN` reporter - Seen again, UE 5.8, host `unreal-fpv-new`, plugin `8748c637`: first `drive.observe {instance_name:"W_OverallUILayout", screenshot_mode:"file"}` of a PIE session on `L_Core` returned `DriveObserve_20260924_050923_813_0001.png` showing only the stadium scene while the element list (and an `editor.screenshot` taken seconds later) had the full `W_LoginOverlay` name form on screen. Cheap: switched to `editor.screenshot {width:1920,height:1080}` for every capture.
+- `#3-linux-school-attempt-pass` `OPEN` reporter - Seen again on Linux, UE 5.8, host `/sdb-disk/src/unreal/unreal-fpv`, plugin `ba115afb`: three `drive.observe {surface:"game", instance_name:"W_OverallUILayout", screenshot_mode:"file"}` calls (school name login form, then a lesson briefing with its «ОК» button) all wrote scene-only PNGs with empty `marks_drawn` (every mark in `marks_omitted`), while `drive.click` on the listed handles actuated the real buttons. Also present on plugin `ba115afb`, so not fixed by the related `B-screenshot-omits-umg-overlay` work.
