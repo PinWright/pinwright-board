@@ -31,6 +31,10 @@ UE 5.8 Linux, plugin `ba115afb`, a project whose editor restores several floatin
 Either route the synthetic press to the addressed `SWindow` (bring it to front first), or report in the
 response which window received the press when it is not the addressed one.
 
+## Related
+
+- `B-drive-geometry-window-space-injected-as-desktop` (IN-REVIEW) - also desktop-coordinate injection, but about a non-zero window origin; here the rect is right and a different window stacked at the same rect takes the press.
+
 ## History
 
 - `#1-stacked-window-receives-click` `OPEN` reporter - Filed from a school lesson-attempt PIE session
