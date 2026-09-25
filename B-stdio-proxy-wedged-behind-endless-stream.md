@@ -1,7 +1,7 @@
 ---
 id: B-stdio-proxy-wedged-behind-endless-stream
 title: "stdio proxy serves one request at a time, so one never-ending streamed job hangs every later call silently"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: bug
 tags: [mcp, proxy, transport, sse, jobs, hang, timeout]
@@ -47,3 +47,24 @@ wedge is diagnosable.
   while the gateway answered directly. Diagnosed and briefly worked around by calling the gateway
   over raw HTTP with per-call timeouts; that workaround was dropped because the plugin's
   CLAUDE.md forbids raw gateway calls, and the session went back to `mcp__pinwright__call`.
+- `#2-concurrent-forwarding-and-stream-ceiling` `IN-REVIEW` developer — Root cause confirmed in
+  code: `serve_stdio` ran `proxy.handle` inline for every request, and `_relay_stream` loops until
+  the terminal frame with only a per-read timeout, which heartbeats and progress frames reset.
+  Baseline: the new test file failed both tests on unmodified `mcp_proxy.py` (a plain call sent
+  after an endless stream got no response in 3 s; the endless call never returned). Fix in
+  `Content/Python/mcp_proxy.py`: (1) `serve_stdio` runs each forwarded `tools/call` on its own
+  daemon thread (`_forwards_concurrently`; protocol methods and the proxy-local lifecycle tools
+  stay serial), and `_write` serializes stdout frames under one lock; (2) `_relay_stream` wraps
+  the readline in a bound that ends the relay after `Proxy.stream_max_seconds`
+  (`STREAM_MAX_SECONDS` = 1800 s) or on client disconnect, returning the existing in-band
+  `isError` result that names the job's `ticket_id` and `system.job_status`, and logging
+  `stream id=<id> abandoned: <reason> (ticket <id>)` to stderr. Closing the stream does not
+  cancel the job (documented transport contract). Holds for any endless stream, independent of
+  `B-run-tests-filter-job-never-terminal`. Tests: `Content/Python/tests/test_mcp_proxy_concurrency.py`
+  (`EndlessStreamTest.test_unrelated_call_is_answered_while_a_stream_never_ends`,
+  `EndlessStreamTest.test_endless_stream_returns_its_ticket_at_the_ceiling`) drive `serve_stdio`
+  against a real loopback server that streams progress forever; both pass, full Python suite
+  259 tests OK (2 skipped), stdio smoke run byte-identical to the old proxy for
+  initialize/ping/call. Docs: `docs/arch.md` (Stdio Proxy Lifecycle Boundary),
+  `docs/wiki-src/mcp-transport.md` (Streaming responses). Not verified against a live editor:
+  reproducing needs a never-terminal job, which the sibling ticket is removing. Plugin commit `f7e5db7d`.
