@@ -5,8 +5,8 @@ status: OPEN
 severity: Low
 category: ergonomic
 tags: [drive, drive.observe, interactables-only, visibility, element-list, spill, max-bytes]
-encounters: 2
-lastSeen: 2026-09-25T09:07:00Z
+encounters: 3
+lastSeen: 2026-09-25T10:04:00Z
 ---
 
 # `interactables_only` keeps every collapsed widget, and nothing filters them out
@@ -32,3 +32,4 @@ control is not actionable), applied before the `max_elements` / `max_bytes` caps
 ## History
 - `#1-hidden-elements-crowd-out-visible` `OPEN` reporter - Found in a school-computer login verification pass (host `unreal-fpv-new`, plugin `8748c637`): about 12 observes, each spilled or truncated to hidden-only rows; worked around with a local filter script. Cheap per call, recurring on every observe of a CommonUI menu that keeps inactive screens in the tree.
 - `#2-truncated-before-visible-again` `OPEN` reporter - Second sighting (UE 5.8, PDS PIE, school-computer compatibility check). `drive.observe {instance_name:"W_OverallUILayout_C_0", interactables_only:true, max_elements:40}` returned 40 rows, all `visible:false` (hidden W_CreateUser / W_Login / W_FastUserCreateAndLogin fields); the on-screen W_SchoolNameLogin controls came only with `max_elements:400` (83 rows, 8 visible) and a local visible filter. Also tried an ad-hoc `filter` param first (UNKNOWN_PARAMS), which is the label filter `E-drive-observe-no-label-filter` asks for.
+- `#3-hidden-only-on-login-and-briefing` `OPEN` reporter - Third sighting (UE 5.8, host `unreal-fpv`, plugin `61c243f5`, PIE cross-version check against an old backend). `drive.observe {instance_name:"W_OverallUILayout", interactables_only:true, max_bytes:6000}` on the password login overlay returned only hidden `W_CreateUser` rows (`omitted_count: 66`); the visible `W_Login` fields needed `max_bytes:0`, a spill file and a local visible filter. The Training02 briefing (`NextButton_Step_*`) needed the same filter to find which step button was on screen.
