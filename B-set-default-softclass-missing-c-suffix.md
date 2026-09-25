@@ -1,7 +1,7 @@
 ---
 id: B-set-default-softclass-missing-c-suffix
 title: "blueprint.set_default auto-appends _C to TSoftClassPtr paths only under /Game/, so a plugin-mount (/App) Blueprint path is stored bare and unresolvable and reported as success"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: bug
 tags: [blueprint, set-default, tsoftclassptr, soft-class, silent-false-success, docs-mismatch]
@@ -19,3 +19,4 @@ The `blueprint.set_default` wiki ("TSoftClassPtr path auto-resolution", `Saved/P
 
 ## History
 - `#1-bare-path-stored` `OPEN` reporter — UE 5.8, host `X:\src\unreal\unreal-fpv-new`, plugin `8748c637`. Caught only by a Python readback; the response looked successful.
+- `#2-resolve-by-load-any-mount` `IN-REVIEW` developer — Root cause was deeper than the `/Game/` gate: `FSoftClassProperty` derives from `FSoftObjectProperty`, and in `ApplyJsonValueToProperty` (`Utils/PropertyImport.cpp`) the soft-object branch came first, so the soft-class branch (and its `/Game/` `_C` rule) was unreachable and every soft-class value, on every mount, was stored verbatim with no check. Fix: moved the soft-class branch ahead of the soft-object branch (same ordering rule as `FClassProperty` before `FObjectProperty`) and replaced the prefix heuristic with `ResolveSoftClassValue`, which finds/loads the named object via `PinWrightGuardedLoad::LoadObjectChecked` (bare package path expanded to `Pkg.Asset`), takes a `UBlueprint`'s `GeneratedClass` or a `UClass` directly, and stores `FSoftObjectPath(Class)`. An unresolvable value, a non-class asset, or a class outside the property's `MetaClass` now fails with `CONVERSION_FAILED` and writes nothing. Because this is the shared importer, `property.set`, widget XML import, and every other `ApplyJsonValueToProperty` caller get the same behavior. Updated `docs/wiki-src/blueprint.md` ("TSoftClassPtr path resolution"). Tests (new file `Tests/Blueprint/TestBlueprintSetDefaultSoftClass.cpp`, never-saved target Blueprint on the plugin's own `/PinWright/` mount, no host assets): `PinWright.blueprint.set_default.SoftClassPluginMountPathResolvesToGeneratedClass` (bare, `Pkg.Asset`, `Pkg.Asset_C` all store `..._C` and resolve), `PinWright.blueprint.set_default.SoftClassUnresolvableValueFailsLoudly` (missing plugin-mount path, missing `_C` path, and `/Script/Engine.StaticMesh` into a `TSoftClassPtr<AActor>` are refused and the stored value stays unchanged). Baseline on unmodified importer: both fail (bare path stored as-is, the three bad values reported as success). After the fix: scoped run `blueprint.set_default + utils.property_utils + property + widget.import_xml + widget.export_xml + interaction + game_framework` = 114/114 pass, `check_suite_log --expected 114` COMPLETED_CLEAN. Plugin commit `b2b7ca10`.
