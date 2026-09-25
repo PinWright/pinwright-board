@@ -1,7 +1,7 @@
 ---
 id: B-editor-quit-render-thread-crash-stuck-job
 title: "editor.quit returned success, then the editor crashed on exit in the render thread (EXCEPTION_ACCESS_VIOLATION in RenderCore ExecuteCommand) with a never-terminal system.run_tests job still registered"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: bug
 tags: [editor-quit, shutdown, crash, access-violation, render-thread, run_tests, jobs, unclean-exit]
@@ -47,3 +47,24 @@ the live job tickets at quit time.
 ## History
 - `#1-render-thread-av-after-quit` `OPEN` reporter — Filed with the stack above; minidump in the
   crash folder. Cheap (no work lost; the editor was being restarted anyway).
+- `#2-uaf-and-quit-terminates-jobs` `IN-REVIEW` developer — Attribution, code-traced (not reproduced:
+  the Linux host exits cleanly either way, and the minidump is on the Windows host). A job stuck this
+  way is not an idle leftover: it is the residue of a heap use-after-free. When `OnTestsComplete`
+  fired, `FRunAutomationTestsByFilterJob::Finish` removed its own binding mid-broadcast, which
+  destroyed the lambda holding the last ref to the job, and `Finish` then wrote into the freed block
+  (`TestsCompleteHandle.Reset()`, the `MoveTemp(OnComplete)` source reset) - see
+  `B-run-tests-filter-job-never-terminal#2`. A write into freed heap corrupts whatever the allocator
+  hands that block to next, which fits a later fault in an unrelated consumer such as a render
+  command reading a `0xffffffffffffffff` pointer; the 4 h gap between the write and the exit fault is
+  consistent with that. That use-after-free is fixed at the source (stack keep-alive). Quit is also
+  made safe with jobs outstanding: `editor.quit` now ends every job still `running` before it acks
+  (`EditorQuitPolicy::TerminateRunningJobs`, `EditorQuitHandler.cpp`) - cancelled through its cancel
+  hook when it has one (an isolated `run_tests` child tree is killed), otherwise failed with the new
+  `EDITOR_EXITING` code - logs each as a `LogPinWrightSubsystem` warning, and lists them as
+  `jobsTerminated`, so a streaming client gets its terminal event before the process goes. Verified
+  live on a binary with the old run_tests code: a stuck zero-match job was reported in
+  `jobsTerminated`, `jobs.jsonl` recorded `failed/EDITOR_EXITING`, and the editor reached
+  `LogExit: Exiting.` with no crash report. Test: `PinWright.editor.quit.TerminatesRunningJobs`.
+  Needs a Windows re-check: 57-test filter run, let it drain, `editor.quit`, confirm no report in
+  `Saved/Crashes`. Plugin commit `f39443c6`.
+
