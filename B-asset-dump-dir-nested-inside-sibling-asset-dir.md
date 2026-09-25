@@ -1,7 +1,7 @@
 ---
 id: B-asset-dump-dir-nested-inside-sibling-asset-dir
 title: "An asset whose name equals a sibling folder's name gets a dump dir containing that folder's dump dirs — non-idempotent sweeps and sidecar deletion"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: bug
 tags: [asset-dump, dump-folder, dir-resolution, dumpcache, prune, data-loss, idempotence]
@@ -129,3 +129,39 @@ second sweep reports the parent `unchanged` and that the child's sidecars surviv
   directory, combined with the two `FindFilesRecursive` walks that assume a dump
   dir is a leaf. Supersedes the interrupted-transaction diagnosis recorded in
   `B-dump-commit-window-leaves-cache-without-sidecars` `#1` for that observation.
+- `#2-own-files-walk-skips-nested-dump-dirs` `IN-REVIEW` developer — Took fix (b),
+  applied at every walk that treats a dump dir's contents as one asset's, through one
+  shared helper: `AssetDumpWriter::FindOwnDumpFiles` (`Utils/AssetDumpWriter.h/.cpp`)
+  enumerates a dump dir recursively but does not descend into a subdirectory holding its
+  own `meta.json` or `.dumpcache.json` (another asset's dump dir; `meta.json` is included
+  so a child whose cache record was never written is still protected, `.dumpcache.json`
+  so a child already stripped by the old prune is too). Callers switched from
+  `FindFilesRecursive`: `HasOnlyListedDumpFiles` (`AssetDumpCache.cpp`, consequence 1),
+  the writer's stale-sidecar prune (`AssetDumpWriter.cpp`, consequences 2-4), and
+  `ReconcileMirrorSubtree` (`AssetDumpHandler.cpp`), which used to tree-delete a dead dump
+  dir and so would have wiped every live nested dump when the parent asset (e.g. the Font)
+  is deleted but its folder is kept; it now deletes the dead dir's own files and leaves
+  emptied dirs to the existing post-order pass. Fix (a) (unambiguous dir naming) was
+  deliberately not taken: it moves every mirror path to fix a shape that occurs in 2 of
+  30,904 dump dirs of the host mirror, and forces a one-time regeneration of every
+  committed mirror. With (b) the layout is unchanged, so no migration: an already-damaged
+  mirror self-heals on the next sweep (stripped children re-dump once, parent now reads
+  fresh). Documented in `docs/wiki-src/asset.dump-quickstart.md` (layout paragraph).
+  Out of scope, same non-injective path: diff dirs under `asset-dump-diffs/` still nest,
+  and a parent's diff-dir `Tree=true` cleanup wipes its children's diff artifacts
+  (transient, Saved-only). Tests (all new):
+  `PinWright.utils.asset_dump_writer.PruneSkipsNestedAssetDumpDirs`,
+  `PinWright.AssetDumpCache.NestedAssetDumpDirIsNotUnlisted` (also asserts an unmarked
+  subdir file still reads unlisted),
+  `PinWright.asset.dump.FolderReconcileKeepsLiveDumpDirNestedInDeadParent`,
+  `PinWright.asset.dump.AsyncFolderDump.AssetBesideSameNamedFolderIsIdempotent` (end to
+  end: two saved MIC fixtures `<F>/Nested` + `<F>/Nested/Nested_Child` under
+  `/Game/PinWrightTests`, two recursive sweeps plus a direct parent re-dump). Baseline on
+  unfixed code: all 4 red, reproducing the ticket verbatim (second sweep queued 1 /
+  unchanged 1, log `stale dump for '.../Nested' ...: unlisted dump file
+  'Nested_Child/.dumpcache.json'`, child sidecars deleted by both the sweep and the
+  direct re-dump). With the fix: 4/4 green; scoped run
+  `PinWright.utils.asset_dump_writer+PinWright.AssetDumpCache+PinWright.asset.dump` =
+  106 performed, 105 pass, 1 fail = the pre-existing
+  `B-commit-failure-rollback-test-red-on-linux` (expected-error declaration, unrelated),
+  1 pre-existing skip (`AnimBlueprint_EmitsAnimGraphJson`). Plugin commit `f1a04a23`.
