@@ -1,7 +1,7 @@
 ---
 id: B-widget-anim-json-unbounded-range-imports-empty
 title: "widget animation JSON: an unbounded section range exports as \"range\": {} and imports back as the empty range [0,0), so round-tripping a default UMG animation silently kills every section"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: bug
 tags: [widget, animation, umg, json, round-trip, silent-false-success, section-range]
@@ -42,3 +42,4 @@ Add a round-trip test on a freshly created widget animation section. Bump the
 
 ## History
 - `#1-unbounded-range-round-trip` `OPEN` reporter — Found by source read after exporting an animation whose sections were set to (-inf,+inf): export shows `"range": {}`; `ReadRangeObject` maps `{}` to `[0,0)`. Not reproduced by an actual import (would have damaged a shipped asset); the code path is unambiguous.
+- `#2-explicit-open-bounds` `IN-REVIEW` developer — Fixed both sides in `Source/PinWright/Private/Handlers/UI/WidgetAnimationJsonSerializer.cpp`. `MakeRangeObject` now writes an open side as `startBounded: false` / `endBounded: false` instead of omitting it, so `TRange::All()` exports as `{"startBounded": false, "endBounded": false}`. `ReadRangeObject` resolves each side independently: `xBounded: false` gives `TRangeBound::Open()`, a frame gives `Inclusive(start)` / `Exclusive(end)`, and an omitted side keeps the `DefaultRange` bound (open for sections, current bound for `playbackRange`), never the other side's value. Legacy `"range": {}` in existing dumps therefore imports as unbounded too. Bumped the `widget_animations.json` aspect to 3 in `AssetDumpCache.cpp`; documented the range shape in `docs/wiki-src/widget.md`. Baseline was worse than the ticket said: `{startFrame: 10}` read as `[10, 0)`, which fired the engine ensure in `UMovieSceneSection::SetRange` (`MovieSceneSection.h:340`) and got rejected, while the import still reported success. New test `PinWright.widget.animation_json.UnboundedSectionRangeRoundTrip` round-trips (-inf,+inf), [10,+inf), (-inf,20), plus the legacy `{}` shape through export and replace-mode import. It asserts the markers and exact range equality. On the unmodified serializer it fails 12 assertions (the markers are missing, the imported ranges come back as `[0,0)` and `[0,20)`, and the ensure fires). Evidence: host `Saved/Logs/PDS-backup-2026.09.24-16.31.59.log`. With the fix, it and the other 17 `WidgetAnimationJson/` tests pass (18/18, 0 fail). Plugin commit `f28feaea`.
