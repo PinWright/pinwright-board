@@ -5,8 +5,8 @@ status: OPEN
 severity: Low
 category: bug
 tags: [wiki, docs, system-inspect, list-subsystems, world, unknown-params, pie]
-encounters: 1
-lastSeen: 2026-09-28T09:32:00Z
+encounters: 2
+lastSeen: 2026-09-28T10:27:00Z
 ---
 
 # The worked example on the inspection guide does not run
@@ -36,3 +36,4 @@ smaller change for callers, since the page's Step 1 promises a uniform `world` p
 
 ## History
 - `#1-world-param-rejected` `OPEN` reporter - Followed the runtime-uobject-inspection guide during a PDS PIE session; the guide's own example failed with UNKNOWN_PARAMS. Cheap (one retry without `world`).
+- `#2-second-hit-wt1` `OPEN` reporter - Second sighting, UE 5.8, host `/sdb-disk/src/unreal/unreal-fpv-wt1` (Linux), plugin `61c243f5`: `system.inspect.list_subsystems {scope: "GameInstance", world: "pie"}` -> `UNKNOWN_PARAMS ... Valid parameters: [scope]`, as the guide's worked example shows it. Retrying without `world` returned the PIE GameInstance subsystems. Cheap.
