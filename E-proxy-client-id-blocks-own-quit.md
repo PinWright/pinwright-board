@@ -5,8 +5,8 @@ status: OPEN
 severity: Low
 category: ergonomic
 tags: [mcp-proxy, editor-quit, editor-restart, editor-in-use, client-id]
-encounters: 1
-lastSeen: 2026-09-23T18:30:00Z
+encounters: 2
+lastSeen: 2026-09-28T11:27:00Z
 ---
 
 # A script's own traffic blocks its own restart
@@ -19,3 +19,4 @@ A client that spawns `mcp_proxy.py` per invocation (a normal pattern for script-
 
 ## History
 - `#1-own-traffic-blocks-restart` `OPEN` reporter — UE 5.8, host `X:\src\unreal\unreal-fpv-new`, plugin `8748c637`.
+- `#2-anonymous-http-caller-variant` `OPEN` reporter - Variant, UE 5.8, host `/sdb-disk/src/unreal/unreal-fpv-wt1` (Linux), plugin `61c243f5`. Same session, same MCP proxy for `editor.quit`, but some earlier `property.get` calls went straight to `http://127.0.0.1:27673/mcp` with the bearer token and no `X-PinWright-Client` header (a bash `curl` helper for scripted readbacks). `editor.quit {}` then refused: `[EDITOR_IN_USE] ... served 'property.get' for a different client 130s ago` with `"lastClient":""`. An empty client id is treated as someone else, and the message does not say the other caller was anonymous. `force:true` worked. Cheap. Ask: say "an anonymous (no client id) caller" when `lastClient` is empty, so the caller can recognise its own traffic.
