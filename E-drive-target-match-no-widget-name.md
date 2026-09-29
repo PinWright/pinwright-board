@@ -5,8 +5,8 @@ status: OPEN
 severity: Low
 category: ergonomic
 tags: [drive, drive.expect, drive.wait_for, target, handle, widget-name, localization, matching]
-encounters: 1
-lastSeen: 2026-09-09T14:00:00Z
+encounters: 2
+lastSeen: 2026-09-29T12:21:45Z
 ---
 
 # `target` accepts a full handle or a full label, never a widget name
@@ -67,3 +67,4 @@ one field of a call the caller has usually already made, so it stays Low.
 
 ## History
 - `#1-widget-name-never-matches` `OPEN` reporter — Filed from a real-click PIE verification (UE 5.8, `X:\src\unreal\unreal-fpv-dev`, plugin `fa755a4f`, `L_Core` -> `W_Multiplayer` -> `W_CreateMultiplayerRoom`). `drive.expect` / `drive.wait_for` targets named `BT_CreateRoom` and `BT_ResetRoomName` matched nothing; `ElementMatchesTarget` (`DriveConditionEval.cpp:80-93`) does whole-string handle (case-sensitive) or whole-string label (case-insensitive) equality only, and the widget name appears merely as one segment of the composed handle (`ComputeHandleBaseKey`, `DriveLiveResolver.cpp:377-395`). Callers are therefore forced onto the localized Russian label, which is unstable across copy edits and costs an extra spilling `drive.observe` to learn. Ask: accept a widget name / handle segment as a third target form, after the existing exact matches, and document the accepted forms in `docs/wiki-src/drive.md`.
+- `#2-count-condition-segment-timeout` `OPEN` reporter - Second encounter, UE 5.8 Linux, host `/sdb-disk/src/unreal/unreal-fpv-wt2`, plugin clone `61c243f5`, PIE on `L_Core`. `drive.click {handle:"W_OverallUILayout_C_0/W_TrackSelect_C_0/BT_ALLTracks/SCommonButton", os_input:true, instance_name:"W_OverallUILayout", wait_for:{type:"count", target:"TrackListItem2", expected_count:8, count_op:"gte"}, timeout_ms:10000}` returned `outcome:"timeout"`, `condition_met:false`, `elapsed_ms:10028`, although the click worked and the list showed four `W_TrackListItem2_C_n` rows (handles `W_OverallUILayout_C_0/W_TrackSelect_C_0/W_TrackListItem2_C_2/SCommonButton` and so on). I expected a segment or substring match; the target is a handle segment, and `ElementMatchesTarget` only does whole-string equality, so the count was 0. Two things made this slower to diagnose than it needed to be: the generated `drive.md` says a target is "matched against element handle/label/type", but type is not matched at all and matching is whole-string; and the action verb's timeout response carries no `actual`/`detail` (`count=0`, "0 element(s) match target") even though `FDriveConditionEval` computes it, so the caller cannot tell a wrong target from a slow UI. Cheap: one 10 s timeout, then `drive.observe` plus a filter script.
