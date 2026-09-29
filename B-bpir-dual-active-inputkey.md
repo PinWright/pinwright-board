@@ -5,8 +5,8 @@ status: OPEN
 severity: Medium
 category: bug
 tags: [bpir, decompiler, input-key, pressed, released, round-trip]
-encounters: 1
-lastSeen: 2026-09-03T20:21:31+03:00
+encounters: 2
+lastSeen: 2026-09-29T13:00:00Z
 ---
 
 # BPIR drops one branch from a dual-active InputKey node
@@ -51,3 +51,4 @@ decompiled BPIR manually before compiling it elsewhere.
 
 ## History
 - `#1-filed-wave-6-follow-up` `OPEN` reporter — Source-only verification confirmed one-node entry collection, Released-over-Pressed exec selection, and one emitted signature at `BpirDecompiler.cpp:847-893`, `BpirTextEmitter.cpp:1805-1824`, and `BlueprintHandlerUtils.cpp:2391-2395,2564-2569`. No live Blueprint reproduction, build, test, editor, or MCP call was run. Severity Medium because the silent round-trip omission is limited to a dual-active legacy InputKey node and separate nodes are a workaround.
+- `#2-live-repro-level-editor-lmb` `OPEN` reporter - Live evidence, UE 5.8, host `/sdb-disk/src/unreal/unreal-fpv` (Linux), plugin `8fcc0b2a`. In `/App/App/LevelBlueprints/B_LevelEditorCharacter`, the `Left Mouse Button` and `Shift Left Mouse Button` `K2Node_InputKey` nodes each wire Pressed -> Branch(IsDraggingLocalActor) -> `PlacePrePlacedActorFromClick` / `FindAndGrab`, and Released -> `Release`. The checked-in dump (`asset-dumps/App/App/LevelBlueprints/B_LevelEditorCharacter/bpir.txt`, produced by the `asset.dump` sweep) renders both nodes as `entry key_released LeftMouseButton()` containing only `call Release(...)`. The Pressed chain, including the only `FindAndGrab` call in the project, is absent, and nothing marks the omission. A dump from July (commit ad62013d7b) showed the opposite half: the Pressed body under a `key_released` label. The live `blueprint.graph.get_execution_flow {startNodeId}` showed both pins correctly. This matters in practice. A map-editor selection bug came down to `FindAndGrab` running on press, and the C++ gesture code had been written on the assumption that it ran on release. Moderate: one extra live-graph pass to settle which pin calls what.
