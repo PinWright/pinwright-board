@@ -5,7 +5,7 @@ status: OPEN
 severity: Medium
 category: bug
 tags: [editor-stability, cef, webui, pie, no-crash-artifact, needs-evidence, drive]
-encounters: 2
+encounters: 3
 lastSeen: 2026-09-16T18:05:35+04:00
 ---
 
@@ -118,3 +118,4 @@ Critical the moment a repro pins it to a drive/web verb or a minidump lands.**
   / 13:43:19 — none at either death, so the engine crash handler never ran for the
   deaths themselves. Attribution unproven; first action is a rerun with
   `-nocefaccelpaint`, then WER local dumps if it recurs.
+- `#2-deaths-match-watchdog-kills` `OPEN` reporter - Additional evidence, likely root cause, status unchanged. The user's host runs `C:\Tools\oom-watchdog.ps1` (a user tool, not PinWright), which force-kills every `UnrealEditor` / `UnrealEditor-Cmd` / `ShaderCompileWorker` / `UnrealBuildTool` / `ZenServer` process at 92% commit or under 3072 MB available, and logs local time to `C:\Tools\oom-watchdog.log`. That log has `2026-09-16T17:31:02 kill UnrealEditor pid=42100 8916MB` (+ pid=49132 10880MB) and `2026-09-16T17:39:49 kill UnrealEditor pid=42016 11778MB` (+ pid=46656 10792MB). With the host at UTC+4 that day (this ticket's own `lastSeen` offset), those are 13:31:02 and 13:39:49 UTC: 6 s and 1 s after Death 1 (13:30:56) and Death 2 (13:39:48). A force-kill leaves exactly the evidence recorded above (no Fatal, no minidump, log just stops), and a memory-starved editor stalling its log for a few seconds before the kill explains the 6 s gap. Not proven: the two backup logs have since rotated out of `Saved/Logs`, so the pids cannot be matched now; but the timing makes the CEF/PIE attribution unnecessary unless a future silent death has no watchdog kill at its timestamp. Launch-side follow-up filed as `F-memory-aware-editor-launch`.
