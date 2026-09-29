@@ -5,8 +5,8 @@ status: OPEN
 severity: Medium
 category: bug
 tags: [blueprint, blueprint-graph, create_node, variableget, variableset, target, alias, docs-mismatch]
-encounters: 2
-lastSeen: 2026-09-05T19:51:33Z
+encounters: 3
+lastSeen: 2026-09-29T14:40:00Z
 ---
 
 # `target` is documented for `VariableGet` and silently unused
@@ -67,3 +67,4 @@ implementation graphs, which is exactly where I needed it) -> Medium.
 ## History
 - `#1-filed` `OPEN` reporter — Hit on EAContentExamples58 (UE 5.8) while implementing `BPI_HUDSource` on `/Game/FPS/UI/Test/BP_HUDTestPawn`. `blueprint.compile_bpir` cannot author a Blueprint Interface implementation graph at all (`Found more than one function with the same name` when the interface graphs exist; `INTERFACE_MUTATION_FAILED` if you create the functions first — see `B-interface-function-with-outputs-unimplementable`), so `blueprint.graph.create_node` + `connect_pins` into the existing interface graph was the only route left. Five `target:"<VarName>"` calls returned `VARIABLE_NOT_FOUND: Variable ''`; the same five with `variableName:"<VarName>"` all returned node ids, and the resulting graphs compile and decompile correctly. The wiki page lists `VariableGet` under "Supported target-aware node types" with a worked `target` example, and calls `variableName` a legacy alias — the opposite of what the handler does.
 - `#2` `OPEN` reporter — Hit again on EAContentExamples58 (UE 5.8), same shape, three days later: `create_node {graphName:"StartFire", nodeType:"VariableGet", target:"bTriggerHeld", x:1760, y:216}` -> `[VARIABLE_NOT_FOUND] Variable '' not found`; the identical call with `variableName:"bTriggerHeld"` returned `{"nodeId":"7C0489D94CA2B06C0A78AD92130F2FF5"}`. **Answers the ticket's open question: `CallFunction` does NOT have the gap.** In the same session `create_node {nodeType:"CallFunction", target:"KismetMathLibrary::Subtract_IntInt"}` and `{nodeType:"CallFunction", target:"Actor::GetInstigatorController"}` both resolved and returned node ids, and `VariableSet` needed `variableName` on all four of its uses (`ShotCounter`, `PenetrationsLeft`, `CurrentShotOrigin`). So the defect is scoped to the variable node branch, not to `target` parsing in general — which makes the fix a one-branch change and the wiki page wrong only in its variable rows.
+- `#3-external-owner-qualified-target` `OPEN` reporter - Seen again, UE 5.8 Linux, host `/sdb-disk/src/unreal/unreal-fpv-wt1`, plugin `61c243f5`, on `/App/App/UI/LobbyAndMenu/Elements/W_OnlineUsersListItem` `EventGraph`. `create_node {nodeType:"VariableGet", target:"OpponentInfo::PlayerState"}` and `target:"OpponentInfo.PlayerState"` both returned `VARIABLE_NOT_FOUND: Variable '' not found` (the qualified form is the documented way to name an external owner). The legacy `{variableName:"PlayerState", memberClass:"/Script/App.OpponentInfo"}` returned `Variable 'PlayerState' not found`, so an external-class member getter cannot be created with this verb at all. Workaround: `replace_node` an existing getter on the same owner with `target:"OpponentInfo::PlayerState"` (works, but see B-replace-node-drops-external-self-wire). Cheap (three calls).
