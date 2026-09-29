@@ -5,8 +5,8 @@ status: OPEN
 severity: Medium
 category: ergonomic
 tags: [drive, drive.observe, live-root, ambiguous-live-root, instance-name, pie, game-surface]
-encounters: 3
-lastSeen: 2026-09-29T11:32:39Z
+encounters: 4
+lastSeen: 2026-09-29T13:05:00Z
 ---
 
 # A whole-surface observe should not need a root selector
@@ -41,3 +41,4 @@ of failing. Keep `instance_name` / `root_index` to narrow. Handle uniqueness alr
 - `#1-ambiguous-on-every-pie-observe` `OPEN` reporter - UE 5.8, host `/sdb-disk/src/unreal/unreal-fpv` (Linux), plugin `8fcc0b2a`, PIE in PDS map-editor mode. Every game-surface observe needed `instance_name`. Severity: Low impact (one retry, error names the parameter), bumped one level for reach since drive.observe runs in nearly every PDS PIE session. Related: `F-widget-describe-live-root-disambiguation` (added the selector this ticket wants to be optional for drive).
 - `#2-map-editor-pie-again` `OPEN` reporter - Seen again in the PDS map editor (PIE, `App.Launch mapeditor`): a bare `drive.observe {screenshot:false, interactables_only:true, max_elements:4}` returned `AMBIGUOUS_LIVE_ROOT` naming `JoinLeaveHUDNativeOverlay, W_OverallUILayout_C_0`; retry with `instance_name:"W_OverallUILayout"` worked. Only needed the geometry of one HUD button to map viewport pixels to desktop coordinates for an XTEST gizmo drag. encounters→2.
 - `#3-login-pie-again` `OPEN` reporter - Seen again, UE 5.8 Linux, host `/sdb-disk/src/unreal/unreal-fpv-wt2`, plugin clone `61c243f5`, PIE on `L_Core` at the login screen: the first `drive.observe {interactables_only:true, screenshot:false}` returned `AMBIGUOUS_LIVE_ROOT` naming `JoinLeaveHUDNativeOverlay, W_OverallUILayout_C_0`; every later observe/click in two sessions carried `instance_name:"W_OverallUILayout"`. Cheap: one retry.
+- `#4-listen-pie-race-lobby` `OPEN` reporter - Seen again, UE 5.8 Linux, host `/sdb-disk/src/unreal/unreal-fpv-wt1`, plugin `61c243f5`, listen-server PIE (host + 1 client) in a PDS race lobby: bare `drive.observe {surface:"game", interactables_only:true}` returned `AMBIGUOUS_LIVE_ROOT` naming `JoinLeaveHUDNativeOverlay, W_OverallUILayout_C_0`; retry with `instance_name` worked. Cheap (one retry). Note `root_index:0` then resolved to `VoiceHUDNativeOverlay`, a root the ambiguity error had not listed.
