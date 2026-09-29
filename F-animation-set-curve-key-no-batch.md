@@ -1,7 +1,7 @@
 ---
 id: F-animation-set-curve-key-no-batch
 title: "animation.authoring.set_curve_key is one-key-per-RPC — authoring an N-key driver curve costs N round-trips while the sibling niagara.set_curve_keys already batches"
-status: OPEN
+status: IN-REVIEW
 severity: Low
 category: feature
 tags: [no-batch-authoring, animation, curve, set_curve_key, batch, ergonomic]
@@ -73,3 +73,4 @@ float-curve authoring, not an every-session path) -> Low
 
 ## History
 - `#1-initial-audit` `OPEN` reporter — Clean-outcome process audit of an animation curve-authoring task (focus `animation.authoring.set_curve_key`). The Attempt issued 7 consecutive single-key `set_curve_key` RPCs (4 GlowIntensity + 3 GlowSpeed), all success, differing only in frame/value, to author two float driver curves on `AS_DinoDragon_Glow` — a batch form would make that 2 calls. Confirmed on the on-disk plugin source that `niagara.set_curve_keys` (batch) exists but `animation.authoring` registers only the singular `set_curve_key` (one `Controller.SetCurveKey` per call) with no plural. Pure round-trip/ergonomic gap: every call landed first-try, zero is_error, no workaround needed. Proposes `animation.authoring.set_curve_keys {assetPath, curveName, keys:[...]}` (or a `keys` array on `set_curve_key`) mirroring the niagara precedent. No prior animation curve-key batch ticket on the board (ripgrep clean for `set_curve_key`/batch under OPEN+closed); the nearest sibling `F-add-mapping-batch-keys` is a distinct method/subsystem, kept separate.
+- `#2-set-curve-keys-shipped` `IN-REVIEW` developer — Batch form added as `animation.authoring.set_curve_keys {assetPath, curveName, mode: replace|merge, keys: [{frame|time, value, interpMode, tangentMode, arriveTangent, leaveTangent}], createIfMissing, save}` in `Handlers/Animation/AnimationAuthoringHandler_Sequence.cpp`, one controller bracket per call; `set_curve_key` unchanged. Delivered with the read/remove/rename verbs under `F-animation-curve-editing-verbs`.

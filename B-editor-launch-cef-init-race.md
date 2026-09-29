@@ -4,10 +4,10 @@ title: "PinWright launches editors without serializing startup, and two editors 
 status: OPEN
 severity: High
 category: bug
-tags: [supervisor, editor_start, editor_run_tests, editor-launch, cef, webcache, startup, concurrency, check-suite-log]
-encounters: 1
+tags: [supervisor, editor_start, editor_run_tests, editor-launch, cef, webcache, startup, concurrency, check-suite-log, gap-analysis-2026-09-28]
+encounters: 2
 costly: 1
-lastSeen: 2026-09-29T00:00:00Z
+lastSeen: 2026-09-29T13:03:05Z
 ---
 
 # Concurrent editor starts race on CEF's cache dir
@@ -56,3 +56,4 @@ at this line.
 
 ## History
 - `#1-suite-died-at-cef-retry` `OPEN` reporter - PinWright suite run `pw_gapwave_full_offscreen.log` (supervisor argv, UE 5.8, `X:\src\unreal\unreal-fpv`) ended at the `Detected concurrent CEF initialization ... Retrying... (1 of 3)` line with no crash folder and no watchdog kill; three earlier logs in the same checkout show the same race recovered. Mechanism by engine source read (`WebBrowserSingleton.cpp:447-488`). severity rationale: impact=editor death at startup, a lost run (Critical class, but the crash itself is the engine's and PinWright's defect is the missing launch serialization) x reach=only when two launches coincide, bumped down one -> High. costly=1 (a full suite run lost).
+- `#2-exit-recorded-by-supervisor` `OPEN` reporter - Additional evidence for the same run, from the PinWright side (same lost run as `#1`, so `costly` unchanged). The exit IS recorded: the capped supervisor wrote `X:\src\unreal\unreal-fpv\Saved\Logs\pw_gapwave_full_offscreen.log.supervisor.log` (started pid 44060 at 13:10:16 local; `exit code 777003, wall 0.4 min, peak 2.32 GiB of 37.91 GiB cap, violation 0x00000000`; `last Test Started: None`). The editor exited with code 777003 about 20 s after launch, before any test, which resolves the "not proven" in `#1`. PinWright then reported it as a generic `PINWRIGHT_SUITE_RESULT verdict=EDITOR_EXIT_NONZERO ... exit=777003`: `Content/Python/pinwright_supervisor.py` `verdict_for` (`:637-643`) maps every non-zero code to `EDITOR_EXIT_NONZERO`, and neither `pinwright_supervisor.py` nor `mcp_proxy.py` has any CEF or 777003 handling (grep: only the `-nocefaccelpaint` comment at `mcp_proxy.py:1650`) or any launch stagger. Concrete shape for the two asks: (a) before `editor_start` / `editor_restart` / `editor_run_tests` spawn an editor, consult the `editor_list` census (`mcp_proxy.py` `_windows_editor_processes` / `_linux_editor_processes`) and wait until no editor of the same project started within the last few seconds; (b) in the supervisor, when the exit is non-zero, no test started, and the log's last `LogWebBrowser` line is `Detected concurrent CEF initialization`, emit a typed startup verdict (e.g. `EDITOR_STARTUP_CEF_RACE`) quoting that line, so `editor_test_status` tells the caller to relaunch instead of reporting a bare non-zero exit.

@@ -1,7 +1,7 @@
 ---
 id: B-bpir-timeline-multiline-example-unparseable
 title: "BPIR timeline instruction must be one line, but the documented example is multi-line"
-status: OPEN
+status: IN-REVIEW
 severity: Low
 category: bug
 tags: [bpir, timeline, docs, wiki-src, parser]
@@ -36,3 +36,4 @@ continuation before tokenizing.
 
 ## History
 - `#1-initial-repro` `OPEN` reporter — Parser is line-oriented (`BpirParser.cpp:455`,`:643`,`:2360-2378`), no paren line-continuation. The documented timeline example (`wiki-generated/bpir.examples.timeline.md:9-13`, src `docs/wiki-src/bpir.examples.timeline.md:9-13`) spans three lines. Verbatim compile via `blueprint.compile_bpir` → `Unmatched '(' in timeline 'FadeIn'`; same instruction on one line compiles. Fix the wiki-src example to a single line.
+- `#2-example-single-line` `IN-REVIEW` developer - Fixed by the timeline-tracks task of the 2026-09-28 gap-analysis wave, which rewrote `docs/wiki-src/bpir.examples.timeline.md`: the whole `%tl = timeline FadeIn(length: 2, loop: true, Alpha: float_curve(...), Offset: vector_curve(z(...)), Beep: event_curve(...)) [update -> @tick, Beep -> @beep]` instruction is now one physical line, and the page states "The `timeline` instruction must stay on one line." Verified against this ticket by reading the source page (no multi-line `timeline` left; every setting and track form it uses, `length`, `loop`, `float_curve`, `vector_curve` with `xyz` channels, `event_curve`, `cubic`, is parsed by `Compiler/BpirTimelineText.cpp`). Parser unchanged, as the ticket recommended. Not compiled through `blueprint.compile_bpir` yet (wave build pending).

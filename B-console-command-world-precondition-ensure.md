@@ -1,11 +1,11 @@
 ---
 id: B-console-command-world-precondition-ensure
 title: "`editor.console_command` during PIE trips the WorldPrecondition ensure (\"Handler-defined world 'pie:0' disagrees with resolved target\") on every success response"
-status: OPEN
+status: IN-REVIEW
 severity: Medium
 category: bug
 tags: [editor, console-command, world-precondition, ensure, pie, crash-reporter]
-encounters: 7
+encounters: 8
 lastSeen: 2026-09-29T14:40:00Z
 ---
 
@@ -42,6 +42,19 @@ is mistaken for this ensure (it was, here: the same session had a fatal crash mi
 selector or a PIE world, or have `editor.console_command` report its target under a different key
 (`targetWorld`) and leave `world` to the dispatcher.
 
+**Root cause (not PIE-specific):** `AddWorldField` (`Dispatch/WorldPrecondition.cpp`, called from
+`UPinWrightSubsystem::DecorateAutomationResponse` for every mutating response) ensured that a
+handler-set `world` equals `GetWorldIdForMethod(Method)`, the editor-world object path. Handlers
+document `world` in other vocabularies: `editor.console_command` echoes its selector (`editor`,
+`pie:0`, ...; `docs/wiki-src/editor.md` "echoes `world` and `worldPath`"), `level.add_sublevel`
+writes `World->GetName()` (short name), and the query/environment/ui handlers write a mode or short
+name. So the first mutating success per session whose handler sets `world` trips it, PIE or not
+(the default `world: "editor"` also mismatches). The invariant was never held, so the ensure is
+wrong, not the handlers; renaming the handler fields would change documented wire contracts.
+
+**Fix (implemented):** removed the comparison; a handler-set `world` still wins, unchanged on the
+wire.
+
 ## History
 - `#1-ensure-on-console-command-in-pie` `OPEN` reporter - Filed from a UMG pass on UE 5.8, host `X:\src\unreal\unreal-fpv-new`, plugin `8748c637`. Two `editor.console_command` calls during PIE (one with `world: "pie:0"`, one default) each raised the ensure above and wrote a crash report (`UECC-Windows-F5BEB123...`, `UECC-Windows-B666C3AC..._0000`).
 - `#2-worked-around-via-python` `OPEN` reporter - UE 5.8, host `X:\src\unreal\unreal-fpv-new`, plugin `8748c637`. Avoided `editor.console_command` during PIE (`App.ListTracks`, `App.ListExperiences`, `App.Launch ...`, `App.CompleteRace`) and ran them with Python `unreal.SystemLibrary.execute_console_command(<PIE world>, cmd)`; no ensure. Output then has to be read from `Saved/Logs/PDS.log`. Cheap.
@@ -50,3 +63,5 @@ selector or a PIE world, or have `editor.console_command` report its target unde
 - `#5-three-editor-starts-app-launch` `OPEN` reporter - Fifth sighting, UE 5.8, host `/sdb-disk/src/unreal/unreal-fpv` (Linux), plugin `8fcc0b2a`. `editor.console_command {command: "App.Launch mapeditor", world: "server"}` in standalone PIE on `L_Core` produced the handled ensure (`Handler-defined world 'server' disagrees with resolved target '/Game/System/FrontEnd/Maps/L_Core.L_Core'`) in each of three editor sessions (PIDs 3049871, 3147326, 3256675). Each left an `ensureinfo-PDS-pid-<pid>-*` folder under `Saved/Crashes`. The command itself worked every time. Cheap.
 - `#6-listen-pie-app-launch-wt1` `OPEN` reporter - Sixth sighting, UE 5.8, host `/sdb-disk/src/unreal/unreal-fpv-wt1` (Linux), plugin `61c243f5`, listen-server PIE with 2 instances (`editor.play {numClients:2, netMode:"listen"}`) on `L_Core`. `editor.console_command {command: "App.Launch race draft:autosave loc=DA_Stadium online=lan backend=lan servertravel room=AdminRepro", world: "server"}` returned success and raised the handled ensure (`Handler-defined world 'server' disagrees with resolved target '/Game/System/FrontEnd/Maps/L_Core.L_Core'`, `WorldPrecondition.cpp:150`, stack via `AutoHandler_322_` `EditorCommandHandler.cpp:392`). Cheap: the command itself ran; the ensure only cost a crash-report write and log noise.
 - `#7-fix-pass-repeats` `OPEN` reporter - Seventh sighting, same host/plugin: during the #744 fix verification the handled ensure fired twice in each of two editor sessions (`grep -c "disagrees with resolved target"` = 2 in `PDS-backup-2026.09.29-14.04.42.log` and in `PDS.log`), all from `editor.console_command` with `world: "server"` / `"pie:N"` during listen PIE. Cheap.
+- `#8-app-launch-pie0-crash-report` `OPEN` reporter — UE 5.8, host `X:\src\unreal\unreal-fpv`, crash report `Saved/Crashes/UECC-Windows-FB4DFF4748BFCCC95FEA65B577BB8FBC_0000` (09:20:51 UTC, ensure-only, `PDS.log` inside). Dispatched RPC: `editor.console_command` (`id=39be2d66-...`, run inline by SafePoint) with `world: "pie:0"`, line `App.Launch DA_Arena_Sumo`; ensure text "Handler-defined world 'pie:0' disagrees with resolved target '/Game/System/FrontEnd/Maps/L_Core.L_Core'"; stack `AddWorldField` WorldPrecondition.cpp:148 <- `DecorateAutomationResponse` PinWrightSubsystem.cpp:648 <- `SendAutomationResponse` :659 <- `FHandlerContext::SendSuccess` HandlerContext.cpp:440 <- `AutoHandler_328_` EditorCommandHandler.cpp:402 <- `FRpcDispatcher::ProcessRequest` <- `UPinWrightSubsystem::Tick`. Root-cause analysis added to the body: the ensure asserts an invariant several handlers' documented `world` fields contradict (also reachable via `level.add_sublevel` without PIE).
+- `#9-removed-unheld-world-ensure` `IN-REVIEW` developer — Fix committed in plugin `29e9d445` (pinwright-ue master). Changed `AddWorldField` in `Source/PinWright/Private/Dispatch/WorldPrecondition.cpp` to return early when the handler already set `world`, dropping the `ensureMsgf` comparison against `GetWorldIdForMethod`. Response bytes are unchanged (the handler value already won); only the ensure, crash-report folder and hitch go away. Verify: in PIE, `editor.console_command {command: "stat unit", world: "pie:0"}` and default-world, then `level.add_sublevel`; no `Handled ensure` in the log and no new `Saved/Crashes/UECC-*`.
