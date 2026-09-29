@@ -1,0 +1,58 @@
+---
+id: B-editor-launch-cef-init-race
+title: "PinWright launches editors without serializing startup, and two editors started within a second race on the shared CEF webcache dir; the loser can die silently at 'Detected concurrent CEF initialization'"
+status: OPEN
+severity: High
+category: bug
+tags: [supervisor, editor_start, editor_run_tests, editor-launch, cef, webcache, startup, concurrency, check-suite-log]
+encounters: 1
+costly: 1
+lastSeen: 2026-09-29T00:00:00Z
+---
+
+# Concurrent editor starts race on CEF's cache dir
+
+The race is in the engine; PinWright's part is that its launch paths start editors back to back with
+no stagger, and that a run killed by the race is not recognisable afterwards.
+
+**Engine mechanism** (`Engine/Source/Runtime/WebBrowser/Private/WebBrowserSingleton.cpp:370-488`):
+every editor picks its CEF cache dir under
+`ApplicationCacheDir()/webcache` (`C:/Users/<user>/AppData/Local/UnrealEngine/<Project>/webcache_<n>_<m>`)
+by checking a lockfile. Two instances that check before either creates the lockfile pick the same dir;
+CEF's single-instance logic then makes `CefInitialize` fail in the second one with
+`CEF_RESULT_CODE_NORMAL_EXIT_PROCESS_NOTIFIED`. On Windows the engine logs
+`Detected concurrent CEF initialization for cache dir ...! Retrying... (1 of 3)`, unloads and reloads
+the CEF DLLs, and retries with a new dir. The cache root has no command-line override, so a
+per-instance cache dir is not available to a launcher; serializing starts is.
+
+**Observed 2026-09-29** on `X:\src\unreal\unreal-fpv` (UE 5.8): the PinWright full suite run
+`Saved/Logs/pw_gapwave_full_offscreen.log` (command line is the capped supervisor's suite argv:
+`-ExecCmds="Automation RunTests PinWright,Quit" ... -RenderOffscreen -nocefaccelpaint -RunningUnattendedScript -ddc=InstalledNoZenLocalFallback`)
+ends at line 2335:
+
+```
+[2026.09.29-10.10.37:810][  0]LogWebBrowser: Warning: Detected concurrent CEF initialization for cache dir C:/Users/Alexander/AppData/Local/UnrealEngine/PDS/webcache_6613_1! Retrying... (1 of 3)
+```
+
+No further line, no `Saved/Crashes` folder for that time, and the host's OOM watchdog log
+(`C:\Tools\oom-watchdog.log`) shows no kill between 13:05 and 13:15 local, so the process most likely died inside the
+DLL reload retry (not proven: nothing records the exit). The same warning appears in three earlier logs of this checkout
+(`Automation_agentB.log:2246` 2026-09-24, `Automation_agentG_AppSumo.log:2299` 2026-09-18,
+`Automation_hostowned_possession.log:2095` 2026-09-03), all on `webcache_6613_1`; those runs survived
+the retry, so the race is recurring and the death is intermittent.
+
+**Asked for:**
+- Serialize editor startup in the launch paths (`editor_start`, `editor_restart`, `editor_run_tests`,
+  the capped supervisor): a machine-global lock held from spawn until the new editor has passed CEF
+  initialization (e.g. its log shows `LogCEFBrowser` / the webcache lockfile exists, or a fixed
+  stagger of a few seconds as the minimal version). Editors launched outside PinWright still race,
+  but PinWright's own parallel launches (multi-agent waves, suite plus interactive editor) stop
+  racing each other.
+- `check_suite_log` / `editor_test_status`: classify a log whose last line is the concurrent-CEF retry
+  warning as a startup death with that named cause, instead of a generic truncation.
+
+**Workaround:** do not start two editors within a few seconds of each other; relaunch a run that died
+at this line.
+
+## History
+- `#1-suite-died-at-cef-retry` `OPEN` reporter - PinWright suite run `pw_gapwave_full_offscreen.log` (supervisor argv, UE 5.8, `X:\src\unreal\unreal-fpv`) ended at the `Detected concurrent CEF initialization ... Retrying... (1 of 3)` line with no crash folder and no watchdog kill; three earlier logs in the same checkout show the same race recovered. Mechanism by engine source read (`WebBrowserSingleton.cpp:447-488`). severity rationale: impact=editor death at startup, a lost run (Critical class, but the crash itself is the engine's and PinWright's defect is the missing launch serialization) x reach=only when two launches coincide, bumped down one -> High. costly=1 (a full suite run lost).
