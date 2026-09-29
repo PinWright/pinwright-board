@@ -5,8 +5,8 @@ status: OPEN
 severity: Low
 category: ergonomic
 tags: [drive, observe, filter, label, discovery, response-spill]
-encounters: 1
-lastSeen: 2026-07-17T13:15:59+03:00
+encounters: 2
+lastSeen: 2026-09-29T12:23:20Z
 ---
 
 # `drive.observe` has no text/label filter — locating one control by its label forces a hand-grep of the spilled element list
@@ -85,3 +85,4 @@ to **Medium** if the ~6-call hand-grep cost recurs across sessions.
 
 ## History
 - `#1-initial-report` `OPEN` reporter — Filed from a 2026-07-17 UI-drive session (~183-element menu, Russian labels). `drive.observe` has no text/label filter: `drive.observe {filter:"СОЗДАТЬ"}` → `[UNKNOWN_PARAMS] ... [filter]` (confirmed absent — no `filter`/`label_contains`/`query`/`text_filter`/`name_filter` param across the Drive handlers). To find one labelled control the caller had to observe the whole surface, let the verbose element list spill to `Saved/PinWright/HttpResponses/...json`, and hand-grep the one-line quote-escaped JSON (~6 extra Bash calls, incl. `dd` byte-offset extraction) to recover button handles by their Russian labels. Distinct lever from `E-drive-observe-element-list-no-projection-spills` (IN-REVIEW), which added `max_bytes` — a *byte-size* cap, not a *which-elements* text filter; under that byte cap the target can even land in the dropped `omitted_count` remainder, so a label filter is still needed. Proposed: add a server-side case-insensitive substring filter (`label_contains`/`query`, `filter` alias) over `Label` (and `Handle`), applied before the screenshot marks and the count/byte caps — the drive analog of `actor.list`'s `filter`; document in `docs/wiki-src/drive.md`. Split out of `E-drive-observe-element-list-no-projection-spills #3` rather than folded into that IN-REVIEW byte-cap fix. Dedup: grep across the board found no existing drive.observe text/label-filter ticket. Seeded `encounters: 1`; `lastSeen` set.
+- `#2-track-list-hand-grep-again` `OPEN` reporter - Second encounter, UE 5.8 Linux, host `/sdb-disk/src/unreal/unreal-fpv-wt2`, plugin clone `61c243f5`, PDS PIE menus (Russian labels). To find a track row (`Desert NTCN`), the drone tile and the error dialog's OK button, about 15 `drive.observe {interactables_only:true, screenshot:false, instance_name:"W_OverallUILayout"}` calls spilled at 11-49 KB to `Saved/PinWright/HttpResponses/*.json`. I wrote a throwaway Python filter over the spilled `elements[]` (handle/label substring, visible only) and ran it after each observe. A `label_contains`/`handle_contains` filter on `drive.observe` would have replaced it. Cheap per call; about 15 extra Read/filter round trips over the session.
