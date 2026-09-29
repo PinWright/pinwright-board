@@ -5,8 +5,8 @@ status: OPEN
 severity: Low
 category: ergonomic
 tags: [editor, console-command, pie, cheat-manager, player-controller, exec]
-encounters: 1
-lastSeen: 2026-09-29T14:40:00Z
+encounters: 2
+lastSeen: 2026-09-29T16:25:00Z
 ---
 
 # Player-routed exec commands are unreachable through editor.console_command
@@ -36,3 +36,4 @@ player/cheat exec commands in the EXEC_FAILED message and on the wiki page.
 
 ## History
 - `#1-enablecheats-summon` `OPEN` reporter - Filed from the PDS QA #744 PlayerIndex repro, UE 5.8 Linux, host `/sdb-disk/src/unreal/unreal-fpv-wt1`, plugin `61c243f5`. Needed `summon` on the server world; worked around with `python.execute` in two extra calls.
+- `#2-viewmode-too` `OPEN` reporter - Second encounter, same host/plugin: `editor.console_command {command:"viewmode lit", world:"server"}` returned the same EXEC_FAILED (`viewmode` is a UGameViewportClient exec). The PIE game viewport had been switched to wireframe by a stray F1 key. Same `python.execute` + `SystemLibrary.execute_console_command(world, cmd, pc)` workaround. Cheap.
