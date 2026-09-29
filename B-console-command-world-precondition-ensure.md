@@ -5,8 +5,8 @@ status: OPEN
 severity: Medium
 category: bug
 tags: [editor, console-command, world-precondition, ensure, pie, crash-reporter]
-encounters: 6
-lastSeen: 2026-09-29T13:05:00Z
+encounters: 7
+lastSeen: 2026-09-29T14:40:00Z
 ---
 
 # A successful console command raises an engine ensure while decorating its response
@@ -49,3 +49,4 @@ selector or a PIE world, or have `editor.console_command` report its target unde
 - `#4-server-selector-wt1-listwaves` `OPEN` reporter - Fourth sighting, UE 5.8, host `/sdb-disk/src/unreal/unreal-fpv-wt1` (Linux), plugin `61c243f5`. First `editor.console_command {command: "au.Debug.ListWaves", world: "server"}` of a standalone PIE on `L_Core` raised the handled ensure (`Handler-defined world 'server' disagrees with resolved target '/Game/System/FrontEnd/Maps/L_Core.L_Core'`, stack through `AutoHandler_322_` -> `SendSuccess` -> `DecorateAutomationResponse` -> `AddWorldField`). Response itself was correct. Cheap: ~30 ms, fires once per session.
 - `#5-three-editor-starts-app-launch` `OPEN` reporter - Fifth sighting, UE 5.8, host `/sdb-disk/src/unreal/unreal-fpv` (Linux), plugin `8fcc0b2a`. `editor.console_command {command: "App.Launch mapeditor", world: "server"}` in standalone PIE on `L_Core` produced the handled ensure (`Handler-defined world 'server' disagrees with resolved target '/Game/System/FrontEnd/Maps/L_Core.L_Core'`) in each of three editor sessions (PIDs 3049871, 3147326, 3256675). Each left an `ensureinfo-PDS-pid-<pid>-*` folder under `Saved/Crashes`. The command itself worked every time. Cheap.
 - `#6-listen-pie-app-launch-wt1` `OPEN` reporter - Sixth sighting, UE 5.8, host `/sdb-disk/src/unreal/unreal-fpv-wt1` (Linux), plugin `61c243f5`, listen-server PIE with 2 instances (`editor.play {numClients:2, netMode:"listen"}`) on `L_Core`. `editor.console_command {command: "App.Launch race draft:autosave loc=DA_Stadium online=lan backend=lan servertravel room=AdminRepro", world: "server"}` returned success and raised the handled ensure (`Handler-defined world 'server' disagrees with resolved target '/Game/System/FrontEnd/Maps/L_Core.L_Core'`, `WorldPrecondition.cpp:150`, stack via `AutoHandler_322_` `EditorCommandHandler.cpp:392`). Cheap: the command itself ran; the ensure only cost a crash-report write and log noise.
+- `#7-fix-pass-repeats` `OPEN` reporter - Seventh sighting, same host/plugin: during the #744 fix verification the handled ensure fired twice in each of two editor sessions (`grep -c "disagrees with resolved target"` = 2 in `PDS-backup-2026.09.29-14.04.42.log` and in `PDS.log`), all from `editor.console_command` with `world: "server"` / `"pie:N"` during listen PIE. Cheap.
