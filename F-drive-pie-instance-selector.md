@@ -5,9 +5,9 @@ status: OPEN
 severity: Medium
 category: feature
 tags: [drive, drive.observe, drive.click, pie, multi-pie, listen-server, game-surface, live-root, world-selector]
-encounters: 1
-costly: 1
-lastSeen: 2026-09-29T13:05:00Z
+encounters: 2
+costly: 2
+lastSeen: 2026-09-29T14:40:00Z
 ---
 
 # drive.* has no PIE-instance selector
@@ -38,3 +38,4 @@ List the instance next to each candidate in `AMBIGUOUS_LIVE_ROOT`.
 
 ## History
 - `#1-host-room-panel-unreachable` `OPEN` reporter - Filed from a PDS multiplayer repro (room-admin panel on the host) on UE 5.8 Linux, host `/sdb-disk/src/unreal/unreal-fpv-wt1`, plugin `61c243f5`, listen-server PIE with 1 client in a race lobby on `L_PDS_Stadium`. The host panel `W_MultiplayerUsersFrame` was unreachable through `drive.*`; every host click had to be done with raw xdotool from display screenshots. Costly: about 20 extra calls, and it pushed a shared-display click risk onto the operator.
+- `#2-capture-steals-host-clicks` `OPEN` reporter - Second encounter, same host and plugin, fix-verification pass (listen PIE, host + 1-3 clients). `drive.*` again could not reach the host's room panel. On top of that, real host clicks were silently swallowed while another PIE instance's viewport or the host's own game viewport held Slate mouse capture (`drive.input_state`: `cursor_captor SPIEViewport` / `SViewport`, `CapturePermanently`, `os_cursor` frozen at the last click point). They only landed after Shift+F1, or after the ESC menu opened and was dismissed. `drive.input_state` reports one global captor with no PIE-instance attribution, so it could not tell which instance held the capture. Costly: about 15 extra calls and several retries per session.
