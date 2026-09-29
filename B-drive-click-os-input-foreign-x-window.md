@@ -5,8 +5,9 @@ status: OPEN
 severity: High
 category: bug
 tags: [drive, drive.click, os-input, xtest, x11, linux, target-occluded, shared-display, foreign-window, window-stacking, silent-misdelivery]
-encounters: 1
-lastSeen: 2026-09-25T16:47:00Z
+encounters: 3
+costly: 1
+lastSeen: 2026-09-29T13:00:00Z
 ---
 
 # os_input clicks land in a foreign window on a shared X display
@@ -44,3 +45,5 @@ safety problem for the other session.
 
 ## History
 - `#1-filed-shared-display` `OPEN` reporter - "Filed from the QA #949 analyzer timeline PIE verification in wt1. Seen once: an os_input StartButton click went to another checkout's editor window (PID 194477) stacked above the target editor. Workaround: raise your own editor window with `xdotool windowactivate --sync <wid>` before each os_input call, then check `xdotool getmouselocation` names a window of your own PID."
+- `#2-second-hit-peer-splash-and-main` `OPEN` reporter - Second encounter, UE 5.8 Linux, host `/sdb-disk/src/unreal/unreal-fpv-wt2`, plugin clone `61c243f5`, my editor PID 3228606 (`editor_start visible:true` on `:0`, maximized at 70,27 2490x1413). Mid-verification, another session started a wt1 editor (PID 3241515). First its 1200x600 startup splash (`Unreal Editor`, X window 71303220, at 715,433) and then its maximized main window, at the same rect as mine, went above my editor. `drive.click {os_input:true, wait_for:{widget_absent...}}` on a PIE location tile at (1652,697) returned `outcome:"timeout"`, `input_path:"os_x11"`, with no screen change. `xdotool getmouselocation` then named window 71303220, owned by the peer's PID 3241515. So a real click went into another session's editor again, and nothing in the response says so. I did not use the #1 raise-own-window workaround, because while my window is raised the peer's own os_input clicks would land in my editor. I finished the flow on the Slate path instead. Cheap (a few calls), but it is a cross-session safety problem.
+- `#3-raw-xtest-into-peer-fullscreen-game` `OPEN` reporter - Third encounter, UE 5.8, host `/sdb-disk/src/unreal/unreal-fpv` (Linux), plugin `8fcc0b2a`, my editor PID 3049871 on `:0`. I ran a batch of real-mouse clicks in PIE with raw `xdotool`, because `drive.click os_input` cannot target a 3D actor in the game viewport (see `F-drive-os-input-point-gestures`), so it would not have helped here. Partway through the batch, a peer session's packaged game (`PDSGame`, PID 3043884, wt1 scratch user dir) held a fullscreen 2560x1440 window above my editor. `xdotool getmouselocation` named window 54526052, owned by that PID. About 50 real presses and drags, a few of them right-button, went into the peer's game before I noticed, because my selection readback kept returning the unchanged state. Later the same day a wt1 editor (PID 3241515, maximized at the same 70,27 2490x1413 rect) sat above my re-run editor for tens of minutes, and I had to wait instead of clicking. I added my own guard (abort unless `getmouselocation` names my main window). A built-in os_input guard of the kind this ticket asks for would have refused the first click. Costly: one 9-trial batch lost and re-run, plus misdelivered input to another session.
