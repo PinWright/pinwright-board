@@ -4,7 +4,8 @@ title: "niagara.set_module_input: HLSL-expression value mode"
 status: OPEN
 severity: Low
 category: feature
-tags: [niagara, authoring, hlsl, parity-ue58]
+tags: [niagara, authoring, hlsl, parity-ue58, gap-analysis-2026-09-30]
+blockedBy: [F-niagara-create-module-script]
 ---
 
 # niagara.set_module_input: HLSL-expression value mode
@@ -20,3 +21,4 @@ Acceptance: set an HLSL-expression input on a scalar module input; the override 
 
 ## History
 - `#1-split-from-dynamic-input` `OPEN` reporter — Split from F-niagara-dynamic-input-authoring so the load-bearing dynamic-input value mode ships independently. The HLSL `{expression}` mode is a rarer power-user path whose engine setter (`SetCustomExpressionForFunctionInput`) is non-exported (reflection needed), so it is tracked separately at lower priority.
+- `#2-deferred-until-create-module-script` `OPEN` reporter — Deferred until F-niagara-create-module-script lands (blockedBy set). Both need the same CustomHlsl machinery: a typed `Signature` filled before `Finalize` (pins come from `Signature`, `NiagaraNodeFunctionCall.cpp:465`, not from the HLSL text) plus the reflected `CustomHlsl` write, because `SetCustomHlsl` is still not exported on 5.8 (`NiagaraNodeCustomHlsl.h:13` MinimalAPI, :19-20). `FNiagaraStackGraphUtilities::SetCustomExpressionForFunctionInput` is also still unexported on 5.8 (`NiagaraStackGraphUtilities.h:237`, while `SetDynamicInputForFunctionInput` at :235 is exported). Parity context from the 2026-09-30 gap analysis: Epic is the only competitor with this feature, as a single-rvalue inline expression on a stack input (`FNiagaraExt_StackInputData_HlslExpression`, `NiagaraExternalSystemEditorUtilities.h:583`, applied at `.cpp:2999`; 5.8-only toolset). Severity stays Low.
