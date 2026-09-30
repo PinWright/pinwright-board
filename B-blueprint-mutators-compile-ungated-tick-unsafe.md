@@ -5,8 +5,8 @@ status: IN-REVIEW
 severity: Critical
 category: bug
 tags: [blueprint, safepoint, tick-gate, reinstance, editor-crash, dispatch, shared-editor, multi-agent, coverage-gap, scs, networking, game-framework]
-encounters: 1
-lastSeen: 2026-09-03T00:00:00Z
+encounters: 2
+lastSeen: 2026-09-30T09:21:00Z
 ---
 
 # Family K gates the two verbs the kills came through, not the mechanism
@@ -241,3 +241,4 @@ to be retained.
 - `#2-gated-all-blueprint-compile-mutators` `IN-REVIEW` developer — Added all 59 verified verbs to the dispatcher tick-unsafe family, routed every handler full compile through `CompileBlueprintWithDiagnostics`, adopted the existing live-instance guard on the ticket's eleven structural mutators, and added the shared `PinWright.infra.tick_safety.HandlerHazardsStayGated` source ratchet. Kept registration-time declarations and the other 48 verbs' consent/response migrations outside this fix. Static source and diff checks only; no Unreal process, build, MCP call, or automation run.
 - `#3-completed-compile-response-migration` `IN-REVIEW` developer — Completed the ticket's reporting half for all 59 routes: every actual full compile now emits `AddCompileDiagnosticsToJson` directly or through an explicitly checked shared reporter, while conditional no-compile paths remain unchanged. Extended the ratchet to bind every registered route to that reporting contract and kept `allowReinstancing` refusal at the requested eleven structural mutators. Static source and diff checks only; no Unreal process, build, MCP call, or automation run.
 - `#4-preserved-all-failure-diagnostics` `IN-REVIEW` developer — Retained the populated diagnostics payload on all three BPIR Blueprint-compile failures and changed `vehicle.set_suspension` to return per-asset plus aggregate diagnostics and fail when any touched wheel Blueprint fails compilation. Extended the existing BPIR behavior coverage and shared structural ratchet. Static checks only; no Unreal process, build, MCP call, or automation run.
+- `#5-remove-variable-ungated-live-sighting` `IN-REVIEW` reporter - Live evidence for the part #2 left out (the other 48 verbs). UE 5.8, host `/sdb-disk/src/unreal/unreal-fpv-wt1` (Linux), plugin source `2580e7f4`, right after `editor.stop` of a 3-instance listen PIE. `blueprint.remove_variable {path: "/App/App/UI/LobbyAndMenu/TrackEnd/W_RaceOnlineResultsFrame", variableName: "MyTime"}` compiled and saved the Widget Blueprint (`compiled: true`, `status: UpToDateWithWarnings`, `saved: true`). It did not refuse, and its response had no `reinstanced` block. The very next `blueprint.compile` on the same asset was refused with `LIVE_INSTANCES_WOULD_BE_REINSTANCED` (1 live instance in `/Game/System/FrontEnd/Maps/L_Core` (Editor)). So one live instance was guarded by `blueprint.compile` and silently reinstanced by `remove_variable` (`BlueprintPropertyHandler.cpp:325` `CompileBlueprintWithDiagnostics`). No crash and no lost work here; it was my own editor. Cheap.
