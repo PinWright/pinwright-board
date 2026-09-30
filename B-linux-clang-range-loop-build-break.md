@@ -1,7 +1,7 @@
 ---
 id: B-linux-clang-range-loop-build-break
 title: "PinWright does not compile on the UE 5.8 Linux clang toolchain: DataTableAuthoringHandler.cpp:496 iterates FJsonObject::Values as TPair<FString, ...>, which is -Werror,-Wrange-loop-construct now that JSON object keys are UE::TSharedString"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: bug
 tags: [build, linux, clang, werror, range-loop-construct, json, data-table, ue-5.8]
@@ -44,3 +44,4 @@ only `TPair<FString, TSharedPtr<FJsonValue>>&` loop left in `Source/`.
 ## History
 - `#1-linux-build-breaks` `OPEN` reporter - Hit while building PDS on UE 5.8 Linux with plugin `2580e7f4` (the project's PinWright submodule bump). The first build (about 31 minutes) failed on this one error; a second build with `-Wno-error=range-loop-construct` succeeded. Rated High: every Linux clang build of the plugin fails until someone finds the flag, and there is no in-plugin workaround. Costly: one full editor build round lost.
 - `#2-still-breaks-at-master-head` `OPEN` reporter - Still breaks at plugin HEAD `27b2d04d` (origin/master, the only remote branch; `DataTableAuthoringHandler.cpp` unchanged since `29e9d445`). Full `PDSEditor Linux Development` build of `/sdb-disk/src/unreal/unreal-fpv-wt1` failed on the same `:496:64` `-Werror,-Wrange-loop-construct` error (`Result: Failed (OtherCompilationError)`, 103 s); it is the only `TPair<FString, ...>` loop over `AsObject()->Values` in `Source/`. Earlier the same day, the QA #830 fix work had to build only the touched modules (`-Module=GameSettings+PDSGame+App`) to get around it. Fix: iterate with `const auto& Entry`.
+- `#3-fixed-b0ccf59d` `IN-REVIEW` developer - Fixed in plugin `b0ccf59d`: the loop in `DataTableAuthoringHandler.cpp` iterates `const auto& Entry`, and the key passed to `DescribeEnumLiteral` is converted with `FString(*Entry.Key)` (the `Printf` already used `*Entry.Key`). A full `PDSEditor Linux Development` build of `/sdb-disk/src/unreal/unreal-fpv-wt1` then succeeded (`Result: Succeeded`, 83 s). PDS pins it in `b4bd23f16f`. Not verified: a Windows/MSVC build, and a live `datatable` authoring call with an enum-keyed map.
