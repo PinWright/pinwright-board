@@ -2,7 +2,7 @@
 id: E-set-image-brush-rejects-material
 title: "widget.set_image_brush requires a UTexture2D and rejects a UMaterial, though FSlateBrush.ResourceObject accepts one — every material-backed UMG brush has to be hand-written as ExportText"
 status: OPEN
-severity: Low
+severity: Medium
 category: enhancement
 tags: [widget, set_image_brush, umg, material, slate-brush, ui-material]
 encounters: 1
@@ -60,3 +60,6 @@ A HUD built from materials instead of textures is resolution-independent and car
 texture memory; on this project it is what let a crosshair, compass tape, radar and
 weapon silhouette stay crisp from 1080p to 4K. That technique is general, and this verb
 is the first thing an author reaches for while using it.
+
+## History
+- `#1-re-rated` `OPEN` triage — Severity Low -> Medium. The verb rejects valid input (a `UMaterialInterface` brush resource) and the only route is hand-authoring the whole `FSlateBrush` ExportText through `widget.set`: Medium soft blocker via workaround, on a common UMG HUD authoring path (no reach modifier).

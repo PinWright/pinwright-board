@@ -2,7 +2,7 @@
 id: F-controlrig-auto-layout-rpc
 title: "Standalone controlrig.graph.auto_layout RPC (no compile round-trip)"
 status: OPEN
-severity: Medium
+severity: Low
 category: feature
 tags: [layout, controlrig, crir, rpc, authoring]
 blockedBy: [F-graph-layout-metrics-core]
@@ -56,3 +56,4 @@ report RPC.
 
 ## History
 - `#1-initial-spec` `OPEN` reporter — ControlRig auto-layout is only a CRIR-compile side effect; add a standalone controlrig.graph.auto_layout RPC that re-flows via FCRIRLayoutEngine (keeping pre-positioned-obstacle awareness) without a compile round-trip, mirroring the shipped material.authoring.auto_layout (MaterialAuthoringHandler.cpp:3360); material already has its own, so none is filed for material.
+- `#2-re-rated` `OPEN` triage — Severity Medium -> Low. Graph layout is cosmetic (Low impact class) and re-flow is reachable through a CRIR compile; ControlRig graph re-layout is a rare path, so nothing lifts it above Low.

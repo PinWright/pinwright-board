@@ -2,7 +2,7 @@
 id: E-static-mesh-describe-doc-promises-nanite
 title: "static_mesh.describe doc advertises 'Nanite state' it never returns — agents read the doc for NaniteEnabled, find no field, and detour to asset.dump's generic properties.json"
 status: OPEN
-severity: Low
+severity: Medium
 category: ergonomic
 tags: [static-mesh, static-mesh-describe, nanite, asset-dump, dump-parity, registry-tags, docs, misleading-doc]
 encounters: 4
@@ -178,3 +178,4 @@ Not a dup of:
   adds no new mechanism, only reach — the field is now recorded as missing across a Game weapons
   mesh, a Game env mesh, a Game DemoRoom asset and `/Engine/BasicShapes/Cube`, i.e. every asset
   class anyone has pointed the verb at.
+- `#5-re-rated` `OPEN` triager — Severity Low -> Medium. The advertised Nanite state is a readback field that neither `static_mesh.describe` nor the `static_mesh.json` sidecar carries, forcing a fallback to `asset.dump` `properties.json` per asset (and no route at all for level-scope coverage, `#3`) — the rubric's Medium "a readback omits a field and forces a fallback", not docs-only friction; four encounters across four tasks, so no rare-path bump down.

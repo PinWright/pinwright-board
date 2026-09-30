@@ -2,7 +2,7 @@
 id: F-smooth-skin-bone-exclusion
 title: "Allow bones to be excluded from smooth skin solves"
 status: OPEN
-severity: Medium
+severity: Low
 category: feature
 tags: [skinning, geometry, model]
 encounters: 1
@@ -22,3 +22,4 @@ until those semantics and at least one real use case are agreed.
 
 ## History
 - `#1-exclusion-gap-confirmed` `OPEN` reporter — Source, parameter tables, docs, and the engine solve options expose no bone exclusion; filed for product-shape review rather than adding a speculative API.
+- `#2-re-rated` `OPEN` triager — Severity Medium -> Low. With a post-solve route available (`skeleton.set_vertex_weights`, or rigid part binding for selected vertices) the impact is at most Medium's many-extra-calls band, and the ticket records no encounter or real use case yet (it asks for product-shape review first), which is a rare edge path — bump down one to Low.

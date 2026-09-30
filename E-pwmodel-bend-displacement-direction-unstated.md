@@ -2,7 +2,7 @@
 id: E-pwmodel-bend-displacement-direction-unstated
 title: "bend / twist / taper publish axis= for the axis the extent SPANS, but nothing says which direction the deformer PUSHES — it falls out of the cyclic basis (axis=z displaces along +Y) and there is no parameter to choose it, so bending a vertical form fore-and-aft needs an author-side authoring-axis swap plus a transform"
 status: OPEN
-severity: Medium
+severity: Low
 category: enhancement
 tags: [pwmodel, geometry, bend, twist, taper, warp-deformer, axis, displacement-direction, docs, parameter-gap]
 encounters: 1
@@ -105,3 +105,4 @@ A regression test named for the uncovered half — `...WarpFrame.AxisChoosesWhic
   one because that ticket's ask — publish `axis=` and `center=` — is implemented and verified;
   this is a distinct parameter gap sitting on top of it, and reopening a landed ticket would
   misreport the state of the work that shipped.
+- `#2-re-rated` `OPEN` triage — Severity Medium -> Low. Impact is a soft blocker (Medium: two probes plus a ticket read, with a documented axis-swap + transform workaround), and `.pwmodel` `bend` with a required push direction is a rare edge path, so the README reach rule bumps it down one level. The deformer output is deterministic and reported honestly; the gap is an undocumented direction and a missing parameter.

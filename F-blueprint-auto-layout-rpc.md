@@ -2,7 +2,7 @@
 id: F-blueprint-auto-layout-rpc
 title: "Standalone blueprint.graph.auto_layout RPC (no compile round-trip)"
 status: OPEN
-severity: Medium
+severity: Low
 category: feature
 tags: [layout, blueprint, bpir, rpc, authoring, gap-analysis-2026-09-30]
 blockedBy: [F-graph-layout-metrics-core, F-graph-layout-core]
@@ -104,3 +104,4 @@ report RPC.
 - `#1-initial-spec` `OPEN` reporter — Blueprint auto-layout is only a BPIR-compile side effect; add a standalone blueprint.graph.auto_layout RPC that re-flows via FNodeLayoutEngine without a compile round-trip, mirroring the shipped material.authoring.auto_layout (MaterialAuthoringHandler.cpp:3360), so agents can re-flow + re-measure after imperative node creation.
 - `#2-crossing-wire-repro` `OPEN` reporter — additional-evidence: rebuilt BP_ScoreBus AddPoints via blueprint.compile_bpir (5 nodes: AddPoints → Add_IntInt → Set Score → CallOnScoreChanged + Get Score); the Get-Score node's data wires came out crossing under other nodes and there was no way to re-flow the compiled graph, confirming this gap on a real screenshot/docs use-case. Grep of REGISTER_RPC_HANDLER across ...\Handlers\ found no blueprint.* auto-layout/arrange RPC (material.authoring.auto_layout at MaterialAuthoringHandler.cpp:3379 remains the only graph auto-layout verb). Correction to the incoming report's second half: a per-node reposition RPC ALREADY exists — blueprint.graph.set_node_property with propertyName "X"/"Y" writes NodePosX/NodePosY (BlueprintGraphCrudHandler.cpp:2006-2019) — so an agent CAN hand-tidy node-by-node today; the genuine remaining gap is this ticket's bulk standalone re-flow, not a node-move verb. Note: re-flow via the same FNodeLayoutEngine won't by itself remove crossings — edge-crossing reduction / layout quality is tracked separately by the F-graph-layout-metrics-core cluster (edge-crossings metric + downstream edge-crossing follow-up), not here. Severity unchanged (Medium): soft blocker, workaround exists.
 - `#3-api-contract-and-core-dependency` `OPEN` reporter — Gap analysis 2026-09-30: added the shared auto-layout API contract (required `scope` all|nodes|selection|unpositioned, `moved[]` from read-back positions, `sizeSource {measured, estimated}`, `metrics {before, after}` incl. backwardEdges, single cancellable transaction, determinism + undo acceptance). Now blocked on F-graph-layout-core: the verb must run the new layout core, not the FNodeLayoutEngine being replaced under B-layout-engine-ba-derived.
+- `#4-re-rated` `OPEN` triage — Severity Medium -> Low. Graph layout is cosmetic (Low impact class); re-flow is reachable via a BPIR compile and per-node `blueprint.graph.set_node_property X/Y` exists (`#2`), and a standalone re-flow is not an every-session need, so no reach bump.

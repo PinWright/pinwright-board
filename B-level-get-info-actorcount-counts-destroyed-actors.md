@@ -1,8 +1,8 @@
 ---
 id: B-level-get-info-actorcount-counts-destroyed-actors
 title: "level.get_info actorCount keeps counting actors that actor.delete has already destroyed, so it cannot be used to verify cleanup"
-status: OPEN
-severity: Medium
+status: IN-REVIEW
+severity: High
 category: bug
 tags: [level, get_info, actor, delete, actorCount, stale-data, cleanup-verification, world-lock, vfx]
 encounters: 1
@@ -83,3 +83,5 @@ unfiltered actor enumeration behind `get_info`, where `actor.list` applies `IsVa
 
 ## History
 - `#1-filed` `OPEN` reporter — `level.get_info` returned `actorCount: 47` for `/Game/FPS/Test/T_VFX` immediately after a sequence of eight `effect.spawn_niagara` + `actor.delete` pairs whose net actor change is zero; the level had read `actorCount: 39` after `level.load` and before any spawn, so the count was high by exactly the eight actors that had just been deleted. Each `actor.delete` reported `deletedCount: 1`, `existsAfter: false`; `actor.list {filter:"VC_", matchMode:"contains"}` returned `count: 0` and `effect.cleanup {filter:"VC_"}` returned `removed: 0`, both called seconds later, so the actors were genuinely destroyed and only `actorCount` still counted them. No PIE, no GC forced between the deletes and the read. Filed by the VFX critic while verifying it had handed the shared test map back clean under PLAN rule 3; the practical cost is that the obvious cleanup check reports dirty on a clean map. Workaround in use: verify with `actor.list` on the label prefix and require `count: 0`.
+- `#2-re-rated` `OPEN` triage — Severity Medium -> High. Silent stale data on a normal path: `level.get_info` publishes `TargetLevel->Actors.Num()` (`LevelHandler.cpp:1397`), the raw array including destroyed-but-uncollected actors, and callers use it as the cleanup check; `level.get_info` is a common verb, so no reach modifier.
+- `#3-count-live-actors` `IN-REVIEW` developer — Root cause confirmed: `UWorld::RemoveActor` (engine `World.cpp:2892`) nulls the actor's slot in `ULevel::Actors` instead of removing it, so `TargetLevel->Actors.Num()` never dropped on delete. Fix: `level.get_info` now publishes `Algo::CountIf(TargetLevel->Actors, IsValid)` (`Handlers/Level/LevelHandler.cpp`), excluding null slots and garbage actors. Test: `PinWright.level.get_info.ActorCountDropsOnDestroy` (`Tests/World/TestLevelHandlers.cpp`) spawns a cube, reads `actorCount`, `EditorDestroyActor`s it and asserts the count drops by one. Wiki: `docs/wiki-src/level.md`.

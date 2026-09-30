@@ -2,7 +2,7 @@
 id: E-set-time-of-day-no-suntime-readback
 title: "environment.build.set_time_of_day neither echoes the resulting value nor documents that the modern sky sphere stores time-of-day as the 'Sun height' double — verifying the TOD costs two PROPERTY_NOT_FOUND guesses"
 status: OPEN
-severity: Low
+severity: Medium
 category: ergonomic
 tags: [environment, set-time-of-day, sun-height, readback, property-get, time-of-day, sky-sphere, discoverability, docs]
 encounters: 3
@@ -131,3 +131,4 @@ the friction):
   returns a clean, correct, guidance-bearing `[CLASS_NOT_FOUND]` — expected behavior
   for a short name that is an asset BP, not a `/Script` class.)
 - `#3-liveness` `OPEN` reporter — still reproduces at HEAD (dusk-landscape blockout, `time=18.5`, same shape as `#1`): `set_time_of_day {time:18.5}` → `{"success":true,"action":"set_time_of_day"}` (no value echoed); `property.get {propertyName:"Sun height"}` → `-0.13052632584380217 = -cos((18.5/24)*2pi)`; `property.list {nameMatch:"time"}` returns only `CustomTimeDilation` + `RuntimeGrid` — confirming no 0..24 time-of-day UPROPERTY exists on `BP_Sky_Sphere_C`.
+- `#4-re-rated` `OPEN` triage — Severity Low -> Medium. The response omits the value it applied and the only readback slot (`Sun height`) is discoverable solely from handler source: 'a readback omits a field and forces a fallback' plus a source dive is the Medium band, on a normal environment-setup path hit in three independent tasks (no reach modifier).

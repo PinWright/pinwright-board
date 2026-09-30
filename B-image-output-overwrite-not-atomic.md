@@ -2,7 +2,7 @@
 id: B-image-output-overwrite-not-atomic
 title: "Image and thumbnail writers replace final paths directly; multi-file failures leave mixed old/new output sets"
 status: OPEN
-severity: Medium
+severity: Low
 category: bug
 tags: [image, thumbnail, overwrite, atomicity, partial-output, filesystem]
 ---
@@ -42,3 +42,4 @@ into place outside PinWright.
 
 ## History
 - `#1-pattern-scan` `OPEN` reporter — Grouped because all four routes share direct-final filesystem replacement. Source only; no editor, build, test, or RPC run.
+- `#2-re-rated` `OPEN` triage — Severity Medium -> Low. The damage occurs only when a multi-file write fails mid-set (a rare edge path), the outputs are regenerable images rather than asset data, and `image.compare` already reports `partialOutputs`; Medium impact bumped down one for reach.

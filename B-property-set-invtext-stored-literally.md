@@ -1,7 +1,7 @@
 ---
 id: B-property-set-invtext-stored-literally
 title: "`property.set` stores `INVTEXT(\"...\")` literally (macro text becomes the value) when the target FText already has a localization identity"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: bug
 tags: [property, property-set, ftext, invtext, text-macro, silent-wrong-data]
@@ -43,3 +43,4 @@ a test: an FText with an existing key, set to `INVTEXT("x")`, reads back as `x` 
 
 ## History
 - `#1-invtext-literal-on-keyed-ftext` `OPEN` reporter - Filed from a PDS race-results repro, UE 5.8, host `/sdb-disk/src/unreal/unreal-fpv-wt1` (Linux), plugin source `2580e7f4` (loaded binary built 2026-09-29 18:30Z). `property.set` of `AnonimousName` on a live `W_LoginUtils` instance inside a 2-instance listen PIE, with `INVTEXT("Fierce Mole")`, returned `applied: true` and the value `NSLOCTEXT("[9D4D2ABF...]", "81C8524C...", "INVTEXT(\"Fierce Mole\")")`. A retry with the plain string worked. Cheap: one extra call, but only because the echoed value was read.
+- `#2-keyed-branch-uses-parsed-source` `IN-REVIEW` developer - Changed `CoerceStringToPersistedFText` (`Source/PinWright/Private/Utils/PropertyImport.cpp`, existing-identity branch) to rebuild the keyed text from `ParsedText.ToString()` instead of the raw input. `FTextStringHelper::CreateFromBuffer` returns `FText::FromString(input)` for a plain string, so plain strings are unchanged; identity-less macros (`INVTEXT`, namespace-less `LOCTEXT`) now store their payload under the existing namespace/key. Keyed macros (`NSLOCTEXT`, `LOCTABLE`) were already handled by the earlier branches. The function is the single FText import point for `property.set`, `widget.set`, container elements, BP pin text defaults and widget-animation text, so all of them get the fix. Regression test `PinWright.utils.property_import.TextMacrosOnKeyedText` (`Tests/Utility/TestPropertyImportTextMacros.cpp`) drives `ApplyJsonValueToProperty` on a `UTextBlock::Text` that already has a namespace/key: `INVTEXT` and `LOCTEXT` must store `Fierce Mole` / `Loc Source` with the key kept (both fail on the old code, which stored the macro text); it also covers plain string, `NSLOCTEXT` (takes the new identity) and export-then-reimport readback equality. `docs/wiki-src/property.md` now describes the keyed-text behavior.

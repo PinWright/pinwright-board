@@ -1,8 +1,8 @@
 ---
 id: B-sequencer-empty-trackname-matches-first
 title: "An omitted trackName silently targets the first track in five sequencer verbs"
-status: OPEN
-severity: Medium
+status: IN-REVIEW
+severity: High
 category: bug
 tags: [sequencer, footgun, silent-wrong-target]
 encounters: 1
@@ -39,3 +39,20 @@ pass.
   identifier work stayed behaviour-preserving on the lookup side. Repro: call
   `sequencer.set_track_muted {path:"<seq with two or more tracks>", muted:true}` with no
   `trackName` — the first track is muted and its name is reported back.
+- `#2-re-rated` `OPEN` triage — Severity Medium -> High. Impact class is Critical for `remove_track`: omitting the optional `trackName` deletes whichever track is walked first, and the handler (`SequenceHandler.cpp` `sequencer.remove_track`) opens no `FScopedTransaction`, so the lost track cannot be undone; reach bumps it down one because calling a mutating verb without `trackName` is an edge path, and the response does name the track it removed.
+- `#3-empty-name-matches-nothing` `IN-REVIEW` developer — Changed
+  `SequenceHelpers::TrackMatchesIdentifier` in
+  `Source/PinWright/Private/Handlers/Sequencer/SequenceHandler.cpp` to return false for an empty
+  query, so every caller (`add_section`, `set_track_muted`, `set_track_solo`, `set_track_locked`,
+  `remove_track`; `list_sections` already skipped an empty filter) answers `TRACK_NOT_FOUND` and
+  touches nothing. `trackName` on those five verbs is now `RPC_PARAM_REQ`, so an absent name is
+  rejected by the dispatcher with `MISSING_REQUIRED_PARAM` before the handler runs. `add_section`'s
+  no-name convenience was dropped too: it picked an arbitrary track the same way. `remove_track` now
+  resolves the track first and removes it inside one `FScopedTransaction` ("Remove Sequencer
+  Track"); `UMovieScene::RemoveTrack` / `RemoveCameraCutTrack` call `Modify()` themselves. Documented
+  under `### sequencer.add_track` in `docs/wiki-src/sequencer.md`. Tests
+  (`Tests/Sequencer/TestTrackLookupEmptyName.cpp`):
+  `PinWright.Sequencer.TrackLookup.EmptyNameMatchesNoTrack` (omitted and empty name on all five
+  verbs -> `TRACK_NOT_FOUND`, both tracks survive unmuted with no sections) and
+  `PinWright.Sequencer.RemoveTrack.NamedRemovalIsUndoable` (named removal removes only that track,
+  the removal is the top undo transaction, and `GEditor->UndoTransaction` restores it).

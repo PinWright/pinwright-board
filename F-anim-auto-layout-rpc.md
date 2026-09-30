@@ -2,7 +2,7 @@
 id: F-anim-auto-layout-rpc
 title: "Standalone anim.graph.auto_layout RPC (no compile round-trip)"
 status: OPEN
-severity: Medium
+severity: Low
 category: feature
 tags: [layout, anim, agir, rpc, authoring]
 blockedBy: [F-graph-layout-metrics-core]
@@ -54,3 +54,4 @@ report RPC.
 
 ## History
 - `#1-initial-spec` `OPEN` reporter — Anim auto-layout is only an AGIR-compile side effect; add a standalone anim.graph.auto_layout RPC that re-flows via FAGIRLayoutEngine (including state-machine inner graphs) without a compile round-trip, mirroring the shipped material.authoring.auto_layout (MaterialAuthoringHandler.cpp:3360), so agents can re-flow + re-measure after imperative node creation.
+- `#2-re-rated` `OPEN` triage — Severity Medium -> Low. Graph layout is cosmetic (Low impact class) and a re-flow is already reachable through an AGIR compile; anim-graph re-layout is also a rare path, so nothing lifts it above Low.

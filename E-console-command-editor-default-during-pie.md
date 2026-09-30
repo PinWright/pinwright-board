@@ -2,11 +2,11 @@
 id: E-console-command-editor-default-during-pie
 title: "editor.console_command defaults to the editor world while a standalone PIE session runs, so a game command (App.Launch) reports success:true/consumed:true and does nothing"
 status: OPEN
-severity: Low
+severity: Medium
 category: ergonomic
 tags: [editor, console-command, pie, world-targeting, silent-success]
-encounters: 1
-lastSeen: 2026-09-25T09:26:00Z
+encounters: 2
+lastSeen: 2026-09-30T12:26:00Z
 ---
 
 # A game console command sent without `world` runs in the editor world during PIE
@@ -31,3 +31,5 @@ own.
 
 ## History
 - `#1-app-launch-consumed-in-editor-world` `OPEN` reporter - Found during a school-computer cross-version check (PIE against a local backend): one wasted launch and a log search to see that the command ran in the editor world.
+- `#2-re-rated` `OPEN` triage — Severity Low -> Medium. The default path returns `success:true, consumed:true` for a game command that did nothing while a PIE world is running, which is close to the High silent-false-success class on a normal path; held one level lower because the response echoes `world:"editor"` and `consumed` is documented as recognised-not-succeeded.
+- `#3-second-app-launch-editor-world` `OPEN` reporter - Second sighting, UE 5.8 Linux, host `/sdb-disk/src/unreal/unreal-fpv-wt1`, plugin `adb239fd`, standalone PIE running on `L_Core`. `editor.console_command {command:"App.Launch freeflight"}` answered `success:true, consumed:true, world:"editor", worldPath:"/Game/System/FrontEnd/Maps/L_Core.L_Core"`; the log only had `LogApp: Error: No game running - start PIE or launch the game.` Resent with `world:"server"` and it launched. Cost: one launch and a log grep.

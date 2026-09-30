@@ -2,7 +2,7 @@
 id: E-drive-condition-missing-target-silent-timeout
 title: "drive.wait_for accepts a condition with no `target` (an unknown `handle` key instead) and polls the full timeout to `outcome:timeout` rather than rejecting the argument"
 status: OPEN
-severity: Low
+severity: Medium
 category: ergonomic
 tags: [drive, drive.wait_for, drive.expect, condition, argument-validation, unknown-params, timeout]
 encounters: 1
@@ -29,3 +29,4 @@ Reject a `widget_*` / `text_*` condition without `target` (and unknown condition
 
 - `#1-handle-key-ignored` `OPEN` reporter - Filed from a school lesson-attempt PIE session (Linux, host
   `/sdb-disk/src/unreal/unreal-fpv`, plugin `ba115afb`).
+- `#2-re-rated` `OPEN` triage — Severity Low -> Medium. A condition missing `target` is not rejected, so the call reports `met:false, outcome:timeout` for a widget that was visible: silent wrong result (High class) triggered by an argument-shape slip rather than the normal path, so one level down to Medium.

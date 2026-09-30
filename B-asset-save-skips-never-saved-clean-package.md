@@ -1,8 +1,8 @@
 ---
 id: B-asset-save-skips-never-saved-clean-package
 title: "asset.save (no force) on a new never-saved MaterialInstanceConstant reports saveState:failed via SkippedAlreadyClean - the package exists only in memory but is not flagged dirty, so the unforced save writes nothing"
-status: OPEN
-severity: Medium
+status: IN-REVIEW
+severity: High
 category: bug
 tags: [asset, save, material-instance, create_material_instance, pie, dirty-flag, skipped-already-clean]
 encounters: 1
@@ -59,3 +59,5 @@ which ones ended up clean looks timing-dependent.
 
 - `#1-reported-skipped-clean` OPEN (Reporter): observed on the PDS unreal-fpv checkout while building
   selection-outline prototype assets; workaround is `force:true`.
+- `#2-re-rated` `OPEN` triage — Severity Medium -> High. Impact class is Critical (a created asset is lost: never written, not flagged dirty, `editor.list_dirty_packages` reports 0, so `editor.save_all`/quit silently drop it), bumped down one for reach because it was observed only for assets created during PIE and is timing-dependent.
+- `#3-fixed-never-saved-dirty` `IN-REVIEW` (Developer): Root cause (mechanism confirmed in engine source, the live PIE repro not re-run): `UObjectBaseUtility::MarkPackageDirty` silently refuses while `GIsPlayInEditorWorld` is set (and during transactions/loads), so a create verb dispatched while a PIE world was the tick context left its new package clean; `SaveLoadedAssetThrottled` then took the `bOnlyIfIsDirty` no-op and reported `SkippedAlreadyClean`, and `FEditorFileUtils`' dirty lists (list_dirty_packages, save_all, quit prompt) never saw it. Fix: new `MarkNeverSavedPackageDirty(UPackage*)` in `Source/PinWright/Private/Utils/AssetUtils.cpp` sets the dirty flag on a clean, mounted, non-transient, non-PIE, non-/Temp package whose `.uasset`/`.umap` does not exist. Called (1) at the top of `SaveLoadedAssetThrottled`, ahead of the PIE gate and throttle, so an unforced save writes a never-saved package (or reports `blockedByPie`/`deferred` and leaves it dirty), and (2) from a new `IAssetRegistry::OnInMemoryAssetCreated` hook in `UPinWrightSubsystem::Initialize` (`PinWrightSubsystem.cpp`/`.h`), which covers every create verb that calls `FAssetRegistryModule::AssetCreated` without a per-verb change. The "skipped: pass force:true" saveDetail wording is moot: a never-saved package no longer reaches the skip. Docs: `docs/wiki-src/safe-mutation-save.md` (Save States). Tests: `PinWright.assets.AssetSaveState.NeverSavedCleanPackageIsWritten` (clean never-saved package, unforced save must report `written` and put the `.uasset` on disk; pre-fix `failed`), `PinWright.assets.AssetSaveState.CreatedCleanAssetIsListedDirty` (MarkPackageDirty refused under `GIsPlayInEditorWorld`, then `AssetCreated` must leave the package dirty and in `GetDirtyContentPackages`; pre-fix clean).

@@ -2,7 +2,7 @@
 id: E-volume-type-filter-discovery
 title: "volume.get_volumes_info type filter is undiscoverable — volumeType wants unprefixed class name, create echoes the A-prefixed form"
 status: OPEN
-severity: Low
+severity: Medium
 category: ergonomic
 tags: [volume, docs, discovery, filter, class-name]
 encounters: 1
@@ -94,3 +94,4 @@ that's undiscoverable and contradicted by the create response).
 ## History
 - `#1-initial-audit` `OPEN` reporter — Filed from the arena-walls struggle audit (seed `volume.create_blocking_volume`). Listing blocking volumes cost three failed calls before `volumeType="BlockingVolume"` worked: `volumeClass` (UNKNOWN_PARAMS), `filter="BlockingVolume"` (name filter, 0 results), `volumeType="ABlockingVolume"` (0 results — the create handler echoes `volumeClass:"ABlockingVolume"` but the filter matches the unprefixed `GetClass()->GetName()="BlockingVolume"` via `ClassName.Contains`). Source: `VolumeHandler.cpp:1477` (registration), `:1497`/`:1510-1513` (volumeType contains-match on unprefixed name), `:1496`/`:1515-1518` (filter is name/label substring), `:1552` (special-cased "Trigger"). Wrong-but-valid filter values return a silent empty list, so there is no error to learn from. Proposed: strip leading `A` / accept the echoed `volumeClass` form, and document `volumeType`'s accepted vocabulary in a new `### volume.get_volumes_info` section of `docs/wiki-src/volume.md`.
 - `#2-repoint-citations-after-module-rename` `DONE` reporter — Citation maintenance only; **no claim in this ticket changes and the status is untouched**. The plugin module directory was renamed `Source/EditorAutomationRpcGateway/` → `Source/PinWright/` (plugin commit `8962f163`), and `Source/EditorAutomationRpcGatewayTests/` was folded into `Source/PinWright/Private/Tests/`, so every citation under the old root was an **unresolvable path** a fixer could not open — not a stale line number. 1 body citation repointed in place and verified against plugin HEAD `ef8a1f1b`. `:1477` had drifted onto an INVALID_ARGUMENT bounds check in a different handler; the quoted `REGISTER_RPC_HANDLER("volume.get_volumes_info", …)` block with its `filter` / `volumeType` `RPC_PARAM_OPT`s matches verbatim at `:1538-1542`. Sweep-wide record, including every case that could not be repointed: `E-module-rename-citation-sweep`.
+- `#3-re-rated` `OPEN` triage — Severity Low -> Medium. Passing the `volumeClass` string that the create verbs themselves echo (`ABlockingVolume`) returns a clean empty `volumes:[]` with no error, i.e. silent wrong data a caller can trust as 'none exist' (High class), bumped down one for reach since the type filter on `get_volumes_info` is a narrow path.

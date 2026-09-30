@@ -2,7 +2,7 @@
 id: E-console-command-player-exec
 title: "editor.console_command cannot run PlayerController / CheatManager exec commands (EnableCheats, summon) in a PIE world; returns EXEC_FAILED"
 status: OPEN
-severity: Low
+severity: Medium
 category: ergonomic
 tags: [editor, console-command, pie, cheat-manager, player-controller, exec]
 encounters: 2
@@ -37,3 +37,4 @@ player/cheat exec commands in the EXEC_FAILED message and on the wiki page.
 ## History
 - `#1-enablecheats-summon` `OPEN` reporter - Filed from the PDS QA #744 PlayerIndex repro, UE 5.8 Linux, host `/sdb-disk/src/unreal/unreal-fpv-wt1`, plugin `61c243f5`. Needed `summon` on the server world; worked around with `python.execute` in two extra calls.
 - `#2-viewmode-too` `OPEN` reporter - Second encounter, same host/plugin: `editor.console_command {command:"viewmode lit", world:"server"}` returned the same EXEC_FAILED (`viewmode` is a UGameViewportClient exec). The PIE game viewport had been switched to wireframe by a stray F1 key. Same `python.execute` + `SystemLibrary.execute_console_command(world, cmd, pc)` workaround. Cheap.
+- `#3-re-rated` `OPEN` triage — Severity Low -> Medium. This is not pure friction: the verb cannot run PlayerController/CheatManager/GameViewportClient exec commands at all, its EXEC_FAILED text points at spelling or unloaded modules, and the only route is an undocumented `python.execute` + `SystemLibrary.execute_console_command(world, cmd, pc)` workaround. That is the Medium soft-blocker band; no reach modifier applies.

@@ -1,7 +1,7 @@
 ---
 id: B-asset-delete-runs-nested-in-validate-on-save-slow-task
 title: "`asset.delete` right after `asset.save {force:true}` ran nested inside the editor's post-save data-validation slow task (FlushRenderingCommands pumping the GameThread queue); its own delete progress UI then asserted in Slate and killed the editor"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: bug
 tags: [asset, delete, save, dispatch, safepoint, reentrancy, render-flush, slow-task, editor-crash]
@@ -63,3 +63,4 @@ progress UI) refuse with a retryable code while `ValidateAllSavedPackages` is pe
 
 ## History
 - `#1-delete-after-force-saves` `OPEN` reporter - First sighting, as above.
+- `#2-defer-inside-slow-task` `IN-REVIEW` developer - Root cause: `FRpcDispatcher::ProcessRequest` (`Dispatch/RpcDispatcher.cpp`) deferred every request only on Saving/GC, and the safe-point gate (`IsTickUnsafeMethod && !IsSafeNow`) covers only the tick-unsafe table, which does not list `asset.delete`. Nothing asked "is a slow task still open on this stack", so the render-fence wait inside the validation's `FSlowTask::MakeDialog` drained and ran the delete. Fix: new `PinWrightSafePoint::IsInsideSlowTask()` (`Dispatch/SafePoint.h`: `GIsSlowTask || GWarn->GetScopeStack().Num() > 0`), added as a third term to the all-methods Saving/GC defer in `ProcessRequest`, so every request drained inside an open slow task (dialog or not) goes to `PendingQueue` and runs after that stack unwinds. The subsystem tick drain re-enters `ProcessRequest` and re-defers while the slow task is still open. Regression: `PinWright.core.safe_point.DispatcherDefersInsideSlowTask` (`Tests/World/TestSafePointGate.cpp`) opens a real `FScopedSlowTask`, drives the ungated `_test.beta` fixture through `ProcessRequest`, and asserts it neither runs inline nor on a drain inside the scope, then runs once the scope ends. Not proven live: the exact validate-on-save repro was not re-run.

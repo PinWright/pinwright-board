@@ -2,7 +2,7 @@
 id: F-graph-layout-calibration
 title: "Calibrate FGraphLayoutMetrics thresholds against human-authored vs MCP graph corpora"
 status: OPEN
-severity: Medium
+severity: Low
 category: feature
 tags: [layout, metrics, calibration]
 blockedBy: [F-graph-layout-metrics-core]
@@ -64,3 +64,4 @@ seeds the two follow-ups; no crash, no data corruption.
 
 ## History
 - `#1-split-from-metrics-core` `OPEN` reporter — Split out of F-graph-layout-metrics-core, which was over-scoped: the calibration pass (score human-authored vs MCP corpora → derive the absolute overlap fail + ~P10 relative-metric floor → record the threshold → file BPIR-refinement and edge-crossing follow-ups seeded with the measured gap) is open-ended research with an undefined corpus that none of the metrics-core dependents block on, so it is its own deferred ticket gated on F-graph-layout-metrics-core landing.
+- `#2-re-rated` `OPEN` triage — Severity Medium -> Low. An internal calibration/research pass with no caller-facing blocker (its own justification says the metrics util is fully usable without it); layout quality is cosmetic, so it rates Low.
