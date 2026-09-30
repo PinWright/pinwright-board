@@ -5,9 +5,9 @@ status: OPEN
 severity: High
 category: bug
 tags: [build, linux, clang, werror, range-loop-construct, json, data-table, ue-5.8]
-encounters: 1
+encounters: 2
 costly: 1
-lastSeen: 2026-09-30T09:08:35Z
+lastSeen: 2026-09-30T15:40:00Z
 ---
 
 # Linux build breaks on a range-for over FJsonObject::Values
@@ -43,3 +43,4 @@ only `TPair<FString, TSharedPtr<FJsonValue>>&` loop left in `Source/`.
 
 ## History
 - `#1-linux-build-breaks` `OPEN` reporter - Hit while building PDS on UE 5.8 Linux with plugin `2580e7f4` (the project's PinWright submodule bump). The first build (about 31 minutes) failed on this one error; a second build with `-Wno-error=range-loop-construct` succeeded. Rated High: every Linux clang build of the plugin fails until someone finds the flag, and there is no in-plugin workaround. Costly: one full editor build round lost.
+- `#2-still-breaks-at-master-head` `OPEN` reporter - Still breaks at plugin HEAD `27b2d04d` (origin/master, the only remote branch; `DataTableAuthoringHandler.cpp` unchanged since `29e9d445`). Full `PDSEditor Linux Development` build of `/sdb-disk/src/unreal/unreal-fpv-wt1` failed on the same `:496:64` `-Werror,-Wrange-loop-construct` error (`Result: Failed (OtherCompilationError)`, 103 s); it is the only `TPair<FString, ...>` loop over `AsObject()->Values` in `Source/`. Earlier the same day, the QA #830 fix work had to build only the touched modules (`-Module=GameSettings+PDSGame+App`) to get around it. Fix: iterate with `const auto& Entry`.
