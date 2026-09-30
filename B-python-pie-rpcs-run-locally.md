@@ -5,9 +5,9 @@ status: OPEN
 severity: High
 category: bug
 tags: [python, python.execute, object.call_function, pie, multi-pie, listen-server, rpc, net, callspace, FEditorScriptExecutionGuard, GAllowActorScriptExecutionInEditor, crash, silent-false-success]
-encounters: 1
-costly: 1
-lastSeen: 2026-09-30T09:44:29Z
+encounters: 2
+costly: 2
+lastSeen: 2026-09-30T19:18:00Z
 ---
 
 # Scripted UFUNCTION calls turn PIE RPCs into local calls
@@ -90,3 +90,4 @@ RPC.
 
 ## History
 - `#1-rpc-recursion-kills-editor` `OPEN` reporter - Filed from a PDS race-results repro (listen PIE, host + 1 client, UE 5.8.2 Linux, offscreen editor, plugin `2580e7f4`). Server RPCs called from client-world scripts had no server-side effect, and `SetTotalTime` from the client world recursed through `Server_SetTotalTime` until SIGSEGV. Root cause traced to the engine's `FEditorScriptExecutionGuard` in `PyUtil.cpp:644` plus `AActor::GetFunctionCallspace`'s early return. `object.call_function` takes the same guard, so it is not a way around it today. Costly: one editor crash and restart, plus a rebuilt PIE session.
+- `#2-ondronepassed-recursion-crash` `OPEN` reporter - Second encounter, UE 5.8 Linux, host `/sdb-disk/src/unreal/unreal-fpv`, plugin `1044f6de`, visible editor, listen PIE with 1 client (PDS race-place repro). A `python.execute` script called `ADroneRacingTrack::OnDronePassed` via `call_method` on the client world's track to finish that pilot's race. `OnDronePassed` calls `URaceProgressComponent::SetActiveGateIndex`, which re-sends `Server_SetActiveGateIndex` from its own `_Implementation`; under the script guard the RPC ran locally on the client and recursed (`Server_SetActiveGateIndex` -> `_Implementation` -> `SetActiveGateIndex` -> ...) until `Malloc.OutOfMemory` / SIGSEGV killed the editor (crash dir `Saved/Crashes/crashinfo-PDS-pid-1588018-*`). Workaround that worked: never call gameplay UFUNCTIONs on a client object from Python; instead teleport the client's drone from a `register_slate_post_tick_callback` one step per tick so the game's own `ADrone::CheckGateCollisions` tick detects the gate crossings (only `SetActorLocation` runs under the guard; every RPC is then sent from normal tick code). Costly: one editor crash, a restart and a rebuilt PIE session (~15 calls).
