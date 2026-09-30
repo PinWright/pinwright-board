@@ -5,7 +5,7 @@ status: OPEN
 severity: Medium
 category: feature
 tags: [layout, anim, agir, node-size, state-machine]
-blockedBy: [F-graph-layout-metrics-core]
+blockedBy: [F-graph-layout-metrics-core, F-graph-layout-core]
 encounters: 1
 lastSeen: 2026-06-24T19:46:41Z
 ---
@@ -53,3 +53,4 @@ cleanup is manual. No crash, no data corruption. Blocked by
 
 ## History
 - `#1-initial-spec` `OPEN` reporter — FAGIRLayoutEngine (AGIRLayoutEngine.cpp:193-273) has no node-size awareness and recurses into state-machine inner graphs; make placement bounds-aware (metrics-core estimator) across outer and inner graphs + a FormatY-style overlap sweep, verified by FGraphLayoutMetrics asserting no overlap.
+- `#2-repointed-to-graph-layout-core` `OPEN` reporter — Gap analysis 2026-09-30: re-pointed to F-graph-layout-core, the shared layered layout core whose graph-type adapter replaces this fixed-grid engine (size-aware placement, pin-aligned Y, barycenter ordering, overlap-free packing). Implement this ticket as that adapter rather than as a standalone engine; added F-graph-layout-core to blockedBy.
