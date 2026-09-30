@@ -1,15 +1,15 @@
 ---
 id: F-drive-web-action-parity
-title: "drive.scroll/drag/hover/key on surface=web are untested synthetic-DOM stubs without Slate-surface guarantees (occlusion refusal, settle), and the wiki still says they return SURFACE_NOT_SUPPORTED"
+title: "drive.click/scroll/drag/hover/key on surface=web are synthetic-DOM actions without Slate-surface guarantees (occlusion refusal, settle), scroll/drag/hover/key have no live tests, and the wiki still says those four return SURFACE_NOT_SUPPORTED"
 status: OPEN
 severity: High
 category: feature
-tags: [drive, web, cef, webbrowser, drive.scroll, drive.drag, drive.hover, drive.key, occlusion, settle, wiki, parity]
+tags: [drive, web, cef, webbrowser, drive.click, drive.scroll, drive.drag, drive.hover, drive.key, occlusion, settle, wiki, parity]
 encounters: 1
 lastSeen: 2026-09-30T12:00:00Z
 ---
 
-# Full web-surface parity for drive.scroll, drag, hover and key
+# Full web-surface parity for drive.click, scroll, drag, hover and key
 
 Plugin `adb239fd`, UE 5.8. `surface=web` drives an embedded UMG `UWebBrowser` (CEF) during PIE.
 No competitor drives embedded web UI at all, so this surface is a differentiator and its gaps are
@@ -28,6 +28,8 @@ visible on the public comparison page.
     no Tab focus move, no Enter activation).
   - drag: pointer/mouse down-move-up between two handles; no HTML5 `dragstart/dragover/drop` with
     `DataTransfer`, no intermediate moves, no `duration_ms`, no visibility check on either end.
+- `drive.click` on web (`ClickWeb`, `DriveWebHandlers.cpp:450`) calls `el.click()` (`BuildClickElementJs`,
+  `DriveWebBridge.cpp:798`): a synthetic click with the same missing occlusion refusal and one-shot settle.
 - No occlusion refusal: the web path never hit-tests (`elementFromPoint`), so a covered target is
   "acted on" with `ok:true`. The Slate path refuses with `TARGET_OCCLUDED` (`DriveActionCommon.cpp:423`).
 - Settle is one re-query after injection (`RunWebActionWithSettle`, `DriveWebHandlers.cpp:138`), not the
@@ -41,11 +43,11 @@ visible on the public comparison page.
 
 ## Ask
 
-Parity with the Slate surface for all four verbs on `surface=web`:
+Parity with the Slate surface for `drive.click` and the four verbs on `surface=web`:
 - Real input where the page must see it as user input (trusted events, CSS `:hover`, key default
   actions, HTML5 drag-and-drop), e.g. via CEF-level mouse/key injection at the element's viewport point
   instead of `dispatchEvent`.
-- Occlusion refusal with `TARGET_OCCLUDED` via a hit-test at the injection point.
+- Occlusion refusal with `TARGET_OCCLUDED` via a hit-test at the injection point (click included).
 - The same settle model and before/after `diff` semantics as Slate where they apply.
 - Genuinely unsupported cases keep their current typed errors (`TARGET_NOT_FOUND`, `TARGET_CHANGED`,
   `INVALID_ARGUMENT` for web drag without `to_handle`, `WEB_BROWSER_NOT_FOUND`).
@@ -57,9 +59,12 @@ Parity with the Slate surface for all four verbs on `surface=web`:
 
 - Live tests in the `PinWright.drive.web*` group, on a web fixture page, one per verb (scroll, drag,
   hover, key), each asserting the page-side effect and an occluded-target refusal.
-- Wiki "Web limitations" rewritten to the shipped behaviour.
+- A live occluded-target refusal test for web `drive.click`.
+- `docs/wiki-src/drive.md:56-58` "Web limitations" is stale (claims the four verbs return
+  `SURFACE_NOT_SUPPORTED`) and must be corrected as part of this ticket, to the shipped behaviour.
 - Typed errors above unchanged for unsupported cases.
 - Verified on UE 5.8, Windows only.
 
 ## History
 - `#1-filed-web-parity-gap` `OPEN` reporter - Filed at the user's request as High. The brief assumed the four verbs return `SURFACE_NOT_SUPPORTED` (per the wiki); source shows synthetic-event implementations with no occlusion check, one-shot settle and no live tests, so the ticket targets real parity plus the stale wiki.
+- `#2-scope-adds-web-click` `OPEN` reporter - Scope widened to web `drive.click`: it uses `el.click()` with no occlusion hit-test and the same one-shot settle, so it needs the same Slate-surface guarantees. Made the stale `drive.md:56-58` wiki fix an explicit acceptance item.
