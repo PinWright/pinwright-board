@@ -1,7 +1,7 @@
 ---
 id: B-version-matrix-skill-retired-launcher
 title: "mcp-version-matrix skill still builds and runs suites through the deleted Content/Python/pinwright_launch.py, so its next run fails at the first other-engine build"
-status: OPEN
+status: IN-REVIEW
 severity: Medium
 category: bug
 tags: [skills, version-matrix, supervisor, editor_run_tests, editor_build, tooling, gap-analysis-2026-09-28]
@@ -37,3 +37,4 @@ text passes. Then drop the TODO banners and regenerate the host copy.
 
 ## History
 - `#1-retired-cli-still-called` `OPEN` reporter — Verified in today's review: `pinwright_launch.py` is gone, and the workflow's C2/T1 steps and `SKILL.md` still invoke it (lines above). Filed so the deferred TODO from `F-python-capped-launcher` `#7` has its own OPEN tracker.
+- `#2-ported-to-supervisor-spawn` `IN-REVIEW` developer — Plugin commit `c2fc3893`. `Content/Python/pinwright_supervisor.py` gained one internal entry point for multi-engine tooling, `--spawn <request.json>` (`spawn_request`): required `reason` / `launchedBy`, required `mode` for suites, no defaults, unknown keys refused; it goes through `spawn_supervised` (0.60 RAM Job Object cap, BelowNormal, kill-on-close, WMI detach, `PROTOCOL_VERSION` spec handshake), suites use `suite_argv` (the `editor_run_tests` argv), and it prints the child and supervisor pids. The workflow's C2/T1 now write those requests, block on the supervisor pid, read the `PINWRIGHT_JOB_RESULT` / `PINWRIGHT_SUITE_RESULT` line, and grade the suite with `check_suite_log.py`; every `TODO(deferred)` and `pinwright_launch.py` reference is gone from `SKILL.md` and the workflow. The removed TODO lines also carried unescaped backticks that made the workflow a JS syntax error (plain `node --check` passes it anyway; parsing it as an async function body, as the runtime runs it, catches it). Verified: `unittest discover tests` 366 OK (1 skipped) on bundled 5.8 Python, supervisor tests on 5.3 (3.9) and 5.4 (3.11), 4 new `SpawnRequestEntryPointTest` cases, a real `--spawn` command run from Windows PowerShell 5.1 (WMI-detached, capped 37.91 GB, BelowNormal, verdict line written), and the rendered 5.3 prompt. Not verified: an actual matrix run (other-engine runs are deferred). The host's installed skill copy still needs its separate sync.
