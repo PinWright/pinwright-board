@@ -5,9 +5,9 @@ status: OPEN
 severity: Medium
 category: ergonomic
 tags: [drive, drive.input_state, os-input, xtest, x11, linux, pointer-grab, shared-display, pie]
-encounters: 1
+encounters: 2
 costly: 1
-lastSeen: 2026-09-29T16:25:00Z
+lastSeen: 2026-09-30T12:30:00Z
 ---
 
 # An editor-held X pointer grab is invisible to drive.* and swallows real clicks
@@ -45,3 +45,4 @@ own, which switched the PIE game viewport to wireframe.
 
 ## History
 - `#1-stuck-grab-wt1` `OPEN` reporter - UE 5.8 Linux, host `/sdb-disk/src/unreal/unreal-fpv-wt1`, plugin `61c243f5`, PDS QA #744 follow-up. Found with a hand-compiled `XGrabPointer` probe plus `xdotool key XF86LogGrabInfo`. Recurred after most host-viewport clicks while the host was a pilot (CapturePermanently HUD). Costly: an editor restart, about 40 minutes of failed click attempts, and a period in which the shared display's pointer was confined to my window.
+- `#2-inverse-capture-without-grab` `OPEN` reporter - Second encounter, the inverse case: UE 5.8 Linux, host `/sdb-disk/src/unreal/unreal-fpv-wt2`, plugin `adb239fd`, editor PID 937718 on a shared `:0`. After an os_input click into a racing PIE viewport, `drive.input_state` reported `viewport_has_mouse_capture:true`, `mouse_capture_mode:"CapturePermanently"`, `mouse_lock_mode:"LockOnCapture"`. A hand-compiled `XGrabPointer` probe returned `GrabSuccess`, so no X grab was held (another app had X focus). So `drive.input_state` cannot tell an engine-side capture flag from a real OS grab in either direction, and on a shared display I again had to compile a probe to check that I was not confining other sessions' pointers. Workaround cost: a gcc build and a probe after each click batch. Not costly.
