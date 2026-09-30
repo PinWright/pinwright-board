@@ -119,6 +119,8 @@ Sizes come through the existing `INodeSizeAdapter` seam
 **Clean-up:**
 - The BA-derived files are deleted and the old grid engines removed.
 - `B-layout-engine-ba-derived` acceptance is satisfied.
+- A reviewer confirms the new formatter contains no verbatim or near-verbatim code,
+  identifiers or structure from Blueprint Assist or from the replaced NodeLayoutEngine.
 
 **Vision check** (rpc-design §16): the fixtures are captured with
 `editor.frame_graph` + `editor.screenshot_window` in an offscreen run and looked at.
@@ -137,3 +139,4 @@ licensing exposure. The reach is every authoring session.
 
 ## History
 - `#1-initial-spec` `OPEN` reporter — Gap analysis 2026-09-30: specify PinWright's own layered formatter (cycle break, longest-path X with real widths, leftward data-node cascade, barycenter ordering for data DAGs, pin-aligned Y with contour packing, per-root trees, deterministic ties) with K2 / material / anim / RigVM adapters, replacing the BA-derived BPIR engine (B-layout-engine-ba-derived) and the fixed 320x180 grid engines; implementers must not have read Blueprint Assist source.
+- `#2-copying-policy-correction` `OPEN` reporter — Correction to #1: reading Blueprint Assist source and PinWright's current layout code is allowed; the only rule is no direct copying without change (no verbatim or near-verbatim code, identifiers or structure).
