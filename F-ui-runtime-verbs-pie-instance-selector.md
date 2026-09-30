@@ -1,0 +1,49 @@
+---
+id: F-ui-runtime-verbs-pie-instance-selector
+title: "`ui.create_hud` / `ui.activatable_*` cannot target a chosen PIE instance in multi-client PIE (no `world: \"client:N\"` selector like `editor.console_command`)"
+status: OPEN
+severity: Medium
+category: feature
+tags: [ui, create_hud, activatable_push, pie, multiplayer, listen-server, world-selector]
+encounters: 1
+lastSeen: 2026-09-30T09:00:00Z
+---
+
+# Runtime UI verbs cannot target a specific PIE instance
+
+In a multi-instance PIE (`editor.play {numClients: 2, netMode: "listen"}`), the task was to open the same
+activatable results screen on the listen server **and** on the client, then read what each showed. No `ui.*`
+verb could do it:
+
+- `ui.create_hud` creates the widget in `GEngine->GameViewport->GetWorld()`
+  (`Source/PinWright/Private/Handlers/UI/UiHandler.cpp`, `ui.create_hud`). That is whichever PIE viewport the
+  engine currently holds, and it passes no owning player.
+- `ui.activatable_push` / `ui.list_stack_widgets` with `layerTag` resolve the layout through
+  `ResolveStackByLayerTagInPie` (`Source/PinWrightCommonUI/Private/Handlers/UI/ActivatableLayerResolver.cpp`).
+  That code matches `GetOwningLocalPlayer()->GetLocalPlayerIndex() == playerIndex`. Every PIE game instance has
+  its own local player 0, so `playerIndex: 0` matches whichever `UPrimaryGameLayout` `TObjectIterator` yields
+  first, silently.
+- The `ui.set_widget_*` setters resolve through `ResolveQueryWorld("auto")`: the PIE world first, again with no
+  instance choice.
+
+`editor.console_command` and `editor.pie_status` already have the vocabulary (`server`, `client:N`, `pie:N`).
+The `ui.*` runtime verbs don't accept it.
+
+The Python fallback is closed too. UE 5.8 exposes `UWidgetBlueprintLibrary` to Python as `unreal.WidgetLibrary`
+(its ScriptName; `unreal.WidgetBlueprintLibrary` does not exist). `Create` is `BlueprintInternalUseOnly`, so
+Python cannot construct a UserWidget for a chosen player controller. This is engine behavior, not a PinWright
+defect, but it means the `ui.*` verbs are the only in-API route.
+
+**Workaround used:** find a game-side widget that already lives in each instance (via `unreal.ObjectIterator`
+over its class, filtered by `get_owning_player()`), and `call_method` its own "show screen" function per
+instance. This works only when the game has such a function.
+
+**Proposed:** accept the same optional `world` selector (`server` / `client:N` / `pie:N`) on `ui.create_hud`,
+`ui.activatable_push`, `ui.activatable_pop`, `ui.list_stack_widgets`, `ui.get_active_widget` and the
+`ui.set_widget_*` setters. Resolve it to that instance's world and its first local player's controller, pass
+that controller as the owning player in `ui.create_hud`, and echo `pieInstance` in the response. With more than
+one PIE instance and no selector, `ResolveStackByLayerTagInPie` should return an ambiguity error instead of
+taking the first layout it finds.
+
+## History
+- `#1-listen-pie-results-screen` `OPEN` reporter - Filed from a PDS race-results repro, UE 5.8, host `/sdb-disk/src/unreal/unreal-fpv-wt1` (Linux), plugin source `2580e7f4`. The task was a 2-instance listen PIE, opening `W_RaceOnlineResultsFrame` on the host and on the client and reading each one's rows. Reading `ui.create_hud` and `ui.activatable_push` showed no per-instance targeting, so I did not use them. Python `unreal.WidgetBlueprintLibrary.create` / `unreal.WidgetLibrary.create` both failed (`AttributeError`). Worked around by calling the game's own `W_RaceResultsHandler.ShowOnlineRaceFrame` in each instance through `unreal.ObjectIterator` + `call_method`. Costly: about 6 extra calls and a source dive into `W_RaceResultsHandler`.
