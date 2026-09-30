@@ -5,8 +5,8 @@ status: OPEN
 severity: Medium
 category: bug
 tags: [drive, drive.click, target-occluded, notification, toast, resize-window, set-window-state, render-offscreen, pie, silent-false-success, no-recovery-path]
-encounters: 1
-lastSeen: 2026-09-25T11:33:00Z
+encounters: 2
+lastSeen: 2026-09-30T10:00:00Z
 ---
 
 # An occluding editor toast cannot be cleared, so drive.click into PIE dead-ends
@@ -44,3 +44,4 @@ when the measured client size differs from the requested one.
 
 ## History
 - `#1-shared-ddc-toast-blocks-click` `OPEN` reporter - Filed from the QA-1028 ESC-menu voice-row session (PDS wt2): persistent Shared DDC toast occluded a PIE HUD button; resize_window silently kept its size; no close verb exists.
+- `#2-offscreen-plugin-windows-and-toast` `OPEN` reporter - Second encounter, same host (`unreal-fpv-wt2`), UE 5.8.2 Linux, plugin `2580e7f4`, editor started offscreen, listen-server PIE with 1 client. The editor's own plugin windows (`BA Welcome Screen`, `Message Log`, `PinWright Setup`, `ULTIMATE BLUEPRINT GENERATOR`) stayed open over the PIE surface and blocked clicks. With no X display, `wmctrl`/`xdotool` could not reach them, so each had to be shrunk with `editor.resize_window`, which worked for them. A Notification window at (273,290) **could not be resized at all**, the same dead end as `#1`. Related: `E-setup-window-opens-on-every-agent-start` (one of these windows) and `B-drive-os-input-own-window-occlusion` (the same window stack in visible editors). A way to stop agent-started offscreen editors from opening these windows, or a close verb, would remove both workarounds.
