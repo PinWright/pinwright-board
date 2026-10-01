@@ -1,7 +1,7 @@
 ---
 id: B-mgir-layout-grows-away-from-root
 title: "MGIR layout grows the material graph rightwards from x=320 while the material output node stays at Material->EditorX (0 by default) — the final wires run backwards across the whole graph; lanes are ordered by GUID and sizes ignored"
-status: OPEN
+status: IN-REVIEW
 severity: Medium
 category: bug
 tags: [layout, material, mgir, gap-analysis-2026-09-30]
@@ -66,3 +66,4 @@ is lost.
 
 ## History
 - `#1-initial-report` `OPEN` reporter — Gap analysis 2026-09-30 (code reading): MGIR places depth-0 leaves at x=320 growing right, but the output node stays at Material->EditorX (never written by PinWright, default 0), so final wires run backwards; lanes sorted by GUID; fixed 320x180 grid ignores sizes. Engine layout grows leftwards from the root. Fix via F-graph-layout-core material adapter.
+- `#2-fixed-by-layout-core` `IN-REVIEW` developer — Fixed by F-graph-layout-core: `MGIRLayoutEngine` is deleted; MGIR compile and `material.authoring.auto_layout` call `PwGraphLayout::ArrangeMaterial` / `ArrangeMaterialFunction` (`Layout/PwGraphLayoutMaterial.cpp`), which treats the output node at `Material->EditorX/Y` as a fixed root, so the graph grows leftwards from it in columns sized per node, ordered by barycenter, with the output wire pin-aligned. Tests: `PinWright.layout.material.GrowsLeftFromOutput`, `PinWright.layout.core.MaterialMathChain`.
