@@ -1,7 +1,7 @@
 ---
 id: B-bpir-layout-pure-chain-single-column
 title: "BPIR layout stacks every upstream pure node of a consumer in one column, top-aligned — a pure node feeding another pure node gets a wire that runs backwards, and no data wire is pin-aligned"
-status: OPEN
+status: IN-REVIEW
 severity: Medium
 category: bug
 tags: [layout, bpir, blueprint, pure-nodes, gap-analysis-2026-09-30]
@@ -48,3 +48,4 @@ the common case. The damage is readability, not data.
 
 ## History
 - `#1-initial-report` `OPEN` reporter — Gap analysis 2026-09-30 (code reading): all upstream pure nodes of a consumer go into one right-aligned column, top-aligned to the consumer (NodeLayoutParameterFormatter.cpp:128-157), so pure→pure wires run backwards and no data wire is pin-aligned. Fix via F-graph-layout-core.
+- `#2-fixed-by-layout-core` `IN-REVIEW` developer — Fixed by F-graph-layout-core: the one-column parameter formatter is deleted; a consumer's pure nodes are now laid out one column per dependency level (longest path), right-aligned, each pin-aligned to its first consumer where the column has room (`Layout/PwGraphLayout.cpp`, `ShapeBlock`), so pure->pure wires run forwards. Tests: `PinWright.layout.core.DataChainThreeDeep`, `PinWright.layout.core.SharedDataNode`, `PinWright.layout.blueprint.EventGraphFixture` (Add -> ToString -> PrintString aligned).
