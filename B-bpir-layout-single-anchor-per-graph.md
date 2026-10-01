@@ -1,7 +1,7 @@
 ---
 id: B-bpir-layout-single-anchor-per-graph
 title: "BPIR's post-compile layout formats only the first event chain in each graph — every other entry compiled into the same event graph keeps raw emitter placement and can be overlapped by the formatted chain"
-status: OPEN
+status: IN-REVIEW
 severity: Medium
 category: bug
 tags: [layout, bpir, blueprint, gap-analysis-2026-09-30]
@@ -54,3 +54,4 @@ layout with no error. Nothing is lost or corrupted.
 
 ## History
 - `#1-initial-report` `OPEN` reporter — Gap analysis 2026-09-30 (code reading): RunLayoutPass picks a single anchor per graph (BpirCompiler.cpp:1947-1956) and the layout walks only exec links from it, so other entry chains created by the same compile keep CodeNodeEmitter's raw 450 px stride and are not collision obstacles for the formatted chain. Fix via F-graph-layout-core (per-root trees).
+- `#2-fixed-by-layout-core` `IN-REVIEW` developer — Fixed by F-graph-layout-core: `RunLayoutPass` (`Compiler/BpirCompiler.cpp`) passes every created event / function entry / entry tunnel as a root (insertion or body anchor first, the rest by position), and `PwGraphLayout` lays out one tree per root, stacking later trees below earlier ones and around every pre-existing node. Tests: `PinWright.layout.blueprint.CompilePassArrangesEveryEntry`, `PinWright.layout.core.ThreeEvents`.
