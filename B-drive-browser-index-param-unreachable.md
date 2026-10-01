@@ -5,8 +5,8 @@ status: OPEN
 severity: Medium
 category: bug
 tags: [drive, web, cef, param-spec, unreachable-code, doc-mismatch]
-encounters: 1
-lastSeen: 2026-09-16T18:05:35+04:00
+encounters: 2
+lastSeen: 2026-10-01T12:00:00Z
 ---
 
 # drive `browser_index` rejected as UNKNOWN_PARAMS on every web verb
@@ -149,3 +149,4 @@ session here -> Medium. Matches the sibling `B-drive-window-selector-param-unrea
   `TestDeclaredParamCoverage.cpp:1866-1892`, where they remain exempted. Same class
   as `B-drive-window-selector-param-unreachable`, whose fix covered the
   editor-chrome window keys and left the web browser key behind.
+- `#2-hit-by-web-parity` `OPEN` reporter - Hit again while implementing `F-drive-web-action-parity`: the new live web tests select their own fixture browser with `browser_index`, which only works because they invoke the handlers directly; over the wire the dispatcher would still reject it as `UNKNOWN_PARAMS`. Not fixed there (out of scope).
