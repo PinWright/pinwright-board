@@ -5,8 +5,8 @@ status: OPEN
 severity: Medium
 category: bug
 tags: [offscreen, linux, notification-window, drive, drive.click, simulate_input, target-occluded, test-skips, misleading-error]
-encounters: 3
-lastSeen: 2026-09-30T17:35:24Z
+encounters: 4
+lastSeen: 2026-10-01T08:46:38Z
 ---
 
 # Offscreen fixture windows covered by the notification window
@@ -45,3 +45,4 @@ Suggested fix, not done here:
 ## History
 - `#1-filed-as-stale-cursor-window` `OPEN` developer — Filed while fixing `B-simulate-input-cef-click-noop`. It first blamed a stale platform window-under-cursor. Evidence: run 0a3aa810 automation.log lines 26927-26933 and 28655-28662.
 - `#2-cause-is-notification-window` `OPEN` developer — The `#1` theory was wrong for offscreen. Debug logging in run 3acc89ff showed Slate's routing and the Slate-order top window at the point agreeing, on the notification window. That window is topmost and untitled, and covers fixtures on the 640x360 offscreen display. The window-under-cursor cache was not stale. Title and body rewritten to the measured cause. The simulate_input fixture is fixed (topmost). The drive fixture remains; see the suggested fix above.
+- `#3-host-plugin-window-covers` `OPEN` developer - Seen again in run b2aea516 (automation.log 26824, 27744-27779): `drive.click_occlusion.UncoveredTargetIsClicked` and four `drive.weblive.*` tests skipped as `fixture-window-stacked-under-host-window`, this time naming a host plugin window ('ULTIMATE BLUEPRINT GENERATOR - ...'), not the notification window. The web fixture (`F-drive-web-action-parity` #4) now places its window clear of every visible window and makes it topmost; the Slate-surface fixture here still does neither.
