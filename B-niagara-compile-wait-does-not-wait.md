@@ -1,7 +1,7 @@
 ---
 id: B-niagara-compile-wait-does-not-wait
 title: "niagara.compile wait:true holds the game thread for a hard 90 s and never observes the compile, so {compile:true, save:true} stalls the whole shared editor and then persists nothing (originally: returned compiled:true in ~10 ms without waiting)"
-status: IN-REVIEW
+status: DONE
 severity: Critical
 category: bug
 tags: [niagara, compile, async, silent-noop, race, corrupts-saved-asset, data-interface-mismatch, editor-crash, wait-never-lands, reopened, game-thread-stall, shared-editor-outage, blocks-concurrent-agents, fix-absent-from-this-checkout, live-repro-post-pump-still-times-out]
@@ -419,3 +419,4 @@ prove a live editor's compile completes through the bounded pump until the suite
   Full detail of the change — the renamed flush flag, the single `HasPendingCompileWork` readiness predicate now shared by the refusal and the reported `compileStatus`, and the hardcoded `outstandingIncludesGpuShaders` becoming a measurement — is in `B-spawn-gate-refuses-on-stale-outstanding-compile-flag` `#5`, which owns that work. Regression test for this half: `PinWright.effect.spawn_niagara.QueuedCompileRequestIsDrained`.
 
   No build, editor, MCP call or live repro was run in this pass.
+- `#17-verified-linux` `DONE` tester — `PinWright.niagara.CompileWait.*` 3/3 pass, including `BoundedPumpCompletesTransientSystem`, in the round-1 and round-2 suites and the final full suite `dc867ac2` (offscreen, Linux Vulkan, UE 5.8, PinWright `5303edd1` on `bf3f2a9f`): 5460/5461 pass, the one failure is the host-only relay DNS error in `drive.observe.ScreenshotIncludesUmgAndMarksAtSurfaceLocalCoords`, unrelated; the bounded wait is also exercised by `niagara.apply_issue_fix`'s recompile in `ApplyFixResolvesIssue`.
