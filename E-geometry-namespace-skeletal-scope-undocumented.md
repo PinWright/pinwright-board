@@ -1,7 +1,7 @@
 ---
 id: E-geometry-namespace-skeletal-scope-undocumented
 title: "geometry.* advertises ~90 verbs with zero skeletal coverage and never says so — the StaticMesh/DynamicMeshActor scope boundary is invisible from outside"
-status: OPEN
+status: WONTFIX
 severity: Low
 category: ergonomic
 tags: [geometry, geometry-script, skeletal-mesh, docs, discoverability, scope-boundary]
@@ -80,3 +80,4 @@ namespace, but the specific wrong assumption is not an every-session event -> Lo
 
 ## History
 - `#1-triage-zero-skeletal-references` `OPEN` reporter — Found during a mesh/skeletal authoring triage at plugin HEAD `9da255f6d0ef5017cfddee03cd9458266c99d764`. Grepping `SkeletalMesh|BoneWeight|SkeletalMeshFunctions` across all of `Source/PinWrightGeometry/` returns zero matches, against ~90 registered `geometry.*` verbs enumerated per handler file in the body; the handlers are `UDynamicMesh`/`ADynamicMeshActor` throughout (`MeshAssetIOHandler.cpp:45,109,115,191,204,383`) and the sole asset ingest is `UGeometryScriptLibrary_StaticMeshFunctions::CopyMeshFromStaticMesh` (`:406`, include at `:55`). No verb doc or overlay states this boundary, so an agent reasonably infers skeletal coverage from the verb count and learns otherwise only after the work fails — which is what pushed this project's skeletal authoring into `python.execute`. Also records the correction that Geometry Script is *not* python-only in this plugin; it is extensively typed, just not for skeletal. Fix is docs-only: a scope paragraph in `docs/wiki-src/geometry.md` plus a reciprocal line in the `skeleton.*` overlay. Capability half tracked as `F-geometry-skeletal-mesh-roundtrip-verbs`.
+- `#2-stale-sweep-stale` `WONTFIX` developer — Premise no longer true. `geometry.*` now has typed skeletal verbs (`geometry.create_from_skeletal_mesh`, `geometry.bind_skin_weights`, `geometry.convert_to_skeletal_mesh`, `geometry.delete_triangles_by_bone_influence`; `SkeletalMeshAssetIOHandler.cpp`, `GeometrySkeletalAssetCreate.cpp`), and `docs/wiki-src/geometry.md:162-200` documents the SkeletalMesh round trip and its scope. Plugin HEAD `10212ee4`.
