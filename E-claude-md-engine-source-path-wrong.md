@@ -1,7 +1,7 @@
 ---
 id: E-claude-md-engine-source-path-wrong
 title: "The outer PDS repo's CLAUDE.md sends agents to C:\\Program Files\\Epic Games\\UE_5.8\\Engine\\Source for engine source; that directory does not exist on this host and the engine is at C:\\UE_5.8\\Engine\\Source"
-status: OPEN
+status: WONTFIX
 severity: Medium
 category: ergonomic
 tags: [docs, agent-facing, engine-source, host-environment, wrong-path, outer-repo]
@@ -79,3 +79,4 @@ hits."
 
 ## History
 - `#1-wrong-engine-source-path` `OPEN` reporter — Verified on this host, not inferred: `ls /c/UE_5.8/Engine/Source` succeeds and lists the expected six entries; `ls "/c/Program Files/Epic Games/UE_5.8/Engine/Source"` fails. The claim is at `X:\src\unreal\unreal-fpv-new\CLAUDE.md:189`, in the "Key Technologies" list of the Project Overview section. **The file was deliberately NOT edited** — it is outside the plugin, in the outer PDS repo, and other sessions read it concurrently; this ticket describes the change instead. Swept the outer repo for sibling occurrences (`grep -rn "Program Files.*Epic Games.*UE_5" --include=*.md`): four other hits, all correct as written (`docs/tester-setup.md:38` describes the Epic launcher's *default* install location for 5.6, and three `Plugins/BpGeneratorUltimate/` how-to files use `UE_5.4` paths as generic illustrative examples) — recorded above so a fixer does not change them. Filed with an explicit scope caveat: this board is scoped to MCP tool issues, and a host-doc defect in the outer repo is arguably outside it; filed anyway because the agents it costs are this plugin's, and `WONTFIX` on scope is a legitimate and cheap disposition. Severity Medium: Low impact class with the rubric's reach bump applied, argued above rather than assumed.
+- `#2-stale-sweep-path-already-fixed` `WONTFIX` developer — Already fixed outside the plugin: the outer PDS repo's `CLAUDE.md:190` now gives the engine source as `C:\UE_5.8\Engine\Source\` (changed in outer-repo commit `ab3f88d548`, present on `origin/master`), so the wrong `C:\Program Files\Epic Games\UE_5.8` path this ticket names no longer exists.
