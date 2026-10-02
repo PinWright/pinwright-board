@@ -1,7 +1,7 @@
 ---
 id: E-layout-metrics-backward-and-pin-crossings
 title: "GraphLayoutMetrics cannot see the most visible layout defects: no backward-edge count, and crossings/straightness are computed from node centres instead of pin rows"
-status: OPEN
+status: IN-REVIEW
 severity: Medium
 category: ergonomic
 tags: [layout, metrics, gap-analysis-2026-09-30]
@@ -53,3 +53,4 @@ before/after metrics cannot confirm the fixes they exist to check.
 
 ## History
 - `#1-initial-spec` `OPEN` reporter — Gap analysis 2026-09-30: GraphLayoutMetrics has no backward-edge term and computes straightness/crossings from node centres (GraphLayoutMetrics.h:9-12); add optional pin anchors, backwardEdges, per-edge pin-row delta, pin-to-pin crossings with the basis reported.
+- `#2-backward-and-pin-geometry` `IN-REVIEW` developer — `Layout/GraphLayoutMetrics.{h,cpp}`: `FGraphEdge` gains optional pin anchors (`FGraphEdge(from, fromPinY, to, toPinY)`, pin centre from each node's top) and `ComputeGraphLayoutMetrics` an `EFlowDirection` (default LeftToRight). Anchored edges are drawn output side -> input side at the pin rows; straightness and crossings use those segments, unanchored edges fall back to centres, and `GeometryBasis` reports `pins` / `centers` / `mixed`. New result fields: `BackwardEdgeCount` + `BackwardEdges` (target's input side upstream of the source's output side, self-edges excluded) and `PinRowDeltaPx` (parallel to the edges, -1 for unknown ids). Existing callers unchanged (new param defaulted). Tests (new file `Tests/Layout/TestGraphLayoutMetricsPins.cpp`): `PinWright.layout.metrics.BackwardEdgeCounted` (reversed fixture 1 / corrected 0 / mirrored direction 2), `PinWright.layout.metrics.PinAlignmentChangesStraightness` (identical rects, different pin rows: straightness and combined score differ, row delta 0 vs 64, centre basis cannot tell them apart), `PinWright.layout.metrics.PinCrossingsDifferFromCentres` (swapped output rows cross once pin-to-pin, 0 by centres; mixed basis). Offline harness: all pass; ignoring anchors and dropping the backward list turns all three red. No `layout_report` verb exists in the tree, so nothing publishes these yet beyond tests and the core's callers. Every changed/new TU compile-checked with UBT -SingleFile (Linux, UE 5.8): all succeed. Not yet run in an editor (manager owns the build/test slot).
