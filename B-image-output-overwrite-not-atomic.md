@@ -1,7 +1,7 @@
 ---
 id: B-image-output-overwrite-not-atomic
 title: "Image and thumbnail writers replace final paths directly; multi-file failures leave mixed old/new output sets"
-status: OPEN
+status: WONTFIX
 severity: Low
 category: bug
 tags: [image, thumbnail, overwrite, atomicity, partial-output, filesystem]
@@ -43,3 +43,4 @@ into place outside PinWright.
 ## History
 - `#1-pattern-scan` `OPEN` reporter — Grouped because all four routes share direct-final filesystem replacement. Source only; no editor, build, test, or RPC run.
 - `#2-re-rated` `OPEN` triage — Severity Medium -> Low. The damage occurs only when a multi-file write fails mid-set (a rare edge path), the outputs are regenerable images rather than asset data, and `image.compare` already reports `partialOutputs`; Medium impact bumped down one for reach.
+- `#3-stale-sweep-yagni` `WONTFIX` developer — Still accurate at plugin HEAD `10212ee4` (`Handlers/Image/ImageOps.cpp:175` and `Handlers/Asset/AssetWorkflowHandler.cpp:1450` save straight to the final path), but this came from a source-only pattern scan with no observed failure. The damage needs a multi-file write to fail partway, the outputs are regenerable images rather than asset data, `image.compare` already reports `partialOutputs`, and the documented workaround (write to a fresh name, then move) is cheap. Staging and rollback for every image writer is speculative hardening.
