@@ -1,7 +1,7 @@
 ---
 id: E-ground-placement-doc-no-instance-verification
 title: "`spatial.ground-placement.md` is the family page every ISM/HISM scatter caller is routed to, and it has no verification path for instances: its `## Verifying` section documents only `spatial.verify_grounding`, which refuses an instance holder with `HOLDER_NOT_SEATABLE`, and prescribes matching the `undersideModel` you seated with — a parameter `spatial.ground_instances` rejects as `UNKNOWN_PARAMS`"
-status: OPEN
+status: WONTFIX
 severity: Low
 category: ergonomic
 tags: [docs, wiki-src, spatial, ground_instances, ground_actors, verify_grounding, underside-model, unknown-params, holder-not-seatable, ism, hism, verification, discoverability]
@@ -152,3 +152,4 @@ self-announcing: the first `UNKNOWN_PARAMS` tells the caller the page is wrong f
   absent verification path it does not. Severity Low on the docs band; Medium declined because
   `ground_instances {apply:false}` works and both refusals are loud and correctly coded, so the caller
   loses a round trip rather than being blocked; reach bump declined with the argument stated.
+- `#2-stale-sweep-doc-now-covers-instances` `WONTFIX` developer — Premise fixed in the wiki since filing (plugin HEAD `10212ee4`): `docs/wiki-src/spatial.ground-placement.md:3` now scopes the page to all three verbs and states `ground_actors` refuses a scatter holder; `:108` and `:127` state `ground_instances` takes no `undersideModel` (`UNKNOWN_PARAMS`), always uses `bounds_plane`, and why (`LineTraceComponent` cannot attribute a hit to one instance), and `:127` directly follows the `## Verifying` "same `undersideModel`" sentence with "That instruction cannot be followed for instances"; a dedicated `## Verifying an instance seat` section (`:129-131`) says `verify_grounding` takes actors and `ground_instances {apply:false}` is the verify half. Asks 1, 2 and 4 are done; ask 3 (no `alignToSurface`/`maxTilt`) is documented at `vegetation-authoring.md:190` and owned by `F-ground-instances-align-to-surface`.
