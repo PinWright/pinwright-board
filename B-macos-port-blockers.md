@@ -1,7 +1,7 @@
 ---
 id: B-macos-port-blockers
 title: "Latent macOS port blockers: AtomicFileWriter has no Mac branch (wiki generation and client config writes fail), and the stdio proxy looks for the launcher manifest and Install.ini in the wrong places on Mac"
-status: OPEN
+status: WONTFIX
 severity: Low
 category: bug
 tags: [macos, platform-port, latent, atomic-write, wiki, agent-config, mcp-proxy, engine-discovery, gap-analysis-2026-09-28]
@@ -50,3 +50,4 @@ use `~/Library/Application Support/Epic/UnrealEngineLauncher/LauncherInstalled.d
 
 ## History
 - `#1-mac-port-blockers` `OPEN` reporter - Found in the 2026-09-28 competitive gap analysis and re-verified at plugin HEAD `71c91649` against UE 5.8 engine source: `AtomicFileWriter.cpp` fallback at `:227-229` and `:412-416`; proxy manifest path at `mcp_proxy.py:523-525`; Linux-only `Install.ini` at `:547-552`; engine Mac paths at `DesktopPlatformBase.cpp:1574`, `ApplePlatformProcess.cpp:52-63`, `DesktopPlatformMac.cpp:514`. One ticket for the port because the defects share a trigger. Severity Low: the impact would be a hard blocker on Mac, but no supported platform reaches it (`PlatformAllowList` excludes Mac), so reach is nil until a port starts; the README has no latent class, so tagged `latent` and `platform-port`.
+- `#2-stale-sweep-yagni` `WONTFIX` developer — Still accurate at plugin HEAD `10212ee4`: `AtomicFileWriter.cpp` has only Windows and Linux branches, and `mcp_proxy.py` `_launcher_manifest_path` / `_install_ini_path` (`:760-796`) use the paths the ticket names. But every module's `PlatformAllowList` is `["Win64", "Linux"]` (`PinWright.uplugin:24-30`), no Mac port is planned, and the ticket's own Fix says to do this only when Mac is added. Closing as speculative; this history entry stays searchable as the porting checklist if a Mac port starts.
