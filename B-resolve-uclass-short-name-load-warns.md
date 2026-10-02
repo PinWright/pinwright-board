@@ -1,7 +1,7 @@
 ---
 id: B-resolve-uclass-short-name-load-warns
 title: "ResolveUClass runs LoadObject<UClass> on bare short names such as 'Object', which can never load and logs \"Failed to find object 'Class Object'\" on every short-name lookup"
-status: OPEN
+status: IN-REVIEW
 severity: Medium
 category: bug
 tags: [class-resolution, resolve-uclass, log-noise, loadobject, gap-analysis-2026-09-28]
@@ -41,3 +41,4 @@ only be found, never loaded), and in the `/Script/` tiers use `FindObject` only 
 
 ## History
 - `#1-short-name-load-warns` `OPEN` reporter — Found in today's verification; step 2 read at `ClassUtils.cpp:161-164`, engine warning path read at `UObjectGlobals.cpp:1500-1520`. Distinct from `B-bpir-preload-resolves-bool-literals` (caller sends non-class literals) and left open by `B-macro-recompile-test-invalid-ir`.
+- `#2-path-shaped-loads-only` `IN-REVIEW` developer — `ResolveUClass` step 2 now calls `LoadObject<UClass>` only when the input contains `/` or `.` (a dotted name like `Engine.Actor` still loads via the short script-package map); the `/Script/<Pkg>.<Name>` tiers (4, 5.5, 6) are `FindObject`-only, since script packages are `PKG_CompiledIn` and `StaticLoadObjectInternal` never loads into them - the load could only warn, create a stray `/Script/<Module>` package for an unloaded module, and mark the package known-missing (silencing later genuine warnings). Same defect fixed in the sibling `ResolveClassByName` step 2.5 (`/Script/Engine.<Name>` load removed). Files: `Source/PinWright/Private/Utils/ClassUtils.cpp`, `Source/PinWright/Private/Tests/Core/TestClassUtils.cpp`, `docs/arch.md` (resolution chain), `CHANGELOG.md`. Test: `PinWright.core.class.resolve_uclass.BareNamesLogNoLoadWarning` - resolves `Object`/`Actor`/`PointLight` through both resolvers under a GLog needle watch and asserts zero `Failed to find object` lines (a revert of step 2 is red every run; a revert of only the `/Script/` loads is red only on the session's first miss because of the engine's known-missing cache). No verb contract change.
