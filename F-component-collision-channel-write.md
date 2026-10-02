@@ -1,7 +1,7 @@
 ---
 id: F-component-collision-channel-write
 title: "No verb writes collision state on a NAMED COMPONENT — `actor.set_collision` takes `{actorName, collisionEnabled}`, touches only the root primitive and says so in its own summary, so `ECC_Pawn -> Ignore` on one HISM of a 15-component scatter holder is unreachable and the `python.execute` fallback it forces is measured broken on exactly the component class the plugin's own scatter recipe produces"
-status: OPEN
+status: WONTFIX
 severity: Medium
 category: feature
 tags: [actor, set_collision, set_component_properties, components, collision, collision-channel, collision-profile, body-instance, ism, hism, pawn, missing-verb, level-building, vegetation]
@@ -165,3 +165,4 @@ wiki teaches comes up blocking every channel, so every such scatter needs this w
   Recorded and split out rather than folded in: `actor.set_collision`'s two silent guards
   (`ActorPropertyHandler.cpp:207-221`) report success on an actor whose root is not a primitive —
   `B-set-collision-nonprimitive-root-silent-success`.
+- `#2-stale-sweep-component-collision-write-shipped` `WONTFIX` developer — Stale: a named component's per-channel collision is now writable through `actor.set_component_properties {componentName, properties:{BodyInstance:{CollisionResponses:{ResponseToChannels:{Pawn:"ECR_Ignore"}}}}}` (also `CollisionProfileName` / `CollisionEnabled` / `ObjectType`). PinWright `10212ee4` routes those fields through the engine setters and pushes them onto ISM/HISM per-instance bodies, reporting `instanceBodies.measured` (`Utils/BodyInstanceCollisionPropertyWrite.cpp:363`, `Handlers/Actor/ComponentHandler.cpp:378-391`, test `Tests/Actor/TestInstanceBodyCollisionWrite.cpp:200-263`, wiki `actor.md:263-269`). That covers this ticket's measured case: Pawn -> Ignore on chosen HISM components with the other channels untouched. `actor.set_collision`'s silent root guard is still tracked by `B-set-collision-nonprimitive-root-silent-success`, and the channel-name vocabulary by `F-trace-channel-vocabulary-incomplete`.
