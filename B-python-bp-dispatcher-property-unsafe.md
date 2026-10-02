@@ -1,7 +1,7 @@
 ---
 id: B-python-bp-dispatcher-property-unsafe
 title: "python.execute: reading a Blueprint event-dispatcher property via get_editor_property gives a value whose is_bound() reports False while the dispatcher is bound, and dir() on that value SIGSEGVs the editor; the python wiki's 'Calls that crash the editor' list does not mention it"
-status: OPEN
+status: IN-REVIEW
 severity: High
 category: bug
 tags: [python, python.execute, delegate, multicast, event-dispatcher, crash, silent-wrong-data, docs]
@@ -53,3 +53,4 @@ from Python.
 
 ## History
 - `#1-dispatcher-isbound-false-and-dir-crash` `OPEN` reporter - Filed from a PDS race-results-button repro, UE 5.8 Linux, plugin `1044f6de`. `is_bound()` returned False on bound dispatchers (proved bound by a working real click), and `dir()` on the same value SIGSEGV'd the editor (`Saved/Crashes/crashinfo-PDS-pid-2216420-*`). Costly: one editor crash and restart plus a wrong root-cause claim in an earlier report.
+- `#2-typed-read-warning-and-docs` `IN-REVIEW` developer - Engine Python wrapper behaviour (is_bound False, dir() SIGSEGV) is not patchable from the plugin and is documented, not fixed. Typed route already existed: `property.get` serializes every delegate property as `{_kind, type, bindingStatus, bindings[{object, function}]}` (Utils/PropertyExport.cpp `MakeMulticastDelegateMarker`) but was untested and undocumented; now pinned on a real Blueprint dispatcher and documented. `python.execute` now adds a `Warning` log entry whenever the script source (inline or the `.py` file) contains `is_bound(`, naming property.get bindings (Handlers/System/PythonExecuteHandler.cpp). Docs: python.md "Calls that crash the editor" gains the dispatcher paragraph; property.md gains `## Delegates and event dispatchers`. Tests: `PinWright.property.get.DispatcherBindingsReported` (Tests/Utility/TestPropertyGetDispatcherBindings.cpp), `PinWright.python.execute.IsBoundDispatcherWarning`, `PinWright.infra.wiki_handler.NamespacePage.PythonDispatcherHazard` (Tests/Infra/TestPythonDispatcherIsBoundWarning.cpp). The dir() crash itself cannot be warned about in a response (the editor dies first); only the doc protects against it.
