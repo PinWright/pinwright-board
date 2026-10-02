@@ -1,7 +1,7 @@
 ---
 id: E-get-nodes-response-schema-undocumented
 title: "blueprint.graph.get_nodes wiki page documents only params, not the response field names, so callers guess (posX/title) and must parse live output to learn x/y/nodeTitle"
-status: OPEN
+status: WONTFIX
 severity: Low
 category: ergonomic
 tags: [blueprint, graph, docs, response-shape]
@@ -83,3 +83,4 @@ same-method naming ticket `E-node-comment-field-name-drift`.
 
 ## History
 - `#1-initial-audit` `OPEN` reporter — Filed from the struggle audit of a clean BPIR auto-layout round-trip (focus `blueprint.compile_bpir`, namespace `blueprint`, 18 calls all `ok`/non-error, zero retries, outcome `ergo`). Friction note verbatim: *"node fields use x/y/nodeTitle (not posX/title) which took one parse iteration to discover."* The task made two `blueprint.graph.get_nodes {includeNodeState:true}` calls on `/Game/BP_BpirAutoLayoutFuzz`, both of which spilled to `HttpResponses/<uuid>.json`; the caller had guessed `posX`/`title` and had to parse the spilled JSON to find the real keys `x`/`y`/`nodeTitle`. Verified in docs: the generated page `wiki-generated/blueprint.graph.get_nodes.md` documents only the params (`assetPath`/`graphName`/`includePinDefaults`/`includeNodeState`) and has no response-shape section, so the per-node field names (`nodeId`/`nodeName`/`nodeType`/`nodeTitle`/`comment`/`x`/`y`/`pins`) are undiscoverable without executing the call. Proposed: add a response-shape section to the `docs/wiki-src/blueprint.graph.md` overlay listing those fields, naming `x`/`y` (not `posX`/`posY`) and `nodeTitle` (not `title`) explicitly. Dedup: ripgrep across OPEN/closed — `E-get-nodes-pins-spill-no-projection` (size/projection, code fix), `E-node-comment-field-name-drift` (cross-method drift), and `E-get-nodes-no-count-field` (missing count) are all distinct; no ticket documents the `get_nodes` response schema or the `x`/`y`/`nodeTitle` naming.
+- `#2-stale-sweep-stale` `WONTFIX` developer — The per-node keys are now documented on the generated page: `get_nodes`' `fields` param lists the valid keys (`nodeId, nodeName, nodeType, nodeTitle, comment, x, y, pins`) and `namesOnly` names `nodeId/nodeName/nodeType/nodeTitle/x/y` (`BlueprintGraphInspectionHandler.cpp:409-410`); `docs/wiki-src/blueprint.graph.md:390-396` repeats them. Plugin HEAD `10212ee4`.
