@@ -1,7 +1,7 @@
 ---
 id: B-opacity-floor-is-a-multiply
 title: "OpacityFloor is a multiply, not a floor — the parameter caps opacity at its own value instead of guaranteeing it, so MI_PwModelExample_Glass tops out at 0.35 and the name promises the opposite"
-status: OPEN
+status: WONTFIX
 severity: Low
 category: bug
 tags: [material, mgir, vertex-color, translucent, OpacityFloor, naming, example-content, pwmodel]
@@ -54,3 +54,4 @@ override — only that the source and the docs table both say 0.35.
 
 ## History
 - `#1-multiply-named-floor` `OPEN` reporter — `M_PwModelExample_VertexColorTranslucent.mgir:52` wires `Opacity` through `MaterialExpressionMultiply(A: %vertexColor[4], B: %opacityFloor)`, with the parameter declared at `:47` as `OpacityFloor`, `DefaultValue: 0.35`, and the output bound at `:58`. It is a multiply, not a `Max` — no `Max` expression exists anywhere in `Examples/mgir/` for this document — so the parameter is a ceiling: with alpha at its `.pwmodel` default of 1 the maximum opacity is 0.35, and `color=(r,g,b,0.5)` halves it to 0.175, which is the opposite of what a floor guarantees. `MI_PwModelExample_Glass` sets it to 0.35 (`Docs/wiki-src/model.vertex-color.md:53`), capping every glass and quartz surface in the corpus at 35%. Refinement to the report: the multiply is deliberate and already documented as a multiplier in two places — `M_PwModelExample_VertexColorTranslucent.mgir:4-6` and `Examples/pwmodel/gothic_window.pwmodel:80-81` ("It is a MULTIPLIER, not a floor") — so this is a naming defect against correct adjacent documentation, not a wiring bug. Fix: rename to `OpacityScale`/`MaxOpacity`, or switch the expression to `Max` and keep the name. Scope note: the compiled instance lives in the host project at `Content/PinWrightExamples/Materials/MI_PwModelExample_Glass.uasset`, outside this repo; its bytes were not opened, so no claim is made that the built asset carries 0.35 rather than a post-compile override — only that the MGIR source and the docs table agree on it.
+- `#2-stale-sweep-yagni` `WONTFIX` developer — By the ticket's own refinement the wiring is deliberate and documented as a multiplier two lines above the parameter (`Examples/mgir/M_PwModelExample_VertexColorTranslucent.mgir:4-6`, still so at plugin HEAD `10212ee4`) and in `Examples/pwmodel/gothic_window.pwmodel:80-81`. This is a cosmetic rename of an example-material parameter. Nobody beyond the filer has hit it and nothing is wrong at runtime. Renaming would also break any host instance that sets `OpacityFloor` by name.
