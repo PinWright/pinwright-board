@@ -1,11 +1,10 @@
 ---
 id: F-controlrig-layout-bounds-aware
 title: "Bounds-aware ControlRig-graph layout (FCRIRLayoutEngine)"
-status: OPEN
+status: WONTFIX
 severity: Medium
 category: feature
 tags: [layout, controlrig, crir, rigvm, node-size]
-blockedBy: [F-graph-layout-metrics-core, F-graph-layout-core]
 encounters: 1
 lastSeen: 2026-06-24T19:46:41Z
 ---
@@ -54,3 +53,4 @@ by `F-graph-layout-metrics-core` for the estimator and the metrics assertion.
 ## History
 - `#1-initial-spec` `OPEN` reporter — FCRIRLayoutEngine (CRIRLayoutEngine.cpp:75-150) has no node-size awareness but already tracks pre-positioned obstacles; add bounds-aware placement (metrics-core estimator) while keeping obstacle awareness + a FormatY-style overlap sweep, verified by FGraphLayoutMetrics asserting no overlap.
 - `#2-repointed-to-graph-layout-core` `OPEN` reporter — Gap analysis 2026-09-30: re-pointed to F-graph-layout-core, the shared layered layout core whose graph-type adapter replaces this fixed-grid engine (size-aware placement, pin-aligned Y, barycenter ordering, overlap-free packing). Implement this ticket as that adapter rather than as a standalone engine; added F-graph-layout-core to blockedBy.
+- `#3-stale-sweep-superseded-by-layout-core` `WONTFIX` developer — Superseded by `F-graph-layout-core` (DONE). PinWright `0a3b3acc` deleted `CRIR/CRIRLayoutEngine.*` and replaced it with the size-aware RigVM adapter `Layout/PwGraphLayoutRigVM.{h,cpp}` over the shared `PwGraphLayout` core (real node sizes, fixed-node obstacles, overlap-free by construction). `9bb70b90` fixed RigVM widths and row order, verified by `PinWright.layout.controlrig.DataChainFlowsRight` and the vision checks in that ticket's `#7`/`#9`/`#10`. Nothing is left of the engine this ticket asked to change.
