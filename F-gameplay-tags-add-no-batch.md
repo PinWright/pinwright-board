@@ -1,7 +1,7 @@
 ---
 id: F-gameplay-tags-add-no-batch
 title: "No bulk gameplay_tags.add — seeding a tag taxonomy costs one RPC per tag into the same INI source"
-status: OPEN
+status: WONTFIX
 severity: Low
 category: feature
 tags: [no-batch-authoring, gameplay-tags, add, add_source, batch, ergonomic]
@@ -59,3 +59,4 @@ severity rationale: impact=soft-workaround (N clean per-tag calls, here 6-for-1)
 
 ## History
 - `#1-initial-audit` `OPEN` reporter — Filed from the struggle audit of a clean gameplay-tag taxonomy task (namespace `gameplay_tags`, outcome `clean`, 13 RPC calls, Judge disposition "clean signal — no replay"). CallAnalyzer flagged the `workaround` pattern: 6 (then a 7th corrective) single-tag `gameplay_tags.add` RPCs into the same `CombatTags.ini`, with the agent narrating "I'll add them one at a time to avoid concurrent writes to the same INI file." `add_source` seeds no tags and `add` takes a single scalar, so N single-tag INI writes is the natural shape only because a batch does not exist. Proposed: a `tags[]` batch form on `gameplay_tags.add` (or a seeded `add_source`) collapsing N writes into one atomic mutation. Dedup: ripgrep across OPEN/IN-REVIEW/DONE/WONTFIX — `F-gameplay-tags-namespace` (DONE) covers only single-tag CRUD; `F-actor-batch-tag-set` is actor-instance tagging, a different namespace; no gameplay-tag-registry batch ticket exists. Genuinely new; seeded the `no-batch-authoring` family tag shared with `F-animation-set-curve-key-no-batch` / `F-add-mapping-batch-keys` / `F-add-variables-batch` / `F-actor-batch-tag-set` (per-method batch tickets that coexist and cross-reference).
+- `#2-stale-sweep-yagni` `WONTFIX` developer — Convenience ask with a single clean encounter (6 `gameplay_tags.add` calls, all first try, judge: clean signal). `gameplay_tags.add` is still single-tag at plugin HEAD `10212ee4`, but taxonomy bootstrap is an occasional one-off and per-tag calls work; nothing silently wrong. Reopen with evidence of a recurring cost.
