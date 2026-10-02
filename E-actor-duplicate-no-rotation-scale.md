@@ -1,7 +1,7 @@
 ---
 id: E-actor-duplicate-no-rotation-scale
 title: "actor.duplicate accepts only offset+newName (no rotation/scale) — any placed/oriented/scaled copy always needs a second actor.set_transform, doubling the call count for 'place N oriented copies'"
-status: OPEN
+status: WONTFIX
 severity: Low
 category: ergonomic
 tags: [actor, duplicate, transform, rotation, scale, ergonomics, partial-transform-verb]
@@ -85,3 +85,4 @@ rated Medium on every-session spawn reach; duplicate's need is narrower.)
   `E-actor-duplicate-locked-level-opaque-error` (locked-level error wording,
   unrelated). No existing ticket covers `actor.duplicate`'s missing rotation/scale
   params.
+- `#2-stale-sweep-yagni` `WONTFIX` developer — YAGNI. Still true at plugin `10212ee4` (`actor.duplicate` declares only `actorName`/`offset`/`newName`/`allowPlaceholderMesh`/`allowSlowLargeMeshCopy`, `LifecycleHandler.cpp:138-145`), but the ask is a convenience param with one recorded encounter (the filer), nothing silently wrong, and a cheap reliable workaround the ticket itself documents (`actor.duplicate` then `actor.set_transform`, one extra call per copy). The motivating task was better served by the purpose-built `geometry.duplicate_along_spline`. Reopen if oriented/scaled duplicate loops recur as real cost.
