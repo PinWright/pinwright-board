@@ -1,7 +1,7 @@
 ---
 id: E-append-buffers-cannot-express-coincident-triangles
 title: "`append_buffers` cannot express exactly-coincident triangles — the engine refuses them as non-manifold at append — so the COPLANAR branch of `health.selfIntersections` has no live repro path from the client"
-status: OPEN
+status: WONTFIX
 severity: Low
 category: ergonomic
 tags: [pwmodel, append_buffers, health, selfIntersections, coplanar, membrane, testability, no-repro-path, verification-gap, engine-limit]
@@ -135,3 +135,4 @@ severity rationale: impact=no author is blocked and no response is wrong today; 
   gap is confined to the coplanar case. Classified ergonomic/testability, not a bug: no wrong answer
   was observed on any surface. Deduped before filing: `append_buffers` appears in 9 tickets and
   `coplanar` in 3, none covering this; no ticket owns the append-time manifold refusal.
+- `#2-stale-sweep-premise-false` `WONTFIX` developer — STALE: the premise that the coplanar branch has no client repro path is false. `append_buffers` cannot build it, but `revolve` can: a ring section whose two ends sit off the axis at the same height, with `capped`, makes `GeometryOps::GenerateRevolve` project both ends to the axis and lay two coplanar, oppositely wound fans across the bore. That is exactly how the regression fixture builds its membrane (`Tests/Model/TestPwModelSelfIntersection.cpp:9-14,55-71,104-113`, test `PinWright.Model.SelfIntersection.MembraneAcrossABoreIsCounted` asserting `PairCount > 0`), and `GenerateRevolve` is the same function the client reaches through the pwmodel `revolve` op (`PwModelCompiler.cpp:1558`) and `geometry.revolve` (`PrimitiveHandler.cpp:741`), plugin `10212ee4`. `docs/pwmodel-format.md:1733` and `:2037` already name this recipe as the usual cause of `PWMODEL_SELF_INTERSECTING_SURFACE`, so the docs ask in option 1 is also moot. A live check of the coplanar branch is one `model.compile` of that revolve.
