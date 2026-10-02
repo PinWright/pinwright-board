@@ -2,7 +2,7 @@
 id: E-add-variable-wiki-class-prefix-rejected
 title: "blueprint.add_variable's wiki documents `class:/Script/X.Y` for object refs, which the handler rejects — the accepted form is `object<T>`, and only the error message says so"
 status: OPEN
-severity: Low
+severity: Medium
 category: ergonomic
 tags: [blueprint, add_variable, variableType, docs, wiki, type-grammar]
 encounters: 1
@@ -60,3 +60,4 @@ reach=`add_variable` runs in nearly every authoring session and object refs are 
 
 ## History
 - `#1-filed` `OPEN` reporter — Hit on EAContentExamples58 (UE 5.8) adding `MaterialInstanceDynamic` variables to `/Game/FPS/UI/WBP_HUD`. Followed the wiki's `class:/Script/Engine.MaterialInstanceDynamic` form and got `TYPE_NOT_FOUND`; the error's own "Accepted forms" list named `object<T>`, which worked first try. Also confirmed in the same session that `interface<BPI_HUDSource_C>` works and is likewise undocumented on the page. Not filed as a bug because the handler behaves sensibly and reports well; the defect is entirely in the page.
+- `#2-stale-sweep-bump-medium` `OPEN` developer — Low -> Medium by the README rubric: Low impact (docs) x reach modifier (`blueprint.add_variable` runs in nearly every authoring session, and object refs are the common non-primitive case) bumps one level, and this is misleading docs on the common path rather than a mere omission: the page tells the caller to use a form the handler rejects. Still reproduces in source at plugin `10212ee4`: the `variableType` param description still reads "or `class:/Script/X.Y` for object/class refs, `struct:/Game/...` for struct refs. Container wrappers: array<T>, set<T>, map<K,V>" (`BlueprintPropertyHandler.cpp:42`), and the overlay repeats it ("Beyond primitives and `class:`/`struct:` refs, the token grammar accepts three container wrappers", `docs/wiki-src/blueprint.md:303`); neither mentions `object<T>`/`class<T>`/`interface<T>`. Fix is two string edits.
