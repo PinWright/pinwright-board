@@ -1,7 +1,7 @@
 ---
 id: E-property-get-cdo-hides-asset-level-props
 title: "property.get/list on a Blueprint/AnimBlueprint asset ALWAYS resolves to the generated CDO, so editor-asset-level UPROPERTYs (UAnimBlueprint::TargetSkeleton, ParentClass) are unreachable — the wiki never says to use asset.get_dependencies instead"
-status: OPEN
+status: WONTFIX
 severity: Low
 category: ergonomic
 tags: [docs, property, property-get, property-list, cdo, anim-blueprint, target-skeleton, asset-level-property, discovery]
@@ -62,3 +62,4 @@ severity rationale: impact=Low (pure docs/discoverability — one wasted call wi
 
 ## History
 - `#1-initial-audit` `OPEN` reporter — Struggle-audit of an AGIR-transfer task (namespace `anim`, outcome `tool_bug` on the unrelated `anim.compile_agir` cached-pose corruption filed as `B-agir-cached-pose-forward-ref-corruption`). Distinct PROCESS angle: to find `ABP_Manny`'s skeleton the agent called `property.get { objectPath: "/Game/Characters/Mannequins/Animations/ABP_Manny.ABP_Manny", propertyName: "TargetSkeleton" }` → `[PROPERTY_NOT_FOUND] Failed to resolve property 'TargetSkeleton' on object /Game/Characters/Mannequins/Animations/ABP_Manny.Default__ABP_Manny_C: Property 'TargetSkeleton' not found` (one wasted RPC — the CDO auto-resolve fired and `TargetSkeleton` is a UAnimBlueprint editor-asset member, absent from the `AnimInstance` CDO), then recovered via the working sibling `asset.get_dependencies` → `.../Meshes/SK_Mannequin`. The per-finding Judge replay ruled this NOT a defect (bare-path→CDO auto-resolve worked as documented per DONE `E-property-blueprint-cdo`; the error honestly names `Default__ABP_Manny_C`), so this is filed as the residual docs/discoverability angle only: the wiki never notes that asset-level UBlueprint/UAnimBlueprint UPROPERTYs are unreachable through the CDO-resolving property verbs and that `asset.get_dependencies` is the way to read an AnimBP's skeleton. Distinct from `E-property-cdo-path-trap-docs` (the `..._C` path-form trap — there a wrong path form fails; here a correct form resolves to the CDO but the property isn't on it). Overlay page = `docs/wiki-src/property.md`. Severity Low (docs; one wasted call, clean recovery).
+- `#2-stale-sweep-yagni` `WONTFIX` developer — Not worth tracking: one encounter, one wasted call, and a clean recovery. The error already names the object it searched (`Default__ABP_Manny_C`), and `docs/wiki-src/property.md:7` (plugin `10212ee4`) already says that Blueprint paths resolve to the CDO "so callers see configured defaults instead of `UBlueprint` internals", which is the caution this ticket asks for. Naming `asset.get_dependencies` for one AnimBP field is a speculative extra with no second reporter.
