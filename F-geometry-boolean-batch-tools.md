@@ -1,7 +1,7 @@
 ---
 id: F-geometry-boolean-batch-tools
 title: "No batch boolean op — drilling N identical holes / cutting N tools from one target is N create + N boolean_subtract calls (8 for four corner bolt holes), each tool restated singly"
-status: OPEN
+status: WONTFIX
 severity: Low
 category: feature
 tags: [geometry, boolean_subtract, boolean_union, boolean_intersection, batch, pipeline, drill, holes, docs]
@@ -125,3 +125,4 @@ the same target.
   class as the UV-prep and LOD-ladder batch tickets but on the boolean-cut surface
   (neither covers it); distinct from the boolean-offset bug and the convert
   disk-write bug; no existing boolean/batch-cut ticket on the board.
+- `#2-stale-sweep-superseded` `WONTFIX` developer — Superseded by the `model` namespace design. A `.pwmodel` recipe compiles a whole part — generator plus any number of `subtract { … }` blocks, each block a full op list that builds its own tool mesh (`docs/wiki-src/model.authoring.md:83-96`), plus `array_linear` / `array_radial` / `array_along_path` for repeated cut patterns — in ONE `model.compile` call, so "drill four bolt holes" is one call with no throwaway cutter actors. `docs/wiki-src/model.md` ("Why a source file rather than more geometry verbs") records the ruling that multi-step authoring goes to the recipe rather than to more `geometry.*` verbs. Still true at plugin HEAD `10212ee4`: `geometry.boolean_subtract` takes one `toolActor` (`BooleanHandler.cpp:236`), which stays the fine-grained in-place path. Single clean encounter, nothing silently wrong.
