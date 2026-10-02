@@ -1,7 +1,7 @@
 ---
 id: E-spline-point-tangent-readback-gap
 title: "spline.set_spline_point_tangents applies a custom tangent but no readback surfaces it — its own response doesn't echo the applied tangent and get_splines_info's per-point rows carry only index/location/type, so the exact tangent vector can only be inferred (point-type flip to CurveCustomTangent + splineLength change), never verified directly"
-status: OPEN
+status: WONTFIX
 severity: Low
 category: ergonomic
 tags: [spline, set_spline_point_tangents, get_splines_info, readback, tangent, verify-after-mutate]
@@ -96,3 +96,4 @@ not a task blocker.
 
 ## History
 - `#1-initial-audit` `OPEN` reporter — Struggle-audit of the cable-tray-route task (focus `spline.set_spline_point_tangents`, 5 calls, outcome clean, judge disposition "clean signal — no replay", `filed_ids` empty; CallAnalyzer trace clean, zero inefficiencies). PROCESS finding from Prep's friction note: the applied custom tangent is write-only — `set_spline_point_tangents` does not echo it and `get_splines_info`'s per-point rows carry only `index`/`location`/`type`, so the tangent vector is only inferable (type flip `Curve`->`CurveCustomTangent` + `splineLength` change), never directly verified; a wrong-direction/wrong-magnitude tangent would produce the same type flip and length change. Dedup (ripgrep over OPEN+closed; qmd unavailable): distinct root cause from `E-get-splines-info-omits-scattered-meshes` (attached static meshes; escape via `actor.get_components` — no such sibling verb exists for per-point tangents), `B-get-splines-info-ignores-spline-mesh` (SplineMeshComponent class coverage / segment-endpoint tangents from `create_spline_mesh_actor`, not per-control-point tangents on a USplineComponent), and `E-spline-create-actorname-echoes-deduped` (label collision). No existing ticket covers per-control-point tangent readback. Proposed: echo the applied tangent in `set_spline_point_tangents`' response and/or add `arriveTangent`/`leaveTangent` to `get_splines_info` per-point rows; document in `docs/wiki-src/spline.md`.
+- `#2-stale-sweep-stale` `WONTFIX` developer — Already resolved by fix option (a): `spline.set_spline_point_tangents` now reads the applied tangents back off the component and returns them (`arriveTangent` / `leaveTangent` from `GetArriveTangentAtSplinePoint` / `GetLeaveTangentAtSplinePoint`, `SplineHandler.cpp:562-565` at plugin HEAD `10212ee4`), so the verify-after-mutate question this ticket raised is answered by the mutation response itself. `get_splines_info` per-point rows still omit tangents (`SplineHandler.cpp:1320-1335`), but the ticket asked for (a) and/or (b); a separate independent readback has no recorded need.
