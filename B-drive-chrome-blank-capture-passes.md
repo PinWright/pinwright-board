@@ -1,7 +1,7 @@
 ---
 id: B-drive-chrome-blank-capture-passes
 title: "drive.observe editor-chrome capture stamps alpha opaque before the blank-readback check, so an all-zero window capture passes as a real screenshot"
-status: OPEN
+status: IN-REVIEW
 severity: Medium
 category: bug
 tags: [drive, drive-observe, editor-chrome, capture, blank-capture, set-of-mark, false-success, gap-analysis-2026-09-28]
@@ -38,3 +38,4 @@ editor-chrome path (or asserts `CaptureWindow` returns alpha untouched) and expe
 
 ## History
 - `#1-alpha-stamp-before-blank-check` `OPEN` reporter — Found in today's verification: `DriveEditorChrome.cpp:597` stamps opaque alpha before `DriveSetOfMarkRenderer.cpp:179` checks for an all-zero readback, so the check is dead on the editor-chrome surface. Source-verified; only caller of `CaptureWindow` is the Set-of-Mark renderer.
+- `#2-chrome-stamp-removed` `IN-REVIEW` developer — Deleted the `ForceOpaqueAlpha` call from `FDriveEditorChrome::CaptureWindow` (`Handlers/Drive/DriveEditorChrome.cpp`), so the renderer's shared `IsBlankReadback` check in `FDriveSetOfMarkRenderer::CaptureAnnotated` sees the raw readback on the editor-chrome surface and the renderer's own stamp (after the check) still makes the encoded frame opaque. Header contract comment in `DriveEditorChrome.h` and the cross-reference in `Handlers/UI/WidgetDesignerScreenshotHandler.cpp` updated; `docs/wiki-src/drive.md` (drive.observe `BLANK_CAPTURE` paragraph) now covers `editor_chrome`; CHANGELOG entry. Test `PinWright.drive.editorchrome.CaptureLeavesAlphaForBlankCheck` (`Tests/Drive/TestDriveEditorChromeBlankCapture.cpp`) is a source contract: `CaptureWindow`'s comment-stripped body must not call `ForceOpaqueAlpha`, and in `CaptureAnnotated` the chrome capture, `IsBlankReadback(` and `ForceOpaqueAlpha(` must appear in that order. Fails if the stamp is restored. Not a live capture because no headless configuration makes Slate return an all-zero window readback on demand (an undrawn window fails `TakeScreenshot` with `CAPTURE_FAILED` instead). Compile-checked with UBT -SingleFile.
