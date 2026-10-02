@@ -1,7 +1,7 @@
 ---
 id: E-pipeline-run-ubt-async-poll-undocumented
 title: "pipeline wiki overlay never documents the run_ubt async ticket → system.job_status poll pattern"
-status: OPEN
+status: WONTFIX
 severity: Low
 category: ergonomic
 tags: [pipeline, ubt, docs, async, jobs, job_status, discoverability]
@@ -55,3 +55,4 @@ terminal; treat the synchronous `status=running` as "accepted", never as
 
 ## History
 - `#1-initial-audit` `OPEN` reporter — Process-audit of a clean pipeline CI-readiness task (17 calls, all ok=true, no retries/crashes). Friction note: "run_ubt returns status=running synchronously for EVERY input ... so the real disposition is only visible by separately polling system.job_status — the synchronous response gives a false-success signal" and "my first system.job_status call omitted args and returned the wiki page ... then I read the doc and called it correctly with ticket_id." Verified `docs/wiki-src/pipeline.md` is a one-line stub (grep for job_status|ticket_id|poll|async = no matches); the async two-call contract is undocumented in the pipeline overlay, so a CI author must self-discover the poll. Distinct PROCESS/docs angle from the code bug `B-pipeline-run-ubt-bad-exe-path` (dead exe path): the discoverability gap persists after that bug is fixed because the async response shape is the permanent design. Ergonomic/docs, not an outcome bug — every call in the task succeeded.
+- `#2-stale-sweep-verb-removed` `WONTFIX` developer — The verb no longer exists: `run_ubt` (renamed `system.run_ubt`, then deleted; CHANGELOG.md:619 "Removed `system.run_ubt`. Build the editor target from a shell with the editor closed", handler deleted in plugin commit `6f156ac3`). No `run_ubt` handler remains in `Source/` at `10212ee4`, so there is no async contract left to document; editor builds go through the proxy's `editor_build`.
