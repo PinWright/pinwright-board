@@ -1,7 +1,7 @@
 ---
 id: E-add-sync-marker-frame-vs-seconds
 title: "animation.authoring.add_sync_marker writes by integer `frame` while list_sync_markers/describe_sequence read markers back in seconds — the read/write unit pairing is undocumented, forcing a manual seconds->frame conversion"
-status: OPEN
+status: WONTFIX
 severity: Low
 category: ergonomic
 tags: [write-read-unit-asymmetry, units, animation, add_sync_marker, docs, discoverability]
@@ -78,3 +78,4 @@ authoring is a specific path, not every-session -> Low.
 
 ## History
 - `#1-initial-audit` `OPEN` reporter — Struggle audit of a clean/done locomotion sync-group task (focus `animation.authoring.list_sync_markers`; 18 MCP calls, zero retries, outcome ergo). add_sync_marker writes by integer `frame` while its paired readers `list_sync_markers` and `describe_sequence` report each marker's `time` in seconds; the two units are documented separately but never paired, so placing a marker at a time you read in seconds forces a manual `frame = round(time*frameRate)` conversion that snaps to the frame grid. Not a defect (the `frame` param is documented and the call worked first try; judge dismissed the ergonomic-defect framing as documented convention) — filed as the discoverability residual: a docs pairing note on `docs/wiki-src/animation.authoring.md`'s add_sync_marker H3 giving the seconds<->frame relationship. Evidence: agent converted content marker `L@0.4168641s` to `frame 13` (`0.4333s`, ~17ms grid snap); friction line "add_sync_marker takes an integer frame (not seconds), so I converted the content's true foot-contact times to nearest frames." Same write-side-unit/shape-docs family as `E-volume-set-extent-units-class-dependent-docs` / `E-volume-set-bounds-flat-array-vs-minmax-object` / `E-material-connect-nodes-target-input-arg-asymmetry`.
+- `#2-stale-sweep-yagni` `WONTFIX` developer — YAGNI. The filer recorded no defect (the call succeeded first try, the judge dismissed the asymmetry as documented convention), and the pairing the ticket asked for is now on the page: `docs/wiki-src/animation.authoring.md:30-34` (plugin `10212ee4`) states that `add_sync_marker` writes from an integer `frame` and that the mutators return the measured `{name, time}` dump shape. The remaining ask, spelling out `frame = round(time * frameRate)`, is arithmetic any caller already does; one encounter, nothing silently wrong.
