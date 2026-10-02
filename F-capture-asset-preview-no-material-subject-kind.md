@@ -1,7 +1,7 @@
 ---
 id: F-capture-asset-preview-no-material-subject-kind
 title: "render.capture_asset_preview serves no material subject kind, so the one verb that reviews an asset in a preview viewport cannot review the asset type most often reviewed that way"
-status: OPEN
+status: WONTFIX
 severity: Low
 category: feature
 tags: [render, capture-asset-preview, generate-thumbnail, material, material-instance, subject-kind, preview]
@@ -61,3 +61,4 @@ x reach=any caller reviewing material appearance with a controlled rig -> Low
 
 ## History
 - `#1-filed` `OPEN` reporter — Hit on the FPS PLAYER stream while checking whether a viewmodel arms material renders dark or pale independently of the mesh carrying it. `asset.generate_thumbnail {primitive: "sphere"}` answered the question outright — its `materialReadiness` block reported `usingDefaultMaterial: false, fallbackOccurred: false, compiled: true, errorCount: 0` alongside `meanLuminance 0.131`, which settled the question in one call. Recording the gap rather than a complaint: the fallback path worked, and the `allowFallback` default of false is exactly the right gate for this kind of check.
+- `#2-stale-sweep-yagni` `WONTFIX` developer — Single encounter, and the filer's own question was answered in one call by `asset.generate_thumbnail` (`#1`), which the refusal signposts. The full-rig case (view modes, `previewScene`, orbits) also has a documented route: `docs/wiki-src/render.capture-subjects.md:114` says to bind the material to a static mesh and capture that served kind. Nothing silently wrong; a new subject kind is speculative until a second caller needs it.
