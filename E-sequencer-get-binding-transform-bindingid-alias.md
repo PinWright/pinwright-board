@@ -1,7 +1,7 @@
 ---
 id: E-sequencer-get-binding-transform-bindingid-alias
 title: "sequencer.get_binding_transform requires 'bindingId' and rejects the 'binding'/'bindingGuid' alias its sibling sequencer verbs accept"
-status: OPEN
+status: WONTFIX
 severity: Low
 category: ergonomic
 tags: [sequencer, param-alias, get_binding_transform, bindingId, binding, drift]
@@ -60,3 +60,4 @@ every-session) -> Low
   (`B-sequencer-add-actor-unbound-possessable`, `B-sequencer-create-save-no-disk-write`,
   filed by the per-finding judge). Sibling of the `param-alias` family, here as a
   cross-verb drift inside the `sequencer` namespace.
+- `#2-stale-sweep-yagni` `WONTFIX` developer — Still true (`SequenceHandler.cpp:3022` declares only `bindingId`), but not worth tracking: one encounter, the `MISSING_REQUIRED_PARAM` error names the accepted key, and the cost was one self-correcting retry with no wrong data. Single-reporter param-alias wish with a free workaround.
