@@ -1,7 +1,7 @@
 ---
 id: E-widget-canvas-slot-no-padding-docs
 title: "widget.slot-layout overlay documents box-slot Padding and CanvasPanelSlot LayoutData separately, but never states a CanvasPanelSlot has no Padding field — so 'pad a box that sits on a canvas' has no direct answer and forces a get_class_properties probe"
-status: OPEN
+status: WONTFIX
 severity: Low
 category: ergonomic
 tags: [docs, widget, slot-layout, canvas, padding, CanvasPanelSlot, VerticalBoxSlot, discovery, wiki]
@@ -112,3 +112,4 @@ box, center/inset via `LayoutData` `Offsets`+`Alignment` and put any internal
   (docs-only): add to `widget.slot-layout.md` the explicit "canvas slots have no
   Padding" statement plus a "pad a canvas-hosted box" recipe bridging the
   LayoutData-vs-box-Padding sections.
+- `#2-stale-sweep-yagni` `WONTFIX` developer — YAGNI: single encounter, resolved by one `widget.get_class_properties` probe, nothing silently wrong. That `CanvasPanelSlot` has `LayoutData` and no `Padding` is a UMG engine fact the probe answers directly, and the slot-layout page already documents both slot models; a bridging sentence would save one cheap read.
