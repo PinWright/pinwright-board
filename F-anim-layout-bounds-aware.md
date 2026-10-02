@@ -1,11 +1,10 @@
 ---
 id: F-anim-layout-bounds-aware
 title: "Bounds-aware anim-graph layout (FAGIRLayoutEngine)"
-status: OPEN
+status: WONTFIX
 severity: Medium
 category: feature
 tags: [layout, anim, agir, node-size, state-machine]
-blockedBy: [F-graph-layout-metrics-core, F-graph-layout-core]
 encounters: 1
 lastSeen: 2026-06-24T19:46:41Z
 ---
@@ -54,3 +53,4 @@ cleanup is manual. No crash, no data corruption. Blocked by
 ## History
 - `#1-initial-spec` `OPEN` reporter — FAGIRLayoutEngine (AGIRLayoutEngine.cpp:193-273) has no node-size awareness and recurses into state-machine inner graphs; make placement bounds-aware (metrics-core estimator) across outer and inner graphs + a FormatY-style overlap sweep, verified by FGraphLayoutMetrics asserting no overlap.
 - `#2-repointed-to-graph-layout-core` `OPEN` reporter — Gap analysis 2026-09-30: re-pointed to F-graph-layout-core, the shared layered layout core whose graph-type adapter replaces this fixed-grid engine (size-aware placement, pin-aligned Y, barycenter ordering, overlap-free packing). Implement this ticket as that adapter rather than as a standalone engine; added F-graph-layout-core to blockedBy.
+- `#3-stale-sweep-engine-replaced` `WONTFIX` developer — Superseded by `F-graph-layout-core` (DONE). Plugin commit `0a3b3acc` deleted `AGIR/AGIRLayoutEngine.{h,cpp}` (the fixed-grid `FAGIRLayoutEngine` this ticket asks to make bounds-aware); AGIR compiles now call `PwGraphLayout::ArrangeAnimBlueprint` (`AGIRCompiler.cpp:1749`), which runs the size-aware layered core over every anim graph and walks nested state-machine graphs (`Layout/PwGraphLayoutEdGraph.cpp:34-64`, `:235-265`), with measured node sizes from `c343fa0d` and the `PoseChainGrowsLeftFromResult` adapter test cited in `F-graph-layout-core` `#11`. The engine this ticket targets no longer exists; any remaining anim-layout defect should be filed against the shared core.
