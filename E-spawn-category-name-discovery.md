@@ -1,7 +1,7 @@
 ---
 id: E-spawn-category-name-discovery
 title: "debug.spawn_category's only category-name guidance is a wrong in-tool example ('Behavior' should be 'BehaviorTree') with no way to discover valid names — case-sensitivity + the silent-noop bug make a typo unrecoverable from the RPC, forcing an engine-source dive"
-status: OPEN
+status: WONTFIX
 severity: Low
 category: ergonomic
 tags: [docs, debug, gameplay-debugger, spawn-category, discovery, case-sensitive, misleading-example]
@@ -98,3 +98,4 @@ actively *wrong*, not merely absent.
 
 ## History
 - `#1-initial-audit` `OPEN` reporter — Filed from the debug gameplay-debugger overlay struggle audit (outcome tool_bug). `debug.spawn_category`'s only category-name guidance is the in-tool param example `e.g. 'AI', 'EQS', 'Behavior'` (`DebugHandler.cpp:7`), declared `case-sensitive` — but the real engine-registered name is `BehaviorTree`, not `Behavior`, and there is no `debug.list_categories` or wiki list of valid names. The silent-noop bug (`B-spawn-category-silent-noop-fake-existsafter`) makes a wrong-name typo return the same fake success as a real toggle, so the example error can never surface. The agent's friction was a pre-call engine-source dive (read AIModule.cpp to confirm exact case-sensitive names Perception/BehaviorTree/EQS) rather than a wasted RPC. Proposed: docs/ergonomic — fix the `'Behavior'`→`'BehaviorTree'` example in the handler param doc and list valid categories (Perception/BehaviorTree/EQS/Navmesh/AbilitySystem, case-exact) in `docs/wiki-src/debug.md`; optionally add an in-band `debug.list_categories` enumeration. Tagged `docs`; overlay to edit is `docs/wiki-src/debug.md`. Distinct from the bug ticket (result-reporting) — this is the authoring/discovery angle.
+- `#2-stale-sweep-stale` `WONTFIX` developer — Premise gone: `debug.spawn_category` was deleted in the RPC cull (plugin `e0d0fe2c`, recorded in `E-rpc-cull-151-record`); `DebugHandler.cpp` no longer exists and no `spawn_category` / gameplay-debugger registration remains anywhere in `Source/PinWright` at plugin HEAD `10212ee4`, so there is no in-tool example to correct and no category-name param to document. A future gameplay-debugger verb would be a new feature ticket, not this one.
