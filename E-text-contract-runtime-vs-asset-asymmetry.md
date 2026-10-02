@@ -1,7 +1,7 @@
 ---
 id: E-text-contract-runtime-vs-asset-asymmetry
 title: "ui.md doesn't warn that asset-side text (widget.set/property.set) requires NSLOCTEXT while runtime ui.set_widget_text takes a plain string"
-status: OPEN
+status: WONTFIX
 severity: Low
 category: ergonomic
 tags: [docs, ui, widget-set, set-widget-text, ftext, localization, nsloctext]
@@ -37,3 +37,4 @@ Docs-only. On the `docs/wiki-src/ui.md` overlay page, in the `ui.set_widget_text
 
 ## History
 - `#1-initial-audit` `OPEN` reporter — Process-audit of a HUD prototype task (author WBP_ActionHUD, drive it live in PIE). Caller hit a misuse-then-correct cycle: asset-side `widget.set` of a TextBlock `Text` (call #25) rejected the plain string with `[INVALID_PROPERTY] Persisted FText values require a non-empty namespace and key`, then succeeded with NSLOCTEXT (call #26); the runtime `ui.set_widget_text` (call #37) took the same kind of value as a plain string. The asset rejection is correct policy (`F-require-ftext-localization-identity`) and is documented on `widget.md`/`property.md`, but the runtime page `ui.md`'s `ui.set_widget_text` section — read when doing this task — never warns the two verbs disagree on plain-string input. Proposing a one-line cross-warning on `docs/wiki-src/ui.md` (and an optional back-link from `widget.md`). Docs-only; no code change.
+- `#2-stale-sweep-yagni` `WONTFIX` developer — YAGNI: single encounter that self-corrected in one call. The asset-side rejection is correct policy and its error already states the remedy verbatim (`Persisted FText values require a non-empty namespace and key; pass NSLOCTEXT("Namespace", "Key", "Source")...`, `PropertyImport.cpp:564` at plugin HEAD `10212ee4`), and `widget.md` / `property.md` document it. Nothing is silently wrong; a cross-warning on `ui.md` would save at most that one self-explaining error.
