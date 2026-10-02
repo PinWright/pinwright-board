@@ -1,7 +1,7 @@
 ---
 id: E-viewport-screenshot-name-discovery
 title: "Screenshot lives under editor.* not viewport.* — viewport.screenshot is the natural guess and nothing cross-references it"
-status: OPEN
+status: WONTFIX
 severity: Low
 category: ergonomic
 tags: [docs, editor, screenshot, viewport, discovery, naming]
@@ -73,3 +73,4 @@ author wrote the wrong name into the story. A single cross-reference on the
 
 ## History
 - `#1-initial-audit` `OPEN` reporter — Filed from the effect.activate_niagara struggle audit (outcome clean). "Screenshot the viewport" naturally reads as `viewport.screenshot`, but the real method is `editor.screenshot` under the `editor` namespace, with no `viewport.*` overlay and no cross-reference from any viewport-shaped path (`editor.md` screenshot entry, `system.inspect.get_viewport_info`). The agent and the story author both reached for `viewport.screenshot`; the agent mapped it to the documented `editor.screenshot` without a wasted RPC, so the cost was a discovery step, not a round-trip. Distinct from `F-editor-viewport-screenshot` (DONE, the capability) — this is the breadcrumb. Proposed: docs-only — add a `viewport.*`→`editor.screenshot` note on the `editor.md` screenshot entry (and optionally a tiny `viewport.md` redirect). Tagged `docs`; overlay to edit is `docs/wiki-src/editor.md`.
+- `#2-stale-sweep-yagni` `WONTFIX` developer — YAGNI: the recorded encounter cost zero RPCs (the agent mapped to `editor.screenshot` from the docs), and a wrong guess now self-corrects in one call: the dispatcher's `UNKNOWN_ACTION` error ranks near-miss suggestions over method name and registered summary (`RpcDispatcher.cpp:991-1017`, `SuggestionHelpers::RankSuggestionsWithSummaries`), so `viewport.screenshot` is answered with the `editor.screenshot*` candidates. A dedicated `viewport.md` redirect page has no further demonstrated need.
