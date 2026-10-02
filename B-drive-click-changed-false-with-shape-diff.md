@@ -1,7 +1,7 @@
 ---
 id: B-drive-click-changed-false-with-shape-diff
 title: "drive.click returns outcome no_change_within_budget / changed:false while its own diff lists dozens of appeared and disappeared elements"
-status: OPEN
+status: IN-REVIEW
 severity: Medium
 category: bug
 tags: [drive, drive.click, settle, outcome, diff, inconsistent-result]
@@ -31,3 +31,4 @@ the settle logic judged the churn to be noise. The two fields should never contr
 
 ## History
 - `#1-lobby-row-churn` `OPEN` reporter - UE 5.8 Linux, host `/sdb-disk/src/unreal/unreal-fpv-wt1`, plugin `61c243f5`, PDS listen PIE with 3 clients. Seen on several os_input clicks on the client's Become Spectator / Become Pilot buttons. Verified against the server log instead. Cheap.
+- `#2-diff-wins` `IN-REVIEW` developer - Root cause: the settle loop's per-tick fingerprint is shape-only (type + rect, handle-blind), so rows recreated in place under new handles never move it, while the response diff is keyed by handle (and value). New `FDriveActionCommon::WriteSettleResult` writes the shared `{outcome, changed, settled, condition_met, elapsed_ms, ticks, diff}` fields for every action verb: a non-empty diff forces `changed:true`, and a quiet `no_change_within_budget` with a non-empty diff becomes `settled_changed` / `settled:true` (the shape held the whole quiet budget). Empty diff keeps the quiet outcome. Also covers the value-only `drive.type` case the wiki used to document as `changed:false`. Game/editor (`RunAction`) and web (`StartWebSettle`) responses both route through it. Files: `Source/PinWright/Private/Handlers/Drive/DriveActionCommon.{h,cpp}`, `Handlers/Drive/DriveWebHandlers.cpp`, `Tests/Drive/TestDriveSettleDriver.cpp`, `docs/wiki-src/drive.md`. Test: `PinWright.drive.settledriver.RowChurnAgreesWithDiff` (fails if the reconciliation is removed). Not addressed: `changed:true` with an empty diff (UI moved and came back) is left as is and documented.
