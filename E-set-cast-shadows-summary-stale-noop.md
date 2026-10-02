@@ -1,7 +1,7 @@
 ---
 id: E-set-cast-shadows-summary-stale-noop
 title: "material.authoring.set_cast_shadows wiki/method summary still advertises the removed 'no-op that records the request' behavior, contradicting the handler's actual NOT_IMPLEMENTED error (and the namespace note that already says cast-shadows toggling is not exposed)"
-status: OPEN
+status: WONTFIX
 severity: Low
 category: ergonomic
 tags: [material-authoring, wiki, docs, stub, wiki-advertises-stub, stale-summary]
@@ -96,3 +96,4 @@ severity rationale: impact=docs/discoverability × reach=rare -> Low.
 
 ## History
 - `#1-initial-repro` `OPEN` reporter — Seed `material.authoring.set_cast_shadows` (realism task: author a hologram material that must not cast shadows). Replayed `set_cast_shadows({assetPath:/Game/SciFi/Materials/M_Hologram, castShadows:false})` -> `[NOT_IMPLEMENTED] set_cast_shadows is a stub. Per-shading-model cast-shadow property routing is not yet implemented.` — the intended fail-loud behavior from `B-material-stub-handlers-silent-success` (DONE), NOT a regression. Residual ergonomic defect: the C++ `REGISTER_RPC_HANDLER` summary at `MaterialAuthoringHandler.cpp:3124` still reads "Stub: acknowledge a cast-shadows toggle on a material. Currently a no-op that records the request …", which `WikiHandler` renders into `material.authoring.md:129` and `material.authoring.set_cast_shadows.md:7`. That "no-op that records the request" wording is a soft-success framing that contradicts the actual NOT_IMPLEMENTED error AND the same page's already-correct namespace note (`material.authoring.md:52`: "both now return NOT_IMPLEMENTED … cast-shadows toggling is not exposed"). Fix: reword the one registration summary string to match the honest runtime (and optionally point at the per-primitive-component `bCastShadow` path). Verified no dedup: only prior `set_cast_shadows` files are `B-material-stub-handlers-silent-success` (DONE, runtime fix) plus incidental precedent cites in `B-input-trigger-modifier-stub-silent-success` / `B-material-graph-edit-clobbered-by-open-editor` — none own the stale-summary angle.
+- `#2-stale-sweep-verb-removed` `WONTFIX` developer — Verb no longer exists: `material.authoring.set_cast_shadows` was removed in the RPC cull recorded by `E-rpc-cull-151-record` (DONE, material stubs). No registration and no wiki-src mention in plugin HEAD `10212ee4`, so the stale registration summary this ticket targets is gone with it.
