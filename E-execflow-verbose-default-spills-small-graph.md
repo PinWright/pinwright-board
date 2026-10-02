@@ -1,7 +1,7 @@
 ---
 id: E-execflow-verbose-default-spills-small-graph
 title: "get_execution_flow with includeAllEntryPoints spills a tiny 9-node graph over the 10k display threshold, forcing a file-spill and a method switch"
-status: OPEN
+status: WONTFIX
 severity: Low
 category: ergonomic
 tags: [blueprint, execution-flow, response-size, spill, verbosity, includeAllEntryPoints]
@@ -46,3 +46,4 @@ but it is friction on the natural verification path for reconvergence checks, an
 
 ## History
 - `#1-initial-audit` `OPEN` reporter — Struggle-audit of a `blueprint.compile_bpir` round-trip-equivalence task (transcript `agent-a41684d4aee4673b2.jsonl`). `get_execution_flow {graphName:"EventGraph", includeAllEntryPoints:true}` on a **9-node, 2-entry** graph (`/Game/BP_BpirRoundTrip`) emitted **15294 chars**, tripped the 10000-char `HttpResponses` spill (DONE `E-http-response-spill`), and returned only the `outputTooLong` reference envelope; the agent never read the spilled JSON and switched to `get_graph_connections (edgeType:exec)` for topology. `get_execution_flow` already has `offset`/`pageSize` (cited as the good example in `E-get-nodes-pins-spill-no-projection`), so the gap is the verbose default amplified by `includeAllEntryPoints` (walks every entry's full chain), not missing pagination. Fix: a more compact default / summary mode / auto-`pageSize` so a small graph fits inline; at minimum document the `includeAllEntryPoints` multiplier on `blueprint.graph.md`. Distinct from `E-execflow-no-event-entry-timeline-root` (timeline auto-start `NODE_NOT_FOUND`) and from the per-method spill family (`E-get-nodes-pins-spill-no-projection`, etc. — those lack pagination; this one has it and still spills). Severity Low (single occurrence, recovered immediately; pure friction on the verification path).
+- `#2-stale-sweep-yagni` `WONTFIX` developer — Single encounter, recovered in one call by switching to `get_graph_connections (edgeType:exec)`. The compact levers the ticket asked for exist: `entryPointsOnly`, `includeExecutionChain`, `includeDataInputs`, `includeExecOutputs` plus `offset`/`pageSize` (`BlueprintGraphInspectionHandler.cpp:1316-1330`). Changing the default shape for one spill is not warranted. Plugin HEAD `10212ee4`.
