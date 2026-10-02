@@ -1,7 +1,7 @@
 ---
 id: F-add-blackboard-key-default-value
 title: "`ai.add_blackboard_key` has no `defaultValue` param — seeding each key's default costs a second `ai.set_blackboard_value` round-trip"
-status: OPEN
+status: WONTFIX
 severity: Low
 category: feature
 tags: [ai, blackboard, add_blackboard_key, set_blackboard_value, default-value, add-verb-no-inline-default, batch]
@@ -67,3 +67,4 @@ severity rationale: impact=pure friction (one extra call per non-default key; th
 
 ## History
 - `#1-initial-audit` `OPEN` reporter — Filed from the struggle audit of a clean/GREEN `BB_Guard` blackboard task (focus `ai.set_blackboard_value`, 16 RPCs, 0 errors/retries; transcript `agent-adf6dbfd88a1d78f2.jsonl`, asset `/Game/AI/Blackboards/BB_Guard`). Call-trace analyzer flagged an add-then-set granularity workaround: 6 `ai.add_blackboard_key` + 5 `ai.set_blackboard_value` = 11 calls, because `add_blackboard_key` accepts `keyType`/`baseObjectClass`/`isInstanceSynced` but no `defaultValue` — so every non-default key needs a second set round-trip. Asymmetry: `CanSeePlayer` set `isInstanceSynced` inline on the add call, but the default value cannot be inlined. Parity gap: `blueprint.add_variable` has a `defaultValue` param; `ai.add_blackboard_key` does not. Attempt agent reported friction "none" (all calls `ok:true` first try, no struggle) — this is a convenience/ergonomic observation, not a defect; the focus verb `ai.set_blackboard_value` itself worked perfectly and is NOT at fault. Proposed: add an optional `defaultValue` string param to `ai.add_blackboard_key` mirroring `set_blackboard_value`'s coercion, echoing the applied default in the response. Dedup: ripgrep across OPEN/IN-REVIEW/DONE — no existing ticket covers a missing `defaultValue` on `add_blackboard_key`; the two `add_blackboard_key` matches are the `baseObjectClass`-dropped bug and an incidental mention. Genuinely new; seeded family tag `add-verb-no-inline-default`. severity Low (pure friction, easy existing workaround, rare path).
+- `#2-stale-sweep-yagni` `WONTFIX` developer — Convenience ask with a single clean encounter: all 11 calls succeeded first try and the attempt agent reported friction "none". The workaround (`ai.set_blackboard_value` after `ai.add_blackboard_key`) is one call per non-default key and works, nothing is silently wrong, and blackboard authoring is a rare path. Reopen if blackboard authoring starts showing up as a recurring cost.
