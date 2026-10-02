@@ -1,7 +1,7 @@
 ---
 id: E-property-objectpath-no-assetpath-alias
 title: "property.get/set/list require 'objectPath' with no 'assetPath' alias — a caller arriving from a blueprintPath/assetPath flow guesses 'assetPath' and hard-fails MISSING_REQUIRED_PARAM, costing a wiki-nav + retry"
-status: OPEN
+status: WONTFIX
 severity: Low
 category: ergonomic
 tags: [property, param-alias, objectpath, assetpath, drift, docs]
@@ -109,3 +109,4 @@ call; the alias makes the wrong guess harmless either way.)
   `objectPath` slot to accept `assetPath` + `GetStringFirstOf` body read; plus a
   `docs/wiki-src/property.md` overlay note that the slot accepts an asset/blueprint
   path, an actor name, or a full object path.
+- `#2-stale-sweep-yagni` `WONTFIX` developer — Not worth an alias. `objectPath` is the accurate name, because the slot also takes actors and inner objects, not only assets (`UtilityPropertyHandler.cpp:1148/1512/1753/2070` at plugin `10212ee4`). The wrong guess fails loudly with `MISSING_REQUIRED_PARAM` naming `objectPath`, so a one-line retry fixes it, which the severity rubric counts as cheap. One encounter, no second reporter.
