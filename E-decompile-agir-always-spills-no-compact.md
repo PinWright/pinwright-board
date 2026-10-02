@@ -1,7 +1,7 @@
 ---
 id: E-decompile-agir-always-spills-no-compact
 title: "anim.decompile_agir output for a real Animation Blueprint (~10.7KB) always overflows the 10000-char inline display limit and spills to disk, with no compact/summary mode — every decompile forces a follow-up file Read"
-status: OPEN
+status: WONTFIX
 severity: Low
 category: ergonomic
 tags: [animation, anim, decompile_agir, agir, response-size, oversized-readback, compact, response-spill, docs]
@@ -53,3 +53,4 @@ severity rationale: impact=Low (pure response-spill that only forces a Read; rec
 
 ## History
 - `#1-initial-audit` `OPEN` reporter — Struggle-audit of an AGIR-transfer task (namespace `anim`, outcome `tool_bug` on the separate `anim.compile_agir` cached-pose corruption, `B-agir-cached-pose-forward-ref-corruption`). Distinct PROCESS angle surfaced by the CallAnalyzer: all three `anim.decompile_agir` calls (source `ABP_Manny`, the variant, and the re-decompile of `ABP_Manny`) returned `outputTooLong` at 10720 / 10704 / 10720 chars against the 10000-char threshold, spilling to `HttpResponses/*.json` and forcing an extra file `Read` each time — the method is structurally never inline for a real ABP. No compact/summary mode exists to keep the "expected node families present?" check inline. Same per-method oversized-readback family as `E-describe-sequence-no-compact-mode` et al. Overlay page = `docs/wiki-src/anim.md`. Severity Low (response spill; extra Read only).
+- `#2-stale-sweep-yagni` `WONTFIX` developer — Single encounter whose cost is one `Read` of the spill file per call, the rubric's floor. The AGIR text is the whole payload, so there is nothing to trim inline; a structural-summary mode is speculative design with no second requester, and the spill threshold is the plugin-wide context budget (`HttpResponseSpill.cpp:22`, `PinWrightSettings.cpp:24`), not a per-verb knob. Plugin HEAD `10212ee4`.
