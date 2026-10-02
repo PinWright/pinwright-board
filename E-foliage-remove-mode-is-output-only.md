@@ -1,7 +1,7 @@
 ---
 id: E-foliage-remove-mode-is-output-only
 title: "foliage.remove's own page tells callers to check `mode`, the response emits `mode`, and passing `mode` back is rejected UNKNOWN_PARAMS — the verb has promoted an output field to the caller-facing name for its scope while the input still spells that scope as a boolean plus an optional path"
-status: OPEN
+status: WONTFIX
 severity: Low
 category: ergonomic
 tags: [foliage, remove, params, unknown-params, response-echo, input-output-drift, naming, docs, precedence]
@@ -138,3 +138,4 @@ success response the verb produces, and the page names it in three places.
   the landed precedence fix, and rating the improvement at the hazard's severity would double-count
   it. Reach declined both ways: not an every-session verb, but `mode` is in every success response
   the verb emits, so not an edge path within it either.
+- `#2-stale-sweep-yagni` `WONTFIX` developer — Additive API-shape nicety the ticket itself rates as pure naming friction: the refusal is loud (`UNKNOWN_PARAMS`), the over-broad-wipe hazard is handled by the documented precedence and the `mode` echo (`docs/wiki-src/foliage.md:106-110`), and the param list (`FoliageHandler.cpp:1272-1276`) names `removeAll`. One encounter, no second requester. Plugin HEAD `10212ee4`.
