@@ -1,7 +1,7 @@
 ---
 id: E-asset-connect-material-pins-no-main-target
 title: "asset.connect_material_pins only links expression->expression by index and can't target the Main material node's BaseColor/Roughness, so the asset.* add->wire flow can't be completed in-namespace — the caller must cross to material.authoring.connect_nodes"
-status: OPEN
+status: WONTFIX
 severity: Low
 category: ergonomic
 tags: [material, asset, connect-material-pins, main-node, cross-namespace, docs]
@@ -85,3 +85,4 @@ legacy material authoring, an off-canonical path -> Low.
 
 ## History
 - `#1-initial-audit` `OPEN` reporter — Struggle audit of a clean `asset.add_material_parameter` task (focus `asset.add_material_parameter`, namespace `asset`, outcome tool_bug for an unrelated neighbor stub) authoring `/Game/Materials/M_EnvProp_Master`. After adding three params via asset.*, the agent needed to wire Tint->BaseColor and Roughness->Roughness on the Main material node, but `asset.connect_material_pins` exposes only `fromExpression`/`toExpression`/`inputName` (expression->expression by numeric index) with no Main-node target — so the asset.* add->wire flow cannot be completed in-namespace. The agent read the connect_material_pins doc, hit the limit, and crossed to `material.authoring.connect_nodes` (`targetNodeId:"Main"`, `{"message":"Connected to main material node."}`) for both wires. Friction note verbatim: "asset.connect_material_pins (the asset.* family paired with add_material_parameter indices) documents no way to target the main material node's BaseColor/Roughness, so I used material.authoring.connect_nodes for the base-color/roughness wiring instead." CallAnalyzer flagged the same gap (efficiency finding 3, pattern "workaround"). Propose: docs minimum — note on the `asset.connect_material_pins`/`asset.add_material_parameter` overlay in `docs/wiki-src/asset.md` that main-node wiring lives in `material.authoring.connect_nodes` (`targetNodeId:"Main"`) or `material.compile_mgir`; optionally give asset.connect_material_pins a Main sentinel target. Low — clean outcome, documented cross-namespace workaround, off-canonical asset.* path. Distinct from `E-material-connect-nodes-target-input-arg-asymmetry` (arg name), `E-material-main-output-no-node-readback` (read side), and `E-material-mgir-bulk-path-undiscovered` (whole-graph MGIR steer).
+- `#2-stale-sweep-verb-removed` `WONTFIX` developer — STALE: `asset.connect_material_pins` no longer exists; no handler or doc reference remains in plugin `10212ee4`. The only material connect verb is `material.authoring.connect_nodes`, which accepts the `"Main"` sentinel (`docs/wiki-src/material.authoring.md:57`), so there is no longer an `asset.*` family to complete in-namespace.
