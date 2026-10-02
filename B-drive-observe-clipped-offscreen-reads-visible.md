@@ -1,7 +1,7 @@
 ---
 id: B-drive-observe-clipped-offscreen-reads-visible
 title: "drive.observe reports visible:true for buttons of a closed dropdown that is translated out of a ClipToBounds parent; drive.click / drive.hover on them return no_change_within_budget and do nothing"
-status: OPEN
+status: IN-REVIEW
 severity: Medium
 category: bug
 tags: [drive, drive.observe, drive.click, drive.hover, visibility, clipping, render-transform, clip-to-bounds, false-positive, silent-noop, pie]
@@ -44,3 +44,4 @@ coordinates.
 
 ## History
 - `#1-closed-dropdown-reads-visible` `OPEN` reporter - Filed from the school-computer compatibility verification (W_LobbyLoginButton restored in W_LyraFrontEnd). Related but distinct: `B-drive-observe-collapsed-ancestor-reads-visible` covers Collapsed ancestors; here nothing is collapsed, the element is only clipped by a ClipToBounds ancestor after a render translation.
+- `#2-ancestor-clip-rect-folded` `IN-REVIEW` developer - The shared element-state derivation (`DriveElementFactory`, used by both the game walk and the editor-chrome walk, hence observe / expect / click / hover / drag targeting) now threads a desktop-space clip rect down the walk: `ClipToBounds` / `ClipToBoundsAlways` intersect it, `ClipToBoundsWithoutIntersecting` replaces it (OnDemand ignored), and it is dropped below an `SRetainerWidget` (retainer-local geometry). An element (or ancestor) whose render bounding rect has no positive-area overlap with that clip reads `visible:false` with `geometry.stale` and zeroed rect, so the action gate refuses it with `TARGET_CHANGED` (visible=false). Partly clipped elements stay visible. Known ceiling: bounding rects, so a rotated clipper over-reports visibility; an element Slate culled keeps its last painted rect, which is what is compared. Files: `Source/PinWright/Private/Handlers/Drive/DriveElementFactory.{h,cpp}`, `DriveTypes.h` (field comments), `Tests/Drive/TestDriveElementFactory.cpp`, `docs/wiki-src/drive.md`, `CHANGELOG.md`. Tests: `PinWright.drive.element_factory.ClipRectRejectsRectsOutsideTheClipper` (pure), `PinWright.drive.element_factory.ClippedOutChildIsNotVisible` (live Slate fixture: 200x40 ClipToBounds box with leaves translated 0 / -10 / -60 px; inside and partial visible, outside visible:false + not actionable).
