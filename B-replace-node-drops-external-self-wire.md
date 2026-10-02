@@ -1,7 +1,7 @@
 ---
 id: B-replace-node-drops-external-self-wire
 title: "blueprint.graph.replace_node on an external-owner VariableGet silently drops the wired self link (connectionsRewired 0, connectionsDropped [])"
-status: OPEN
+status: IN-REVIEW
 severity: Medium
 category: bug
 tags: [blueprint, blueprint-graph, replace_node, variableget, self-pin, external-owner, silent-drop]
@@ -41,3 +41,4 @@ is wired (external context). If a pin is deliberately skipped, list it under `co
 
 ## History
 - `#1-external-self-wire-dropped` `OPEN` reporter - Filed from the PDS QA #744 fix, UE 5.8 Linux, host `/sdb-disk/src/unreal/unreal-fpv-wt1`, plugin `61c243f5`. Spotted by reading pins back after the replace; fixed by hand with one `connect_pins`. Cheap, but the response reported full success.
+- `#2-wired-self-moves` `IN-REVIEW` developer - The non-CallFunction self skip in `replace_node` pin migration now applies only to an **unwired** `self`. A wired `self` is matched like any pin (exact name, but never onto a hidden self-context `self`), moved with `MovePinLinks` and counted in `connectionsRewired`; when no compatible visible `self` exists it is recorded in `connectionsDropped` with reason `NO_MATCH` (or an orphan placeholder under `allowOrphanPlaceholders`) instead of refusing the replace. Files: `Source/PinWright/Private/Handlers/Blueprint/BlueprintGraphCrudHandler.cpp`, `Source/PinWright/Private/Tests/Blueprint/TestBlueprintReplaceNode.cpp`, `docs/wiki-src/blueprint.graph.md` (replace_node "The `self` pin" paragraph), `CHANGELOG.md`. Tests: `PinWright.blueprint.graph.replace_node.VariableGet_ExternalOwner_KeepsSelfWire` (Pawn::BaseEyeHeight -> Pawn::AIControllerClass, self wire kept), `PinWright.blueprint.graph.replace_node.VariableGet_ExternalOwner_IncompatibleSelfReported` (Actor::Tags with Actor ref -> Pawn::BaseEyeHeight, self in connectionsDropped NO_MATCH).
