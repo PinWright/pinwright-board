@@ -1,7 +1,7 @@
 ---
 id: E-os-input-wayland-unverified
 title: "os_input under a Wayland session (editor on XWayland) passes IsAvailable because DISPLAY is set, but whether XTEST events reach the editor there is unverified and nothing warns"
-status: OPEN
+status: IN-REVIEW
 severity: Medium
 category: ergonomic
 tags: [drive, os-input, xtest, wayland, xwayland, linux, gnome, platform-support]
@@ -35,3 +35,4 @@ likely the most common Linux desktop.
 
 ## History
 - `#1-filed-platform-gap` `OPEN` reporter - Filed from the multi-editor wrong-window discussion; code reading at `2580e7f4`, not reproduced (host session is X11 on `:0`).
+- `#2-session-reported` `IN-REVIEW` developer — Ask 1 implemented as a warning, not a refusal (XWayland may well deliver; refusing would block it unmeasured). New pure helpers `FDriveOsInput::SessionTypeFor(WaylandDisplay, XdgSessionType)` / `SessionType()` (`Handlers/Drive/DriveOsInput.h/.cpp`): `"wayland"` when `WAYLAND_DISPLAY` is set or `XDG_SESSION_TYPE=wayland`, else `"x11"`. `FDriveActionCommon::RunAction` (`Handlers/Drive/DriveActionCommon.cpp`, settle completion) adds `session` to every `input_path:"os_x11"` result and, on Wayland, a `warning` that delivery is unverified and a no_change outcome proves nothing, naming the X11-session and private-display (`F-os-input-private-display`) options. `os_input` param description updated (`DriveActionHandlers.cpp`). Wiki `docs/wiki-src/drive.md` documents the field, the gate's blindness to native Wayland windows, and the options. Ask 2 (live GNOME/KDE Wayland verification) NOT done: this box is an X11 session with no Wayland compositor, so it is impossible here; the wiki says it is unverified. Test `PinWright.drive.os_input.WaylandSessionDetected` (`Tests/Drive/TestDriveOsInput.cpp`).
