@@ -1,7 +1,7 @@
 ---
 id: E-respawn-delay-dual-verb
 title: "respawnDelay is settable from BOTH game_framework.configure_game_rules and set_respawn_rules (writes the same RespawnDelay var, different category) with no ownership guidance — agents double-set it"
-status: OPEN
+status: WONTFIX
 severity: Low
 category: ergonomic
 tags: [shared-param-no-ownership, docs, game_framework, configure_game_rules, set_respawn_rules, respawnDelay, discovery, wiki]
@@ -97,3 +97,4 @@ occasional, not every-session, path -> Low.
 
 ## History
 - `#1-initial-audit` `OPEN` reporter — Struggle-audit of the arena-deathmatch GameMode setup (13 calls, all `ok:true`, outcome `clean`; the read-back asymmetry angle already tracked on `E-game-framework-info-not-asset-readback`). Distinct PROCESS angle: `respawnDelay` is a param on BOTH `game_framework.configure_game_rules` (`GameFrameworkHandler.cpp:332`, writes `RespawnDelay` under category "Game Rules" at `:369`) and `game_framework.set_respawn_rules` (`:754`, writes the same `RespawnDelay` under category "Respawn" at `:774`), with no ownership note on either wiki page. The agent double-set `respawnDelay:5` in both verbs back-to-back (trace lines 263, 265) to be safe; the value persisted correctly (verified via `blueprint.inspect includeProperties`), so this is redundant-call friction, not a data bug — the shared field also causes an order-dependent Blueprint category ("Game Rules" vs "Respawn"). CallAnalyzer flagged it as a HUNCH for Audit (low/docs). Proposed: name the canonical owner (`set_respawn_rules`) for `respawnDelay` on `docs/wiki-src/game_framework.md` + both method pages, and note `configure_game_rules.respawnDelay` writes the same variable redundantly; optional structural follow-up to drop the duplicate param or unify the category.
+- `#2-stale-sweep-yagni` `WONTFIX` developer — Still true in source (`GameFrameworkHandler.cpp:332-336` under 'Game Rules', `:747-751` under 'Respawn', both write `RespawnDelay`), but not worth tracking: one encounter, the outcome was correct (the same value landed once; the attempt's own friction note was 'none'), the cost was one redundant but harmless write, and the category drift only changes which Blueprint category a variable sits in. Speculative docs nicety with a trivial workaround; reopen if a caller is actually misled by it.
