@@ -1,7 +1,7 @@
 ---
 id: F-editor-set-immersive-mode-proper
 title: "Reimplement editor.set_immersive_mode via the real LevelEditor immersive toggle (removed as a bare-exec stub)"
-status: OPEN
+status: WONTFIX
 severity: Low
 category: feature
 tags: [editor, viewport, immersive, level-editor, reimplement, rpc-cull]
@@ -50,3 +50,4 @@ readback assertion where a viewport is available.
 
 ## History
 - `#1-reimpl-after-cull` `OPEN` reporter — Filed to reinstate the wanted capability removed by the RPC cull ([`E-rpc-cull-151-record`](E-rpc-cull-151-record.md)). The removed `editor.set_immersive_mode` execed a bare `ToggleImmersive` string with no exec route (ViewportHandler.cpp:388-396) and echoed the `enabled` param back as success. Proper impl: execute the real `LevelEditor.ToggleImmersive` command, or better, drive the LevelEditor viewport immersive API directly and read back actual state. Severity Low (viewport convenience, rare path).
+- `#2-stale-sweep-yagni` `WONTFIX` developer — No encounter: filed to reinstate a verb the RPC cull removed, with no caller asking for it since. The capability is reachable today through the real console command `LevelEditor.ToggleImmersive` (`Engine/Source/Editor/LevelEditor/Private/LevelEditor.cpp:113-116`) via `system.console_command`. Reopen when a screenshot/presentation task actually needs a typed set-with-readback.
