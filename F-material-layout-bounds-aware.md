@@ -1,11 +1,10 @@
 ---
 id: F-material-layout-bounds-aware
 title: "Bounds-aware material-graph layout (FMGIRLayoutEngine)"
-status: OPEN
+status: WONTFIX
 severity: Medium
 category: feature
 tags: [layout, material, mgir, node-size]
-blockedBy: [F-graph-layout-metrics-core, F-graph-layout-core]
 encounters: 1
 lastSeen: 2026-06-24T19:46:41Z
 ---
@@ -55,3 +54,4 @@ util for both the placement math and the regression assertion).
 ## History
 - `#1-initial-spec` `OPEN` reporter — FMGIRLayoutEngine (MGIRLayoutEngine.cpp:49-69) lays expressions on a fixed depth-lane grid with no node-size awareness, so wide/tall expressions overlap; replace with bounds-aware placement (metrics-core estimator) + a FormatY-style overlap sweep, verified by FGraphLayoutMetrics asserting no overlap.
 - `#2-repointed-to-graph-layout-core` `OPEN` reporter — Gap analysis 2026-09-30: re-pointed to F-graph-layout-core, the shared layered layout core whose graph-type adapter replaces this fixed-grid engine (size-aware placement, pin-aligned Y, barycenter ordering, overlap-free packing). Implement this ticket as that adapter rather than as a standalone engine; added F-graph-layout-core to blockedBy.
+- `#3-stale-sweep-superseded-by-layout-core` `WONTFIX` developer — Superseded by `F-graph-layout-core` (DONE): plugin commit `0a3b3acc` ("Replace graph auto-layout with PinWright's own layered formatter") deleted the fixed-grid `MGIR/MGIRLayoutEngine.cpp` this ticket targets and replaced it with the size-aware layered core plus a material adapter (`Source/PinWright/Private/Layout/PwGraphLayoutMaterial.{h,cpp}`), covered by the `PinWright.layout.material.*` tests that assert zero overlaps. This ticket's own `#2` already said to implement it as that adapter.
