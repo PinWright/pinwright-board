@@ -1,7 +1,7 @@
 ---
 id: E-consolidate-editor-open-lookup
 title: "The Niagara and Material editor-open guards duplicate a FindEditorForAsset lookup that should be shared"
-status: OPEN
+status: WONTFIX
 severity: Low
 category: ergonomic
 tags: [niagara, material, editor-open-guard, duplication, refactor, EDITOR_OPEN]
@@ -31,3 +31,4 @@ conflict surface, so it wants its own change rather than riding along with a fix
 - `#1-scoped-out-of-the-guard-work` `OPEN` reporter — The `B-niagara-editor-open-guard-missing-on-mutators`
   ticket proposed consolidating the two guards; the agent that classified all 32 verbs argued against
   merging the policy and for extracting only the lookup.
+- `#2-stale-sweep-yagni` `WONTFIX` developer — Internal refactor with no caller-visible effect. The duplicated code is a null-guarded one-line call to `UAssetEditorSubsystem::FindEditorForAsset` (`MaterialFinders.h:191-201`, `NiagaraEditorOpenGuard.h:44-58`), and ~10 other handlers call `FindEditorForAsset` directly; extracting a shared wrapper for two call sites buys nothing. Plugin HEAD `10212ee4`.
