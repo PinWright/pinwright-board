@@ -1,7 +1,7 @@
 ---
 id: F-effect-draw-debug-shapes-batch
 title: "effect.draw_debug_shape is one-shape-per-call — marking out a scene with N preview shapes costs N round-trips"
-status: OPEN
+status: WONTFIX
 severity: Low
 category: feature
 tags: [effect, draw_debug_shape, debug-shape, batch, preview, blockout, step-count, docs]
@@ -120,3 +120,4 @@ made the whole blockout phase one call.
   any debug-shape verb — add an `### effect.draw_debug_shape` note stating
   one-shape-per-call until the batch verb ships. Same friction class as
   `F-console-batch-get-cvar-values` (clean-outcome step-count batch gap).
+- `#2-stale-sweep-yagni` `WONTFIX` developer — Convenience ask with a single clean encounter (5 `effect.draw_debug_shape` calls, all first try, friction "none"). Still one shape per call at plugin HEAD `10212ee4`, but debug shapes are transient previews and N cheap calls are the documented workaround; nothing silently wrong. Reopen if marker-heavy blockouts start showing up as a recurring cost.
