@@ -1,7 +1,7 @@
 ---
 id: E-spawn-category-not-implemented-no-in-mcp-recipe
 title: "debug.spawn_category's NOT_IMPLEMENTED error names raw gdt.* engine verbs but no in-MCP recipe (editor.console_command 'gdt.EnableCategoryName <name>' against a live PIE world), and the debug.md overlay still advertises the dead GameplayDebuggerCategory wrap — caller burns one dead-end call per category and abandons the goal even with PIE running"
-status: OPEN
+status: WONTFIX
 severity: Low
 category: ergonomic
 tags: [docs, debug, gameplay-debugger, spawn-category, error-actionability, not-implemented, pie, console-command]
@@ -99,3 +99,4 @@ objective despite PIE being live.
 
 ## History
 - `#1-initial-audit` `OPEN` reporter — Filed from the gameplay-debugger overlay struggle audit (process/friction lens; outcome `clean`). The fail-loud `[NOT_IMPLEMENTED]` from `debug.spawn_category` (post-`B-spawn-category-silent-noop-fake-existsafter` fix) names raw `gdt.ToggleCategory`/`gdt.EnableCategoryName` engine verbs and "drive from a running PIE session" but never the in-MCP recipe (`editor.console_command "gdt.EnableCategoryName <name>"` against a live PIE world); the `docs/wiki-src/debug.md` overlay still advertises the dead `GameplayDebuggerCategory <name>` wrap. Process evidence: task had PIE live, called `spawn_category` 3× (AI/EQS/Behavior) → 3 identical NOT_IMPLEMENTED dead-ends → abandoned all toggles, leaving debugger overlays absent from the requested screenshot; friction note confirms the agent knew the gdt.* fallback existed but it was inferable-not-actionable. Proposed (E-/docs): add the copy-pasteable `editor.console_command "gdt.EnableCategoryName <name>"` recipe to the handler's NOT_IMPLEMENTED string, and correct `docs/wiki-src/debug.md` to drop the working-wrap claim and document the PIE+gdt path. Distinct from the result-shape bug ticket (IN-REVIEW) and the name-discovery ticket (OPEN) — both spawn_category, different seams.
+- `#2-stale-sweep-stale` `WONTFIX` developer — Premise gone: the `[NOT_IMPLEMENTED]` error this ticket asks to make actionable belonged to `debug.spawn_category`, which was deleted in the RPC cull (plugin `e0d0fe2c`, see `E-rpc-cull-151-record` and `B-spawn-category-silent-noop-fake-existsafter` `#4`); the `docs/wiki-src/debug.md` overlay it cites no longer exists either. No `spawn_category` / gameplay-debugger code remains in `Source/PinWright` at plugin HEAD `10212ee4`.
