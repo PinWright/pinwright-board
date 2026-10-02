@@ -1,7 +1,7 @@
 ---
 id: E-compile-bpir-idempotent-omits-guid-regen
 title: "compile_bpir default-mode 'idempotent' docs omit that node GUIDs regenerate on every re-apply"
-status: OPEN
+status: WONTFIX
 severity: Low
 category: ergonomic
 tags: [bpir, docs, compile_bpir]
@@ -59,3 +59,4 @@ Distinct from (complements, does not duplicate):
 ## History
 - `#1-initial-audit` `OPEN` reporter — Struggle audit, focus `blueprint.compile_bpir`, `/Game/BP_BpirIdempotentProbe`. CallAnalyzer + friction note agree on a docs-precision gap: default-mode `compile_bpir` is documented "idempotent" but its delete-then-recreate path regenerates every authored node's GUID on each identical re-apply, which the headline wording never flags. Proven by two byte-identical applies returning disjoint `createdNodes` GUID sets and `get_nodes` showing all authored-node GUIDs changed (BeginPlay `5486FFAD→C47BCAA1`, ComputeGreeting FunctionEntry `22EC6EE2→24BADD43`) while decompile output and `@(x,y)` positions stayed byte-identical and counts stayed 7/2. No workflow friction (13 RPCs, zero errors/retries) — Low severity, docs-only. Page to fix: `Docs/wiki-src/blueprint.bpir-gotchas.md` line 7 (and `bpir.entry-points.md`).
 - `#2-additional-auto-layout-variant` `OPEN` reporter — Additional evidence (focus `blueprint.compile_bpir`, `/Game/BP_BpirUpsertIdem`): same GUID-regen reproduced in the **auto-layout** variant (3 custom_events + wired downstream nodes, NO `@(x,y)` on any node), confirming the churn is not tied to explicit positioning. Two identical default-`append` applies of the same 14-node BPIR kept node count (17), the event set (no dupes), all 17 node positions, and compile (UpToDate, 0 err) identical across runs, yet every one of the 14 BPIR-authored nodes got a brand-new `NodeGuid` on the second apply. New observable beyond `#1`: the regenerated nodes' UObject names also **increment** (e.g. `K2Node_CustomEvent_0`→`_3`, `CallFunction_0`→`_8`), so neither GUID nor object-name identity survives a re-apply — reinforcing that "idempotent" reads as a no-op but is delete-then-recreate. Auto-layout coordinates were themselves stable across re-applies (deterministic). Still pure docs-precision, Low; remedy sentence in `#1` unchanged.
+- `#3-stale-sweep-yagni` `WONTFIX` developer — Low docs-precision ask with no friction recorded in either encounter (both audits: zero errors/retries, the agent expected the GUID churn). The bullet it targets now states the mechanism outright: `docs/wiki-src/blueprint.bpir-gotchas.md:9` says matching entries "are deleted, then recreated", which is exactly why node GUIDs change; no caller holds node GUIDs across a re-apply. Plugin HEAD `10212ee4`.
