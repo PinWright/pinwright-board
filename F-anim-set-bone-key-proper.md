@@ -1,7 +1,7 @@
 ---
 id: F-anim-set-bone-key-proper
 title: "Reimplement animation.authoring.set_bone_key to splice one key at a frame (removed: it ignored `frame` and wiped the whole bone track)"
-status: OPEN
+status: WONTFIX
 severity: Medium
 category: feature
 tags: [animation, anim-sequence, set-bone-key, bone-track, reimplement, rpc-audit]
@@ -71,3 +71,4 @@ rejected rather than silently folded onto the last frame.
 
 ## History
 - `#1-reimpl-after-audit` `OPEN` reporter - Filed to reinstate the wanted capability removed by the batch-2 RPC audit ([`E-rpc-audit-43-record`](E-rpc-audit-43-record.md)). The removed `animation.authoring.set_bone_key` accepted a `frame` param, ignored it, and rewrote the whole bone-track key array on every call, so a three-key pose loop (frames 0/30/60) silently ended up with only the last key while every call reported success. The rest of the surface survives: `animation.authoring.add_bone_track` still exists and per-bone-track readback works (`boneTracks[]` on describe_sequence/list_curves/get_animation_info, shipped by [`E-rpc-animation-bone-track-readback`](E-rpc-animation-bone-track-readback.md)), so this is a per-frame WRITE verb only. Proper impl: read the existing keys via `IAnimationDataModel::GetBoneTrackTransforms`, overwrite only the requested frame's entry (honoring only the supplied channels), write the preserved array back through `IAnimationDataController::SetBoneTrackKeys`, validate `frame` against the sequence length and fail loud out of range, and echo the resulting `keyCount`.
+- `#2-stale-sweep-superseded-by-dense-keys` `WONTFIX` developer — Superseded: `animation.authoring.set_bone_track_keys` (PinWright `10212ee4`, `Handlers/Animation/AnimationAuthoringHandler_Sequence.cpp:713`) now writes a bone track's full position/quaternion/scale key arrays (NumberOfFrames + 1 entries) through `IAnimationDataController::SetBoneTrackKeys`, so hand-keyed bone animation is authorable again with every frame supplied explicitly and nothing silently wiped. A per-frame splice convenience is not worth a separate verb; refile with a concrete repro if a caller needs one.
