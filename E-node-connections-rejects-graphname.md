@@ -1,7 +1,7 @@
 ---
 id: E-node-connections-rejects-graphname
 title: "blueprint.get_node_connections rejects graphName with [UNKNOWN_PARAMS] while its read-path sibling blueprint.graph.get_node_details requires it — the same node id is addressed two incompatible ways one call apart"
-status: OPEN
+status: WONTFIX
 severity: Low
 category: ergonomic
 tags: [blueprint, get_node_connections, get_node_details, graphname, unknown-params, param-asymmetry, read-path, discoverability]
@@ -74,3 +74,4 @@ this one's block does not list it.
 
 ## History
 - `#1-filed` `OPEN` WEAPONS-critic — Met during a WEAPONS critic review of `/Game/FPS/Weapons/BP_WeaponBase`, while using both node-inspection verbs back to back on one node id to disambiguate a `Break Hit Result` pin (the round-trip filed as `B-bpir-break-struct-pin-not-named`). `blueprint.graph.get_node_details` **requires** `graphName`; `blueprint.get_node_connections` **refuses** the same key with `[UNKNOWN_PARAMS]`. So the same node is addressed two incompatible ways one call apart, and the caller must strip a key between two calls that are used together by construction. Rejection is loud and the error lists valid parameters, so this is friction rather than a trap — hence Low. Root cause is an explicit GUESS, no source read: `get_node_connections` lives in the top-level `blueprint` namespace and presumably never declared `graphName` in its `RPC_PARAMS` block, so the strict unknown-parameter gate refuses it — the same shape as `B-orbit-shots-no-subject-coverage`. Ask: accept `graphName` as an optional disambiguator (used when supplied, ignored when the node id resolves uniquely), which changes no semantics for callers who omit it; or, if the parameter is genuinely meaningless on this path, say so explicitly on the `blueprint.get_node_connections` page beside `nodeId`, because silence is what makes callers try it. Read-path counterpart to `E-blueprint-node-verb-alias-param-drift`, which records the same `blueprint.*` / `blueprint.graph.*` vocabulary split on the authoring path.
+- `#2-stale-sweep-yagni` `WONTFIX` developer — Half the premise is gone and the rest is a self-correcting nicety. At plugin HEAD `10212ee4` `blueprint.graph.get_node_details` declares `graphName` as **optional** (`Handlers/Blueprint/BlueprintGraphInspectionHandler.cpp:516`), not required, so one argument set without `graphName` works for both verbs. `blueprint.get_node_connections` still declares only `assetPath`/`nodeId`/`includeDataPins` (`Handlers/Blueprint/BpirCompilerHandler.cpp:912-917`), but its `UNKNOWN_PARAMS` refusal is loud and lists the valid keys, the ticket records a single encounter and one retry, and nothing is silently wrong. Reopen if callers repeatedly lose calls to it.
