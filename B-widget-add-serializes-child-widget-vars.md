@@ -1,7 +1,7 @@
 ---
 id: B-widget-add-serializes-child-widget-vars
 title: "widget.add / widget.duplicate+replace_class of a Blueprint UserWidget child serialize the child's own widget-variable references (50 inner widgets) into the parent's designer template"
-status: IN-REVIEW
+status: DONE
 severity: Medium
 category: bug
 tags: [widget, widget.add, widget.replace_class, widget.duplicate, userwidget, template, serialization, asset-bloat, silent-wrong-data]
@@ -70,3 +70,4 @@ the asset lose the copies.
   created in the same session. Fixture now: factory-made target with the flag cleared (loaded shape), GUID
   registration for every raw-constructed widget (RootCanvas, SourceRow, SwapMe), and explicit preconditions
   (row class property and class widget-tree archetype hold RowRoot; the engine-constructed source binds it).
+- `#6-verified-linux` `DONE` tester — PinWright `10212ee4` (on origin/master `6283b63b`), UE 5.8 Linux Vulkan. Runs: w23-final = offscreen full suite, no DISPLAY, 5568/5568 passed; w23-xfinal = DISPLAY=:0 offscreen, drive.os_input+click_occlusion+os_gesture+input, 31/31; w23-vis = DISPLAY=:0 windowed drive.input.ModifierChord, 2/2; Python = Content/Python/tests, 427 OK / 5 skipped (all skips Windows-only or an absent local script). Passed in w23-final: `PinWright.widget.add.UserWidgetOmitsChildWidgetVars` (also re-checked after compiling the parent), `PinWright.widget.duplicate.UserWidgetOmitsChildWidgetVars` and `PinWright.widget.replace_class.UserWidgetOmitsChildWidgetVars`. After #5 the fixture has the loaded-from-disk shape and asserts the bug's precondition (the child class binds `RowRoot`) before checking that the placed template holds no reference into the child's widget tree. Fixed for `widget.add`, `duplicate` and `replace_class`; `import_xml` shares the helper but has no test. Limit: the #1 PDS asset dump (`W_LobbyLoginButton` in `W_LyraFrontEnd`) was not regenerated.
