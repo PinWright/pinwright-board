@@ -1,7 +1,7 @@
 ---
 id: E-asset-add-material-parameter-no-index
 title: "asset.add_material_parameter returns parameterName but not the created expression's index/nodeId — forcing the caller to guess append order (0,1,2) for the index-addressed readback/wire, which breaks on a non-empty material"
-status: OPEN
+status: WONTFIX
 severity: Low
 category: ergonomic
 tags: [material, asset, add_material_parameter, node-index, no-echo, readback, response-shape, creation-verb-no-node-id]
@@ -80,3 +80,4 @@ Consistent with the sibling creation-verb-no-node-id ticket
 
 ## History
 - `#1-initial-audit` `OPEN` reporter — Struggle audit of a clean `asset.add_material_parameter` task (focus `asset.add_material_parameter`, namespace `asset`, outcome tool_bug — judge filed the neighbor `B-material-get-node-details-missing-pins-props`, unrelated to this index-omission). Building master material `/Game/Materials/M_EnvProp_Master`, the 3 `add_material_parameter` calls each returned only `{success, assetPath, parameterName}` with NO created-expression index, while both downstream asset.* readback/wire methods are index-addressed (`get_material_node_details` takes `expressionIndex`, `connect_material_pins` takes `fromExpression`). The agent had to guess append order — SAY verbatim: "In a fresh empty material the added parameters should be indices 0, 1, 2." — before reading nodes 0/1/2; the guess held only because the master was freshly created and empty. From the CallAnalyzer's transcript analysis (efficiency finding 1, pattern "frustrating"): on a non-empty material graph the index-by-position assumption would break. Propose: echo the created expression's `index` (and/or `nodeId`) on the add_material_parameter response so add -> inspect -> connect compose deterministically on any material. Low — recoverable, works on a fresh material, but silently wrong on a non-empty one. Distinct from the readback stub (`B-material-get-node-details-missing-pins-props`) and from the MGIR-discoverability ticket (`E-material-mgir-bulk-path-undiscovered`); same creation-verb-no-node-id family as `E-add-event-no-node-id-echo` (blueprint, GUID-addressed).
+- `#2-stale-sweep-verb-removed` `WONTFIX` developer — STALE: `asset.add_material_parameter` no longer exists. No `REGISTER_RPC_HANDLER` or doc reference to it remains in plugin `10212ee4` (the `asset.*` material-graph verbs were removed with `asset.get_material_node_details`, see `docs/rpc-hard-removal-rejected-candidates.md:36`). Parameter authoring lives in `material.authoring.add_scalar_parameter` / `add_vector_parameter` / `add_static_switch_parameter`, which are `nodeId`-addressed, so the append-order index guess this ticket describes cannot arise.
