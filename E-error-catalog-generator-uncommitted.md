@@ -1,7 +1,7 @@
 ---
 id: E-error-catalog-generator-uncommitted
 title: "docs/error-code-catalog.md is regenerated from a Python snippet pasted inside the doc, not a committed script, and the scan misses codes passed through helpers such as ResolveExpressionOrSendError"
-status: OPEN
+status: WONTFIX
 severity: Low
 category: ergonomic
 tags: [docs, error-codes, catalog, tooling, gap-analysis-2026-09-28]
@@ -34,3 +34,4 @@ constants, which the scan already counts.
 
 ## History
 - `#1-inline-generator-and-helper-blindness` `OPEN` reporter — Found in today's verification; verified that no generator script exists and that the doc acknowledges the `EXPRESSION_NOT_FOUND` gap. Related: `E-error-code-vocabulary-registry` (IN-REVIEW), whose migration step 1 called for the catalog to come from a script.
+- `#2-stale-sweep-yagni` `WONTFIX` developer — Internal docs-tooling wish from a gap analysis, no caller encounter. The registry contract test `PinWright.core.error_codes.AllEmittedCodesAreRegistered` is the real guard; the catalog is informational and already states its helper-passed-code blind spot (`docs/error-code-catalog.md:36-39`). Regenerating from the inline snippet works. Plugin HEAD `10212ee4`.
