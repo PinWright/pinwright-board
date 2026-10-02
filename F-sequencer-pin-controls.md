@@ -1,11 +1,10 @@
 ---
 id: F-sequencer-pin-controls
 title: "No way to pin a Control Rig control (hand or foot contact) in place over a frame range"
-status: OPEN
+status: IN-REVIEW
 severity: Medium
 category: feature
 tags: [sequencer, control-rig, contact-lock, pose-editing, deferred, gap-analysis-2026-09-30]
-blockedBy: [F-sequencer-control-keys-batch]
 encounters: 1
 lastSeen: 2026-09-30T12:00:00Z
 ---
@@ -54,3 +53,4 @@ Pose propagation (captured viewport pose applied across frames) is deliberately 
 
 ## History
 - `#1-no-contact-pin` `OPEN` reporter — Filed from the 2026-09-30 animation gap analysis at plugin HEAD `2580e7f4`; deferred behind `F-sequencer-control-keys-batch` (gate set in `blockedBy`). Severity Medium.
+- `#2-pin-controls-v1` `IN-REVIEW` developer — `F-sequencer-control-keys-batch` is implemented, so `blockedBy` is dropped. Added `sequencer.pin_controls` (`controls[]`, `startFrame`, `endFrame`, `target: "anchorFrame" | {control: worldTransform}` required; `anchorFrame` required iff anchor target; `blendInFrames`/`blendOutFrames` keyed outside the hold with smoothstep weight 0 at the outer edge, 1 across the hold; `positionToleranceCm`/`rotationToleranceDeg` default 0.01). Reads original world motion and anchors first, then writes through the same headless world-space path and transaction/readback/rollback as `set_control_keys`; per control `maxErrorCm`/`maxErrorDeg` against the blended targets; any key over tolerance undoes everything and fails `CONTACT_TOLERANCE_EXCEEDED` (`rolledBack`). v1 moves only the pinned controls (documented: right for IK/effector controls, not FK chains; FK chain solve stays v2). Files: `Handlers/Sequencer/ControlRigSequencerHandler.cpp`, `Handlers/ErrorCodes.h` (+`CONTACT_TOLERANCE_EXCEEDED`), `docs/wiki-src/sequencer.md`, `Tests/Sequencer/TestSequencerControlRigKeyBatch.cpp`. Tests: `PinWright.Sequencer.ControlRigKeys.PinHoldsAndBlends` (moving parent; Tip holds within 0.1 cm over 30 frames; blend weights at frames 15/17/52/54), `.PinToleranceFailureUndoesAll` (injected 5 cm readback error; every channel restored exactly, package dirty flag restored). Not run yet.
