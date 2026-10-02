@@ -1,7 +1,7 @@
 ---
 id: E-scs-set-property-value-param-outlier
 title: "blueprint.scs.set_property names its value param 'propertyValue' — a plugin-wide outlier (every other value-set verb uses 'value'); no 'value' alias"
-status: OPEN
+status: WONTFIX
 severity: Low
 category: ergonomic
 tags: [blueprint, scs, set-property, param-alias, value, propertyvalue, drift]
@@ -68,3 +68,4 @@ the value key matches the plugin-wide `value` convention. Audit the rest of the
   AnimationAuthoring handlers), with `propertyValue` unique to SCSHandler.cpp.
   Severity Low (accurate error, one round-trip, self-corrects, no blocked
   progress).
+- `#2-stale-sweep-yagni` `WONTFIX` developer — Still true (`SCSHandler.cpp:281` declares only `propertyValue`), but not worth its own ticket: one encounter, the `MISSING_REQUIRED_PARAM` error names the right key, and the cost was one self-correcting retry. If `E-scs-blueprintpath-no-path-alias` (OPEN, three encounters) is fixed, adding a `value` alias in the same `SCSHandler.cpp` pass is a one-line ride-along; it does not need separate tracking.
