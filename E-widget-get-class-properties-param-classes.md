@@ -1,7 +1,7 @@
 ---
 id: E-widget-get-class-properties-param-classes
 title: "widget.get_class_properties requires `classes`, but the sibling class-name-array slot asset.search_assets uses `classNames[]` — the natural guess hard-errors MISSING_REQUIRED_PARAM with no alias"
-status: OPEN
+status: WONTFIX
 severity: Low
 category: ergonomic
 tags: [docs, widget, asset, param-alias, classes, classNames, get_class_properties, search_assets, misuse-then-correct, drift]
@@ -115,3 +115,4 @@ alias lands. The wiki edit is a downstream process, not this ticket.
   to `widget.get_class_properties`'s `classes` slot; plus a
   `### widget.get_class_properties` H3 in `docs/wiki-src/widget.md` naming the
   `classes` param.
+- `#2-stale-sweep-yagni` `WONTFIX` developer — YAGNI: single encounter, self-corrected on the next call. The dispatcher's missing-param / unknown-param errors name `classes` (`WidgetClassInspectHandler.cpp`, `RPC_PARAM_REQ("classes", "array", ...)`), so the `classNames` guess costs one self-explaining error and nothing is silently wrong. A per-verb `classNames` alias is a speculative convenience within the broader param-alias family.
