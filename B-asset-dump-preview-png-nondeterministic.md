@@ -1,7 +1,7 @@
 ---
 id: B-asset-dump-preview-png-nondeterministic
 title: "preview.png capture size is timing-sensitive; no byte-compare skip, no aspect version"
-status: OPEN
+status: WONTFIX
 severity: Low
 category: bug
 tags: [asset-dump, widget-screenshot, determinism]
@@ -21,3 +21,4 @@ Currently latent: `includeWidgetScreenshot` defaults to `false`, and folder swee
 
 ## History
 - `#1-filed-from-determinism-audit` `OPEN` reporter - Found during the dump-determinism audit: capture size comes from a timing-sensitive settle loop, the binary write path has no byte-compare skip, and preview.png is absent from the aspect-version table. Latent while includeWidgetScreenshot defaults off; fix when screenshots are re-enabled.
+- `#2-stale-sweep-mostly-fixed` `WONTFIX` developer — Re-checked at plugin HEAD `10212ee4`: two of the three items are already in source. `AssetDumpWriter::WriteAssetDumpBinaryFile` (`Utils/AssetDumpWriter.cpp:704-716`) now loads the existing file and returns without writing when the bytes are identical, and `preview.png` has a row in `GetAspectVersion` (`Handlers/Asset/AssetDumpCache.cpp:865`, now at version 4) pinned by `TestAssetDumpPreviewAspectVersion.cpp`. The remaining item, capture size taken from the settled preview geometry (`Handlers/UI/WidgetDesignerCaptureUtil.cpp:437-447`, long axis normalised to `MaxSize`), is latent by the ticket's own account: `includeWidgetScreenshot` defaults off and widget-screenshot dumps bypass the cache at both ends (`AssetDumpCache.cpp:848-857`). No run-to-run churn has been observed; refile with a measured diff if screenshots are enabled for routine sweeps.
