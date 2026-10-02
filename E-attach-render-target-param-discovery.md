@@ -1,7 +1,7 @@
 ---
 id: E-attach-render-target-param-discovery
 title: "render.attach_render_target_to_volume gives no path to discover a valid parameterName (or the material contract), forcing a multi-dump material hunt"
-status: OPEN
+status: WONTFIX
 severity: Low
 category: ergonomic
 tags: [render, render-target, post-process, undocumented-material-contract, docs]
@@ -104,3 +104,4 @@ specialized render-target->PPV method) -> Low
 ## History
 
 - `#1-initial-audit` `OPEN` reporter — CallAnalyzer flagged one inefficiency (workaround/discoverability) on the focus method `render.attach_render_target_to_volume`: no path to discover a valid `parameterName` or the material-exposes-a-texture-parameter contract, so the attempt spent ~4 disk-writing `asset.dump` RPCs + several Greps + an engine-source header read to find one FName, when `material.authoring.get_material_info` returns a material's parameters inline in one RPC. Docs/discoverability gap; the attach RPC itself was clean and the goal succeeded. Distinct root cause from `B-attach-render-target-phantom-param` (functional silent-false-success on the same method). Wiki pages to improve: `docs/wiki-src/render.md` + `docs/wiki-src/render.attach_render_target_to_volume.md`.
+- `#2-stale-sweep-error-enumerates` `WONTFIX` developer — STALE: the discovery dead end is gone. `render.attach_render_target_to_volume` now validates `parameterName` against `GetAllParameterInfoOfType(Texture)` before binding and, on a miss, fails `PARAMETER_NOT_FOUND` with a `validTextureParameters` array and the list in the message ("Valid texture parameters: ..." or "material exposes no texture parameters") — `RenderHandler.cpp` in the handler at `:2324`, validation block ~`:2365-2407`, plugin `10212ee4`. One call with any name now returns the valid set, which is what the multi-dump hunt was for.
