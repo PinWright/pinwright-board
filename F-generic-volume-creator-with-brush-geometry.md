@@ -1,7 +1,7 @@
 ---
 id: F-generic-volume-creator-with-brush-geometry
 title: "volume.* has 22 typed volume-creating verbs and no generic one, so any AVolume subclass the table does not enumerate — APCGVolume above all — has no brush-geometry-bearing placement path; actor.spawn is not the answer because spawning an ABrush subclass produces a zero-extent, collisionless phantom"
-status: OPEN
+status: WONTFIX
 severity: Medium
 category: feature
 tags: [volume, brush, generic-creator, pcg, pcg-volume, avolume, class-parameter, hardcoded-class, missing-verb, brush-geometry]
@@ -164,3 +164,4 @@ Medium stands unmodified.
   `Private/Tests/World/TestVolumeHandlers.cpp` (`:554`, `:808`). Noted that `pcg.generate`
   (`PCGGenerateHandler.cpp:109`) will attach a `UPCGComponent` to any placed actor, so the failure
   mode for PCG is a degenerate zero-extent sampling domain rather than a refusal.
+- `#2-stale-sweep-spawn-builds-brush` `WONTFIX` developer — Stale: the rebuttal this ticket rests on no longer holds. `B-spawned-volumes-have-no-brush-geometry` is DONE, and `actor.spawn` of any `AVolume` subclass (`APCGVolume` included) now builds box brush geometry through the shared `Handlers/Volume/VolumeBrushGeometry.h` builder (`Handlers/Actor/SpawnHandler.cpp:209-219`, PinWright `10212ee4`). `volume.set_volume_extent` resizes it afterwards. So `actor.spawn` is the generic, brush-bearing volume creator that `E-rpc-cull-151-record` named, and no third creation path is needed.
