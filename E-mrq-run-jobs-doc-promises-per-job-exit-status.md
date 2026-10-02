@@ -1,7 +1,7 @@
 ---
 id: E-mrq-run-jobs-doc-promises-per-job-exit-status
 title: "`mrq` wiki claims 'the ticket result includes per-job exit status' but the mrq.run_jobs ticket result is only aggregate `{\"success\":true}` — no per-job array"
-status: OPEN
+status: WONTFIX
 severity: Low
 category: ergonomic
 tags: [mrq, movie-pipeline, run_jobs, job_status, docs, misleading-doc]
@@ -69,3 +69,4 @@ is honest) × reach=rare (offline MRQ batch render) -> Low.
 
 ## History
 - `#1-initial-repro` `OPEN` reporter — REALISM-mode task: batch-render two Sequencer demo cinematics offline through MRQ and watch to completion. Full round-trip succeeded (list_presets count 0; two create_job; run_jobs → running ticket under MoviePipelinePIEExecutor; system.job_status resolved to `completed` `{success:true}`). Friction surfaced by the attempt: the `mrq` wiki claims "the ticket result includes per-job exit status," but the resolved result is just aggregate `{"success":true}` with empty `progress[]` and no per-job array. Replay-confirmed against source: `MRQHandler.cpp:180-183` sets only `success` on the result object (engine `OnExecutorFinished` hands the lambda only an aggregate `bool bSuccess`), and the recorded terminal ledger `Saved/PinWright/jobs.jsonl` shows `result:{"success":true}`. Doc concretely overclaims the result payload; the call itself is correct. Same doc-promises-absent-result-field family as `E-asset-get-doc-promises-tags` / `E-blueprint-get-omits-components-readback-guidance` (both distinct methods, filed separately). Not a gap (F-mrq-render-queue is DONE and the batch render works); not a bug (aggregate success is truthful) — ergonomic doc overclaim.
+- `#2-stale-sweep-per-job-reports-shipped` `WONTFIX` developer — The doc's promise is now true at plugin HEAD `10212ee4`: the `mrq.run_jobs` terminal result no longer stops at `{"success":bool}`. It carries a `jobs` array of per-job artifact reports (`Handlers/MRQ/MRQHandler.cpp:1151`), each with `jobName` and `jobSucceeded` from the job's own output data (`:318`), plus `executorErrors[]` naming the errored job (`:1021`ff), `errorCode` (`RENDER_NO_OUTPUT` / `MRQ_EXECUTOR_FAILED`) and `artifactWarning` for executors without per-job callbacks. `docs/wiki-src/mrq.md:52-56` now describes exactly that shape.
