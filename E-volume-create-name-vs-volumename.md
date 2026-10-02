@@ -1,7 +1,7 @@
 ---
 id: E-volume-create-name-vs-volumename
 title: "volume.create_* and every volume verb name the actor slot 'volumeName' with no 'name' alias — agents default to 'name' and eat an UNKNOWN_PARAMS round-trip per create"
-status: OPEN
+status: WONTFIX
 severity: Low
 category: ergonomic
 tags: [volume, param-alias, name, volumename, create_trigger_box, create_physics_volume, drift, docs]
@@ -112,3 +112,4 @@ question).
   `E-blueprint-param-name-path-vs-assetpath #4`, aliasing the namespace
   `volumeName` slot to accept `name`; plus a `docs/wiki-src/volume.md` note (same
   overlay `E-volume-type-filter-discovery` already targets).
+- `#2-stale-sweep-yagni` `WONTFIX` developer — YAGNI: single-task encounter, zero blocked progress. The `volume.*` namespace is internally consistent on `volumeName`, and the `UNKNOWN_PARAMS` error lists the valid parameter set, so a `name` guess self-corrects on the next call (as it did twice in the recorded task). Adding a `name` alias to ~25 volume verbs is a speculative convenience; the broader cross-namespace alias question is owned by the param-alias family (`E-geometry-create-name-vs-actorname` and siblings).
