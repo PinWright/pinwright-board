@@ -1,7 +1,7 @@
 ---
 id: F-geometry-lod-settings-batch
 title: "No batch form for geometry.set_lod_settings — N-1 calls to configure an N-LOD reduction ladder (asymmetric with array-based set_lod_screen_sizes)"
-status: OPEN
+status: WONTFIX
 severity: Low
 category: feature
 tags: [geometry, lod, set_lod_settings, generate_lods, batch, static-mesh]
@@ -84,3 +84,4 @@ struggle audit rather than the per-finding judge (which filed nothing,
 
 ## History
 - `#1-initial-audit` `OPEN` reporter — Struggle audit of the `geometry.generate_lods` "BoulderProp" task (10 calls, outcome clean, judge filed nothing). PROCESS finding: `geometry.set_lod_settings` (wiki-generated/geometry.set_lod_settings.md — scalar `lodIndex` + per-level `trianglePercent`/`recomputeNormals`/`recomputeTangents`) configures one LOD per call, so an N-LOD reduction ladder costs N-1 such calls (here 3: lodIndex 1/2/3 at 50/25/10%). Its sibling `geometry.set_lod_screen_sizes` (wiki-generated/geometry.set_lod_screen_sizes.md) already takes the whole `screenSizes` array in one call, making the LOD-setup surface array-vs-scalar asymmetric. No retries/errors/fallbacks — pure call-count overhead. Proposed: add a batch `lods:[{lodIndex,...}]` form (mirrors implemented `F-batch-pin-defaults` plural handler) or fold a `reductionByLod` array into `geometry.generate_lods`. Dedup: no existing LOD ticket on the board; geometry E-tickets cover unrelated surfaces (auto_uv/unwrap_uv duplication, deformer count echoes, create name-vs-actorName, mesh-info bbox).
+- `#2-stale-sweep-yagni` `WONTFIX` developer — Convenience ask with a single clean encounter (3 `geometry.set_lod_settings` calls, all first try, friction "none"). Still one LOD per call at plugin HEAD `10212ee4` (`LODCollisionHandler.cpp:188`), but an N-LOD ladder costs N-1 cheap calls and nothing is silently wrong. Reopen if LOD authoring becomes a recurring cost.
