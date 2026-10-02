@@ -1,7 +1,7 @@
 ---
 id: F-actor-aggregate-bounding-box
 title: "No scoped aggregate bounding box — get_bounding_box is single-actor and level.get_bounds is whole-level, so a group footprint must be unioned client-side"
-status: OPEN
+status: WONTFIX
 severity: Low
 category: feature
 tags: [actor-batch-set-asymmetry, get_bounding_box, level-get-bounds, bounds, footprint, batch]
@@ -52,3 +52,4 @@ severity rationale: impact=soft-blocker-with-workaround (N per-actor boxes union
 
 ## History
 - `#1-initial-audit` `OPEN` reporter — Filed from the struggle audit of a clean arena block-out task (`ExampleProjectWelcome`). CallAnalyzer flagged 4 `actor.get_bounding_box` calls + a hand union to answer "overall footprint of the arrangement": `get_bounding_box` is single-actor, and the only aggregate (`level.get_bounds`) is whole-level and cannot be scoped to the 6-actor kit. Judge disposition: clean signal, no replay — footprint was computed correctly; purely a batch-convenience gap. Dedup: ripgrep across OPEN/IN-REVIEW/DONE/WONTFIX found no scoped-aggregate-bounds ticket; `B-level-get-bounds-ignores-actors` is a distinct defect (whole-level get_bounds returning a zero box), not the missing set-scoping capability this ticket owns; `E-geometry-mesh-info-omits-bbox` is an asset-mesh readback, not an actor-set aggregate. Sibling `F-actor-batch-tag-set` shares the `actor-batch-set-asymmetry` family (single-actor verb where a set-aware one should exist) but is a distinct capability (tag write).
+- `#2-stale-sweep-yagni` `WONTFIX` developer — YAGNI: single encounter on a clean task; the footprint was computed correctly from N `actor.get_bounding_box` calls plus a client-side min/max union, a cheap workaround. No second caller has asked for a set/tag/folder-scoped aggregate, and `level.get_bounds` covers the whole-level case. Refile with new evidence if group footprints become a recurring need.
