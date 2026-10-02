@@ -1,7 +1,7 @@
 ---
 id: B-dump-commit-window-leaves-cache-without-sidecars
 title: "A cut-short asset dump can leave a dump dir holding only .dumpcache.json, its writtenFiles naming sidecars that are not on disk"
-status: OPEN
+status: WONTFIX
 severity: Low
 category: bug
 tags: [asset-dump, dump-folder, cache, dumpcache, atomicity, cancel]
@@ -140,3 +140,4 @@ Fix 1 is the honest one; fix 3 is worth having regardless and pairs with
   orphaned stage/backup root after process death); it simply is not what produced
   that observation, and this ticket's `encounters` should not be read as evidence
   for it.
+- `#3-stale-sweep-yagni` `WONTFIX` developer — The only observation behind this ticket was reattributed by its own `#2` to `B-asset-dump-dir-nested-inside-sibling-asset-dir`, so the process-death window has zero recorded encounters. The ticket also verifies the mirror self-heals: `IsCacheFresh` rejects a record whose `writtenFiles` are missing and the next sweep re-dumps it. Still true at plugin HEAD `10212ee4` that nothing recovers an orphaned `.tmp-`/`.bak-` transaction root (`Utils/AssetDumpWriter.cpp:491-492`), but there is no evidence anyone has hit it, nothing reports wrong data, and the fix (orphan-root recovery) is speculative hardening. Refile with a real interrupted-transaction observation.
