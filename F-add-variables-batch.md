@@ -1,7 +1,7 @@
 ---
 id: F-add-variables-batch
 title: "No batch blueprint.add_variables — authoring N member variables costs N round-trips"
-status: OPEN
+status: WONTFIX
 severity: Low
 category: feature
 tags: [blueprint, add_variable, batch]
@@ -43,3 +43,4 @@ BP-authoring path but only bites at multi-variable scale -> Low.
 
 ## History
 - `#1-initial-audit` `OPEN` reporter — Filed from the struggle audit of a clean at-scale `blueprint.compile_bpir` task (transcript `agent-aa455a45b45a94d68.jsonl`, BP `/Game/BP_ScaleStress`, 28 RPC calls, GREEN). Agent stated batch intent ("Now add all member variables in one batch", trace line 637) but had to issue 9 separate `blueprint.add_variable` calls (lines 638-652) because no batch method exists. Proposed: `blueprint.add_variables` taking an array of variable specs, returning one compact confirmation. Dedup: ripgrep across OPEN/IN-REVIEW/DONE — batch-convenience tickets exist on other namespaces (`F-batch-pin-defaults`, `F-add-mapping-batch-keys`, `F-console-batch-get-cvar-values`) but none for `blueprint` member variables. Genuinely new. severity Low (workaround = N fan-out calls; common path but only at multi-variable scale).
+- `#2-stale-sweep-yagni` `WONTFIX` developer — Convenience ask with a single clean encounter (9 `blueprint.add_variable` calls on a GREEN at-scale task, no retries). `blueprint.add_variable` is still one variable per call at plugin HEAD `10212ee4` (`BlueprintPropertyHandler.cpp:38`), but the fan-out workaround is cheap and correct. The heavier per-call cost is the response spill, which `E-add-variable-full-snapshot-spill` owns independently. Reopen with new evidence of recurring cost.
