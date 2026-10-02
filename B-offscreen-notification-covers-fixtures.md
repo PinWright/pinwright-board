@@ -1,7 +1,7 @@
 ---
 id: B-offscreen-notification-covers-fixtures
 title: "Under -RenderOffscreen (640x360 virtual display) the editor's untitled topmost notification window covers pointer-test fixture windows; drive.click_occlusion.UncoveredTargetIsClicked skips with an uninformative \"host window ''\""
-status: OPEN
+status: IN-REVIEW
 severity: Medium
 category: bug
 tags: [offscreen, linux, notification-window, drive, drive.click, simulate_input, target-occluded, test-skips, misleading-error]
@@ -46,3 +46,4 @@ Suggested fix, not done here:
 - `#1-filed-as-stale-cursor-window` `OPEN` developer — Filed while fixing `B-simulate-input-cef-click-noop`. It first blamed a stale platform window-under-cursor. Evidence: run 0a3aa810 automation.log lines 26927-26933 and 28655-28662.
 - `#2-cause-is-notification-window` `OPEN` developer — The `#1` theory was wrong for offscreen. Debug logging in run 3acc89ff showed Slate's routing and the Slate-order top window at the point agreeing, on the notification window. That window is topmost and untitled, and covers fixtures on the 640x360 offscreen display. The window-under-cursor cache was not stale. Title and body rewritten to the measured cause. The simulate_input fixture is fixed (topmost). The drive fixture remains; see the suggested fix above.
 - `#3-host-plugin-window-covers` `OPEN` developer - Seen again in run b2aea516 (automation.log 26824, 27744-27779): `drive.click_occlusion.UncoveredTargetIsClicked` and four `drive.weblive.*` tests skipped as `fixture-window-stacked-under-host-window`, this time naming a host plugin window ('ULTIMATE BLUEPRINT GENERATOR - ...'), not the notification window. The web fixture (`F-drive-web-action-parity` #4) now places its window clear of every visible window and makes it topmost; the Slate-surface fixture here still does neither.
+- `#4-fixture-topmost-and-clear` `IN-REVIEW` developer - The `drive.click_occlusion` fixture (`Tests/Drive/TestDriveClickOcclusion.cpp`) now follows the `drive.weblive` pattern. Both fixture windows are `IsTopmostWindow(true)`; a later top-most window is above an earlier one, so the cover still covers the target. The target is placed right of every visible window (`GetAllVisibleWindowsOrdered`), so neither the notification toast nor a host plugin window holds its center, and `UncoveredTargetIsClicked` should now run its positive half on offscreen hosts. An untitled occluder is now named by type: `TARGET_OCCLUDED` adds `occluding_window_type` (for example `Notification`) and a `recovery` call (`DriveActionCommon.cpp`). Tests: `PinWright.drive.click_occlusion.UncoveredTargetIsClicked`, `PinWright.drive.click_occlusion.OccludedTargetIsRefused` and the new `PinWright.drive.click_occlusion.OsInputOwnWindowIsRefused`.
