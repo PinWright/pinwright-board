@@ -1,7 +1,7 @@
 ---
 id: F-graph-batch-delete-clear-mode
 title: "No batch node delete / clear-graph authoring mode forces per-node stub cleanup before a clean BPIR round-trip"
-status: OPEN
+status: WONTFIX
 severity: Low
 category: feature
 tags: [blueprint, graph, delete_node, compile_bpir, roundtrip]
@@ -35,3 +35,4 @@ verify `decompile`, all before the first authoring call.
 
 ## History
 - `#1-initial-audit` `OPEN` reporter — Struggle audit of a `blueprint.compile_bpir` authored-position round-trip-equivalence probe (`/Game/BP_RoundTripProbe`, fresh Actor BP, 24 nodes). CallAnalyzer of the Attempt transcript (`agent-ad1dca8b223361239.jsonl`, 24 `mcp__pinwright__call`) shows the agent spent ~6 calls clearing the 3 default disabled stubs before authoring: `decompile` (saw 3 ghost events) → `get_nodes(namesOnly)` → 3 consecutive `delete_node` calls (nodeIds `BDFD81C3…`, `7040AC2C…`, `BBEDD906…`, each returning `newOrphanedCount:0`) → verify `decompile`. `compile_bpir mode=append` cannot remove the stubs (no matching signature) and `delete_node` exposes only a single `nodeId` (no array), forcing one call per node. Distinct from `E-inspect-events-omits-disabled-stub-flag` (that ticket is about the readback not *flagging* the stubs; this is about the write side having no batch/clear verb to *remove* them efficiently). Friction note verbatim: *"~6 calls of overhead before any authoring."* Severity Low: pure convenience batch with a cheap per-node workaround, but it is a recurring setup tax for this suite's round-trip probes.
+- `#2-stale-sweep-yagni` `WONTFIX` developer — Convenience ask with a single clean encounter: three `blueprint.graph.delete_node` calls to clear the default disabled stubs, each succeeding. `delete_node` is still single-`nodeId` at plugin HEAD `10212ee4` (`BlueprintGraphCrudHandler.cpp:728-735`), but the workaround is cheap and documented in the ticket, and nothing is silently wrong. Reopen with evidence of a recurring cost outside the round-trip probe suite.
