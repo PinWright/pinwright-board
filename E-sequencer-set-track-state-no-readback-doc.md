@@ -1,7 +1,7 @@
 ---
 id: E-sequencer-set-track-state-no-readback-doc
 title: "sequencer.set_track_* wiki gives no signal the write is unverifiable — callers waste fallback read probes"
-status: OPEN
+status: WONTFIX
 severity: Low
 category: ergonomic
 tags: [docs, sequencer, readback, round-trip]
@@ -54,3 +54,4 @@ unavailable in one line).
 
 ## History
 - `#1-initial-audit` `OPEN` reporter — Process/docs companion to `F-sequencer-track-state-readback`. `docs/wiki-src/sequencer.md` documents neither the `set_track_*` writers nor that their state is unreadable via any `sequencer.*` read RPC, so callers following write-then-verify discover the gap by probing `list_tracks` → `list_sections` (378KB) → `get_metadata`. Evidence: this task's writes succeeded first-try (no discovery friction); the 3 wasted calls were all verification probes. Proposed a one-line wiki note on the setter entries (no readback exists; solo is simulated; fallback is `python.execute`/`property.get`) cross-linking the `F-` feature.
+- `#2-stale-sweep-readback-exists` `WONTFIX` developer — Premise no longer true: the mute/solo/lock state IS readable now. `sequencer.list_tracks` emits `isEvalDisabled` and `allSectionsLocked` per track (`SequenceHandler.cpp:4206-4207`, helper `AreAllSectionsLocked` at `:239-260`), delivered by `F-sequencer-track-state-readback` (IN-REVIEW). The 'no read surface, warn callers' docs note this ticket asks for would now be false, and one of the probes it names (`sequencer.get_metadata`) was removed in `E-rpc-cull-151-record`. Any remaining docs on the new fields belong to the F- ticket's verification.
