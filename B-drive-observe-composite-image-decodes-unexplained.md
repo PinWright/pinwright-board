@@ -1,12 +1,12 @@
 ---
 id: B-drive-observe-composite-image-decodes-unexplained
 title: "drive.observe composite screenshot test fails 'image decodes' under host-neutral PIE; assertion gave no size or decode detail"
-status: OPEN
+status: IN-REVIEW
 severity: Medium
 category: bug
 tags: [tests, drive, screenshot, pie, diagnostics]
-encounters: 1
-lastSeen: 2026-09-30T11:37:33Z
+encounters: 4
+lastSeen: 2026-10-01T13:04:08Z
 ---
 
 # drive.observe composite screenshot: 'image decodes' fails, cause not yet observable
@@ -45,3 +45,4 @@ so the next run names the failing term.
 
 ## History
 - `#1-unexplained-decode-failure` `OPEN` reporter - Filed from the full offscreen suite run 693f8d20: 'image decodes' failed with no detail. Relay error ruled out with the passing-run comparison above. Assertion message extended in `Tests/Drive/TestDriveObserveScreenshotComposite.cpp` to report decode status, detected format, encoded bytes, decoded W/H, raw size and the renderer's reported size/mime. Root cause needs one live rerun of `PinWright.drive.observe` (offscreen) to read those values.
+- `#2-decode-not-recurring-relay-only` `IN-REVIEW` developer — Three offscreen runs on 2026-10-01 (`Saved/PinWright/test-runs/b2aea516a7ed4e7ea30dc6e14c201f76`, `e65422727528455780ea7a4d92afc515`, `dc867ac2ec5642e087cc2dd40e386ad1`, host wt2 checkout) failed this test, and in every one the only error event was the host's `LogApp: Error: FRelayClient: Connection error: address resolution failed ...`; the extended 'image decodes and exceeds the 220x220 mark box' assertion passed all three times (viewport origin (77.0, 163.8)). `PinWright.editor.simulate_input.PiePlayerInputDelivery` failed on the same line in two of the three runs and passed in the third, because the relay error is logged when an async DNS lookup completes and so lands inside or after whichever PIE test is running. That error is host-project code, not plugin code: the host fixed it on its master as commit 6557fb7e2e (logs it at Warning); the wt2 checkout was behind that commit, so the identical one-line change was applied to `Plugins/App/Source/App/Networking/RelayClient.cpp` in the wt2 working tree. No plugin-side allow-list was added: the existing mechanism (`ExpectHostPieStartErrors` in `Tests/Drive/HostNeutralPie.h`) is reserved for engine-shipped plugins with a verified gate, and putting a host's log string in the plugin would violate the plugin's general-purpose rule. The decode/size failure from #1 has not recurred since the assertion started naming its terms; if it does, the message now names the failing term. Note for a reviewer: when the viewport's desktop x is <= 7, the mark-outline counterfactual (b) stops discriminating, because the old desktop-space outline at 100+x falls inside the 97..104 search window. Verify: rerun `PinWright.drive.observe.ScreenshotIncludesUmgAndMarksAtSurfaceLocalCoords` and `PinWright.editor.simulate_input.PiePlayerInputDelivery` offscreen after rebuilding the host App module.
