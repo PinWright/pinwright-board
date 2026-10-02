@@ -1,7 +1,7 @@
 ---
 id: E-sequencer-get-metadata-identity-only
 title: "sequencer.get_metadata returns only asset identity {path,name,class} — the frame rate / playback range / binding counts its name implies live in sequencer.get_properties, so a caller wanting sequence 'metadata' pays an extra get_properties round-trip; the wiki page documents no return fields"
-status: OPEN
+status: WONTFIX
 severity: Low
 category: ergonomic
 tags: [sequencer, get_metadata, get_properties, readback, round-trip, naming, docs]
@@ -110,3 +110,4 @@ fields the caller expected (one extra `get_properties` call, no wrong/lie data)
   OPEN/IN-REVIEW/DONE/WONTFIX — no ticket names `get_metadata`; distinct from
   `E-rpc-sequencer-extend-get-properties` (DONE; that extended the *other* reader),
   same naming/readback family as `E-get-blackboard-value-omits-value` (IN-REVIEW).
+- `#2-stale-sweep-verb-removed` `WONTFIX` developer — Verb no longer exists: `sequencer.get_metadata` was removed in the RPC cull recorded by `E-rpc-cull-151-record` (DONE; its list maps `sequencer.get_metadata` -> `asset.get`). No `REGISTER_RPC_HANDLER("sequencer.get_metadata"` anywhere in plugin HEAD `10212ee4` (only a stale header comment at `SequenceHandler.cpp:9`); rate/range/binding counts stay on `sequencer.get_properties`. Nothing left to document.
