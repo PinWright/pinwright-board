@@ -1,7 +1,7 @@
 ---
 id: B-commit-failure-rollback-test-red-on-linux
 title: "CommitFailureRollsBack fails on Linux: the deliberate move failure is not declared as an expected error"
-status: OPEN
+status: WONTFIX
 severity: Low
 category: bug
 tags: [tests, linux, asset-dump]
@@ -43,3 +43,4 @@ platform-guarded declaration.
 
 ## History
 - `#1-found-on-linux` `OPEN` reporter — Found while verifying the `ResolveDumpRoot` fix on a Linux host; the test group is outside the `PinWright.asset.dump` filter, which is why the wrap-up runs never showed it. All in-test assertions pass; the failure is entirely the undeclared engine `LogFileManager: Error` from the deliberately blocked move.
+- `#2-stale-sweep-fixed-upstream` `WONTFIX` developer — Re-checked at plugin HEAD `10212ee4`: `CommitFailureRollsBack` now declares the engine's move failure, `AddExpectedErrorPlain(TEXT("Error moving file"), EAutomationExpectedErrorFlags::Contains, 1)` at `Tests/Utility/TestAssetDumpWriter.cpp:438`, added by plugin commit `2cdca5a7` ("Stop test log suppression leaking"), which replaced blanket log suppression with exact per-test expected-message declarations. The undeclared `LogFileManager: Error` that made the test red is the defect this ticket recorded, and it is gone.
