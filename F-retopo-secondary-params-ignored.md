@@ -1,7 +1,7 @@
 ---
 id: F-retopo-secondary-params-ignored
 title: "geometry.quadrangulate + geometry.remesh_voxel still silently ignore their secondary declared params (preserveFeatures / featureAngleThreshold / surfaceDistance) after the size-knob fix"
-status: OPEN
+status: WONTFIX
 severity: Low
 category: feature
 tags: [geometry, quadrangulate, remesh_voxel, ignored-param, silent-no-op, accept-and-ignore, placeholder-remesh]
@@ -61,3 +61,4 @@ is no longer blocked — these are secondary quality knobs, hence Low.
 
 ## History
 - `#1-split-from-size-param-fix` `OPEN` developer — Split out of `B-remesh-size-param-ignored` when its fix wired the primary size knob (targetQuadSize/voxelSize) onto the uniform remesh's TargetEdgeLength. The secondary declared params — quadrangulate's `preserveFeatures`/`featureAngleThreshold` and remesh_voxel's `surfaceDistance` — remain declared-but-never-read in `AdvancedMeshOpsHandler.cpp`, an accept-and-silently-ignore the uniform-remesh path cannot honor. Tracks either honoring them on a capable path or dropping them from the ParamSpec so the dispatcher rejects them. Low: mainline density control is fixed, these are secondary knobs.
+- `#2-stale-sweep-stale` `WONTFIX` developer — Both verbs are gone: `geometry.quadrangulate` and `geometry.remesh_voxel` are no longer registered anywhere at plugin HEAD `10212ee4` (no `REGISTER_RPC_HANDLER` match), and `Source/PinWrightGeometry/Private/Tests/Geometry/TestGeometryRemeshUniformHonoursDensity.cpp:6-9` records that they were deleted in the RPC audit that removed 170 dead methods, leaving `geometry.remesh_uniform` as the surviving retopology verb. The declared-but-ignored `preserveFeatures` / `featureAngleThreshold` / `surfaceDistance` params went with them, so the accept-and-ignore defect no longer exists.
