@@ -1,7 +1,7 @@
 ---
 id: F-audio-dialogue-remove-clear-context-verb
 title: "audio.authoring has no verb to remove or clear a DialogueWave context mapping — only add/replace-by-speaker exist, so an over-added context can't be pruned"
-status: OPEN
+status: WONTFIX
 severity: Low
 category: feature
 tags: [audio, audio-authoring, dialogue, dialogue-wave, set-dialogue-context, missing-verb]
@@ -65,3 +65,4 @@ on `MCP_HAS_DIALOGUE`, mirroring `set_dialogue_context`.
 
 ## History
 - `#1-split-from-e-reclaim` `OPEN` reporter — Carved out of `E-dialogue-context-default-not-reclaimed` when that ticket's reclaim-on-first-set fix shipped. The E fix removed the engine-seeded orphan and the off-by-one; the remaining separable item is a typed verb to remove/clear a *caller-added* dialogue context, which the E ticket listed as an optional add-on. No such verb exists in `audio.authoring` today (`set_dialogue_context` appends or upserts-by-speaker only; `replace:true` cannot delete; `ContextMappings` is a nested-struct TArray a generic `property.set` cannot author). Low severity: rare edge path (only needed to undo an over-add) with a heavy recreate-the-asset workaround. Symmetric with the `remove_montage_slot` gap noted in `B-create-montage-duplicate-default-slot`.
+- `#2-stale-sweep-yagni` `WONTFIX` developer — No recorded encounter: split off as the optional add-on of `E-dialogue-context-default-not-reclaimed` after its engine-seeded-orphan defect was fixed. The premise that `ContextMappings` cannot be pruned through the RPC surface does not hold: it is a reflected `UPROPERTY TArray<FDialogueContextMapping>` (`Engine/Classes/Sound/DialogueWave.h:110-111`), and the generic `container.array.remove` / `container.array.clear` verbs (registered at plugin HEAD `10212ee4`) remove an element by index or empty the array, the same route that closed `F-montage-section-remove-rename`. Reopen if a real dialogue task needs a typed verb.
