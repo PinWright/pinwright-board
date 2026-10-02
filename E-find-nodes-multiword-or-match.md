@@ -1,7 +1,7 @@
 ---
 id: E-find-nodes-multiword-or-match
 title: "`blueprint.graph.find_nodes` matchMode:contains tokenizes a multi-word query and OR-matches every sibling, then the full-pin result spills to disk"
-status: OPEN
+status: WONTFIX
 severity: Low
 category: ergonomic
 tags: [blueprint, graph, find-nodes, search, match-mode, response-size, docs]
@@ -103,3 +103,4 @@ multi-word-query shape, avoidable by querying a unique token or nodeId
 
 ## History
 - `#1-initial-audit` `OPEN` reporter — Filed from the struggle audit of a clean adversarial `blueprint.compile_bpir` concurrency-build task (focus `blueprint.compile_bpir`, namespace `blueprint`, outcome `clean`, 11 calls all `ok`/non-error, zero retries). Two compounding CallAnalyzer findings on the support method `blueprint.graph.find_nodes`, merged (same method, same single call, causally linked): (1) `matchMode:"contains"` with query `"Begin B"` tokenized on whitespace and OR-matched all 6 EventGraph nodes — first match `Event ActorBeginOverlap`, which does not contain the literal `"Begin B"` — so the anchor could not be pinpointed and the caller fell back to x-position (`x=520`) disambiguation; (2) the over-broad 6-node result carried full per-node pin metadata (`includePinDefaults` defaults on) and overflowed the 10000-char display budget at 11965 chars, spilling to `HttpResponses/…json` and forcing an extra `Read`. Proposed: make `matchMode:"contains"` honor the whole query as one substring (or add an `exact` mode / document the tokenized-OR behavior on `docs/wiki-src/blueprint.graph.md`), and add a compact `namesOnly`/`fields`/`includePinDefaults:false` anchor-lookup projection so the lookup stays inline (shared with `E-get-nodes-pins-spill-no-projection`, a `get_nodes` instance of the same projection gap). Dedup: ripgrep across OPEN/IN-REVIEW/DONE — no ticket pairs `find_nodes` with query-tokenization or a find_nodes spill; `E-find-nodes-eventgraph-default` (DONE, graphName default) and `E-get-nodes-pins-spill-no-projection` (IN-REVIEW, different method) are distinct.
+- `#2-stale-sweep-superseded` `WONTFIX` developer — Same root cause as `E-find-nodes-no-phrase-match` (OPEN), which describes it correctly: the query is whitespace-tokenized and matched AND-of-terms / OR-of-fields with `matchMode` applied per term (`BlueprintGraphInspectionHandler.cpp:1055`, term loop `:1150-1170`), not OR-matched; "Begin B" hit all six nodes because the one-letter term `b` matches some field of every node. The phrase-mode / docs fix belongs there. The spill half is the projection family (`get_nodes` already has `namesOnly`/`fields`). Plugin HEAD `10212ee4`.
