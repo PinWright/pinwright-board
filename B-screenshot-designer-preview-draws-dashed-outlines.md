@@ -1,7 +1,7 @@
 ---
 id: B-screenshot-designer-preview-draws-dashed-outlines
 title: "widget.screenshot_designer target:preview draws the Designer's dashed per-widget outlines into the frame, while the wiki says preview captures omit Designer chrome"
-status: OPEN
+status: IN-REVIEW
 severity: Medium
 category: bug
 tags: [widget, screenshot_designer, designer, preview, chrome, outlines, docs]
@@ -38,3 +38,4 @@ setting) before capturing, or accept the outlines as layout-probe chrome.
 
 ## History
 - `#1-split-from-runtime-faithful` `OPEN` developer — Split from `B-screenshot-designer-not-runtime-faithful` #1 (Symptom 3), with the mechanism above read from engine source. Not fixed: removing a wrapper that is fixed at build time needs a preview rebuild under different designer flags. That is a bigger change than the runtime-Visibility fix landed there, and it is independent of it. Docs still claim no outlines.
+- `#2-collapse-outline-borders-for-the-draw` `IN-REVIEW` developer — Took the "render without the wrappers" route rather than a preview rebuild: a rebuild under different designer flags would replace the preview `UUserWidget` and drop the transient `showOnly` / `hide` / `visibilityOverrides` already applied to it. `CapturePreviewToPng` now walks the preview's Slate tree and, for the duration of the one `FWidgetRenderer` draw, collapses every `UWidget::CreateDesignerOutline` border (an `SOverlay` carrying `FInvisibleToWidgetReflectorMetaData` whose second slot is an `SBorder` with the same metadata and is not already collapsed), restoring each border's exact prior visibility afterwards (`FPWScopedHideDesignerOutlines`). The response reports `designerOutlinesHidden`. Wiki `widget.md` now states the outlines are removed and when. Files: `Source/PinWright/Private/Handlers/UI/WidgetDesignerCaptureUtil.{h,cpp}`, `WidgetDesignerScreenshotHandler.cpp`, `docs/wiki-src/widget.md`, `CHANGELOG.md`. Test: `PinWright.widget.screenshot_designer.PreviewOmitsDesignerDashedOutlines` (forces `UWidgetDesignerSettings::bShowOutlines`, full-canvas solid fill, asserts every pixel is the fill and `DesignerOutlinesHidden >= 1`).
