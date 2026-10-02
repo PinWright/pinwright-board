@@ -1,7 +1,7 @@
 ---
 id: B-drive-doc-xtest-keys-claim
 title: "drive.click / drive.key docs say XTEST key events do not reach the editor's SDL window, but xdotool (XTEST) Ctrl+Z / Ctrl+Y / Ctrl+C / Ctrl+V reached a PIE game on Linux; drive.key still has no OS path"
-status: OPEN
+status: IN-REVIEW
 severity: Medium
 category: bug
 tags: [drive, drive.key, drive.click, os_input, xtest, linux, docs, hotkeys]
@@ -36,3 +36,4 @@ with modifiers, gated on the focused X window belonging to the editor pid.
 
 ## History
 - `#1-xtest-hotkeys-work` `OPEN` reporter - Filed from a QA verification of in-game editor undo/redo/paste in PDS (UE 5.8, Linux, host `/sdb-disk/src/unreal/unreal-fpv-wt1`, plugin `61c243f5`). Needed a hand-written xdotool helper for every hotkey because `drive.key` has no OS path and the docs said XTEST keys cannot work. Cheap once known (~5 min).
+- `#2-docs-corrected` `IN-REVIEW` developer — Docs corrected to the measured behaviour; no `drive.key` OS path added (scoped out: the brief asked for the doc fix only, the `os_input:true` key path stays a follow-up on this ticket). `docs/wiki-src/drive.md`: the `os_input` limits paragraph under `drive.click` now says XTEST keys DO reach the editor, quotes the measured `xdotool keydown ctrl ... keyup ctrl` sequence, states both measured conditions (X focus on the editor window, each key held across at least one engine tick; a zero-length tap untried) and that a raw `xdotool` sequence bypasses the display lock and ownership gate; the `drive.key` section points there. The false claim was also removed from the code comments in `Source/PinWright/Private/Handlers/Drive/DriveOsInput.h` (class comment) and `Handlers/Drive/DriveActionHandlers.cpp` (comment above `DRIVE_OS_INPUT_PARAM`). Docs-only, no automation test.
