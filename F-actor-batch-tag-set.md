@@ -1,7 +1,7 @@
 ---
 id: F-actor-batch-tag-set
 title: "No one-call tagging of an actor set — add_tag is single-actor and spawn/spawn_batch take no tags param, so tagging a freshly-placed kit costs N calls"
-status: OPEN
+status: WONTFIX
 severity: Low
 category: feature
 tags: [actor-batch-set-asymmetry, add_tag, spawn_batch, batch, tags]
@@ -53,3 +53,4 @@ severity rationale: impact=soft-blocker-with-workaround (N clean per-actor calls
 
 ## History
 - `#1-initial-audit` `OPEN` reporter — Filed from the struggle audit of a clean arena block-out task (`ExampleProjectWelcome`). CallAnalyzer flagged 6 `actor.add_tag` calls (one per kit actor, all `tag=ArenaKit`) as a batch-capability gap: no `tags` param on `actor.spawn`/`actor.spawn_batch` and no `actorNames[]` on `actor.add_tag`, asymmetric with the set-aware `actor.set_folder`(`actorNames[]`) / `actor.find_by_tag` / `actor.delete_by_tag` / `actor.spawn_batch`(`folder`). Judge disposition: clean signal, no replay — behavior is correct, purely a convenience gap. Dedup: ripgrep across OPEN/IN-REVIEW/DONE/WONTFIX found no batch-tag ticket; `F-inspect-list-actor-tags` is tag **enumeration** (a census read), a different capability. Sibling `F-actor-aggregate-bounding-box` shares the `actor-batch-set-asymmetry` family (single-actor verb where a set-aware one should exist) but is a distinct capability (bbox read).
+- `#2-stale-sweep-yagni` `WONTFIX` developer — Convenience ask with a single clean encounter (6 `actor.add_tag` calls, all ok first try, judge: clean signal) and nothing silently wrong. Still true at plugin HEAD `10212ee4` that `actor.add_tag` is single-actor (`ActorPropertyHandler.cpp:225`), but the per-actor workaround is cheap and documented, and no second caller has hit it since July. Reopen with new evidence if kit tagging becomes a recurring cost.
