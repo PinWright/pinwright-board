@@ -1,7 +1,7 @@
 ---
 id: E-pwmodel-corpus-lightmap-gap-undeclared
 title: "Nine of the thirteen .pwmodel examples ship with no lightmap UV channel and LightMapResolution 4, and the page that catalogues what the corpus does not exercise has no lightmap row"
-status: OPEN
+status: WONTFIX
 severity: Low
 category: ergonomic
 tags: [pwmodel, examples, lightmap, corpus-coverage, docs, op-coverage]
@@ -66,3 +66,4 @@ unexercised outside the four that set one, and that the pattern to copy is `amph
 
 ## History
 - `#1-premise-inverted-coverage-gap-survives` `OPEN` reporter — The reported premise is inverted: across all thirteen `Examples/pwmodel/*.pwmodel`, `uv channel=1` and the `lightmap` statement are perfectly correlated, so no shipped example throws away an unwrap. The four with a `lightmap` statement — `amphora:215`, `chess_rook:148`, `oil_lamp:321`, `watchtower:310` — are exactly the four with channel-1 unwrap ops; the other nine (`crystal_cluster`, `driftwood`, `gothic_window`, `mobius_band`, `origami_crane`, `pipe_junction`, `ships_wheel`, `spiral_stair`, `spur_gear`) author `uv channel=0` only. The 4/9 partition in the report is correct. The default-resolution half is correct and correctly gated: `PwModelCompiler.cpp:2526-2536` reads the lightmap spec only inside `if (Document.Lightmap.IsSet())`, so with no statement `GeometryAssetCreate.cpp:296-305` writes neither field (independent `INDEX_NONE` sentinels) and the asset keeps `UStaticMesh`'s default of 4 (`PwModelParser.cpp:344`), while the compiler's 4x4 warning at `GeometryAssetCreate.cpp:368-378` is deliberately scoped `else if (Spec.LightMapChannel != INDEX_NONE)` so a document that never mentioned a lightmap is not nagged (`:371-372`). What survives is a corpus-coverage gap: with `Options.bGenerateLightmapUVs = false` (`GeometryAssetCreate.cpp:247`) the nine ship with no lightmap UV channel at all and `EnforceLightmapRestrictions` clamps `LightMapCoordinateIndex` to channel 0 (`:340-342`), so baked static lighting is unexercised by the corpus — and `Docs/wiki-src/model.examples.op-coverage.md`, the page that catalogues what the corpus does not exercise, has no lightmap row. Fix: add that row, naming `amphora:215` as the pattern to copy.
+- `#2-stale-sweep-yagni` `WONTFIX` developer — Cosmetic catalogue nicety with no reported cost. `#1` itself found the compiler correct and documented, and no shipped example throws an unwrap away. What is left is one missing row on `model.examples.op-coverage.md`. An author who wants baked lighting already has the `lightmap` statement documented in `model.authoring.md` and four examples that use it (`amphora`, `chess_rook`, `oil_lamp`, `watchtower`, checked at plugin `10212ee4`). Nothing reads wrong and no caller was misled, so it is not worth tracking.
