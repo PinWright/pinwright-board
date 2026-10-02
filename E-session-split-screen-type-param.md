@@ -1,7 +1,7 @@
 ---
 id: E-session-split-screen-type-param
 title: "session.set_split_screen_type rejects the obvious 'type' param (requires verbose 'splitScreenType')"
-status: OPEN
+status: WONTFIX
 severity: Low
 category: ergonomic
 tags: [session, param-alias]
@@ -56,3 +56,4 @@ in `E-blueprint-param-name-path-vs-assetpath #4`.
   set_split_screen_type) and `:143` (same name on configure_split_screen). No
   existing board ticket on session/split-screen param naming (ripgrep + qmd,
   OPEN and closed).
+- `#2-stale-sweep-verb-removed` `WONTFIX` developer — Verbs no longer exist: `session.set_split_screen_type` and `session.configure_split_screen` were removed in the RPC cull recorded by `E-rpc-cull-151-record` (DONE, session group). Plugin HEAD `10212ee4` registers only `session.add_local_player`, `remove_local_player`, `host_lan_server`, `get_sessions_info` (`SessionsHandler.cpp`); `splitScreenType` survives only as a read-back field of `get_sessions_info` (`:474`). No param to alias.
