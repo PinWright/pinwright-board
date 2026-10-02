@@ -1,7 +1,7 @@
 ---
 id: E-drive-wiki-os-input-injection-notes
 title: "drive wiki does not say how to fall back to OS-level input injection — the DPI, window-handle and stray-click rules have to be rediscovered, and getting them wrong clicks into another application"
-status: OPEN
+status: WONTFIX
 severity: Low
 category: ergonomic
 tags: [drive, docs, wiki, input-injection, sendinput, dpi, window-handle, safety]
@@ -49,3 +49,4 @@ OS-level injection, a rare path -> Low.
 
 ## History
 - `#1-os-injection-notes-missing` `OPEN` reporter — Filed from a real-click PIE verification (UE 5.8, `X:\src\unreal\unreal-fpv-dev`, plugin `fa755a4f`, 2560x1440 at 150% scaling). Falling back to Win32 `SendInput` at `geometry.absolute` required three undocumented facts: Slate absolute coords are physical pixels 1:1 so the injector must `SetProcessDPIAware()` first (an unaware PowerShell reported 1707x960 for a 2560x1440 desktop); `Process.MainWindowHandle` can be 0 for the editor and the window must be found by the `UnrealWindow` window class; and injected clicks need a `WindowFromPoint` + process-id guard — without it one click in this session landed in the user's terminal. Ask: document all three on `docs/wiki-src/drive.md` beside the action verbs, as the escape hatch referenced from `B-drive-click-misses-pie-game-viewport`.
+- `#2-stale-sweep-superseded` `WONTFIX` developer — Superseded by the built-in OS injection path. `os_input:true` on `drive.click`/`drive.hover` injects XTEST on Linux and `SendInput` on Windows from inside the editor, so no external injector is needed; `docs/wiki-src/drive.md:105` documents the three facts this ticket asked for (no DPI conversion because the editor is per-monitor DPI aware, the 1707x960 trap named; `WindowFromPoint` + `GetWindowThreadProcessId` ownership gate refusing `TARGET_OCCLUDED` before anything moves; no HWND lookup needed). Windows verification is tracked by `F-drive-os-input-windows` (IN-REVIEW). Plugin HEAD `10212ee4`.
