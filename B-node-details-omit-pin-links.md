@@ -1,7 +1,7 @@
 ---
 id: B-node-details-omit-pin-links
 title: "blueprint.graph.get_node_details(_batch) omit pin links: a wired input pin reads as its unused defaultValue (\"0\") with no linkedTo"
-status: OPEN
+status: IN-REVIEW
 severity: Medium
 category: bug
 tags: [blueprint, blueprint.graph, get-node-details, get-node-details-batch, pins, linkedTo, readback, misleading]
@@ -28,3 +28,4 @@ or flag `defaultValue` when the pin is connected (the engine ignores it then).
 
 ## History
 - `#1-playerindex-reads-as-zero` `OPEN` reporter - Filed from a PDS multiplayer investigation on UE 5.8 Linux, host `/sdb-disk/src/unreal/unreal-fpv-wt1`, plugin `61c243f5`. Almost concluded the room-admin row buttons always target player 0; `get_pin_details` showed the link. Cheap (one extra call), but a silent misread risk.
+- `#2-pins-carry-linkedto` `IN-REVIEW` developer - `BuildNodeDetailsJson` now builds each pin with `BuildPinJson(Pin, /*bIncludeLinks=*/true, ...)`, so `get_node_details`, `get_node_details_batch` and `get_graph_details` (`includeNodeDetails`) carry `linkedTo` (`"<nodeId>:<pinName>"`, the `get_pin_details` shape) on connected pins; absent on unconnected pins. Additive: `defaultValue` is kept (it is the pin's stored state) and the wiki now says the engine ignores it while `linkedTo` is present, rather than omitting/flagging it. Files: `Source/PinWright/Private/Handlers/Blueprint/BlueprintGraphInspectionHandler.cpp`, new `Source/PinWright/Private/Tests/Blueprint/TestGetNodeDetailsPinLinks.cpp`, `docs/wiki-src/blueprint.graph.md` (new `get_node_details` / `_batch` H3s), `CHANGELOG.md`. Test: `PinWright.blueprint.graph.get_node_details_links.WiredInputCarriesLinkedTo` (single + batch; fails on `linkedTo` if the flag reverts).
