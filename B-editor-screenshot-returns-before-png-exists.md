@@ -1,7 +1,7 @@
 ---
 id: B-editor-screenshot-returns-before-png-exists
 title: "editor.screenshot (PIE game viewport) returns success with a path before the PNG exists on disk"
-status: OPEN
+status: IN-REVIEW
 severity: Medium
 category: bug
 tags: [editor, screenshot, pie, async, file-write, scripting]
@@ -43,3 +43,4 @@ Poll for the file to exist with non-zero size before reading it.
 ## History
 
 - `#1-initial-report` `OPEN` reporter - Found while scripting before/after captures for the PDS map-editor selection outline prototype (lighting sweep in L_PDS_ChemicalPlant). Evidence is above. The handler source was not inspected, so the root cause is unknown: an async PNG encode/write after the job is marked terminal is the likely candidate.
+- `#2-reply-after-capture` `IN-REVIEW` developer - Root cause: `FHandlerContext::StartJob` sent the non-streaming `status:"running"` envelope (with `requested_path`) to the transport BEFORE invoking the bind delegate, so the I/O thread could flush the reply while the game thread was still capturing and writing the PNG. Fix: new opt-in `FJobBindArgs::bCompletesInBind` (HandlerContext.h/.cpp) - StartJob then replies AFTER the delegate with the terminal outcome: success = started payload + job result (`path`, `width`, ...) + `ticket_id` + `status:"completed"`; failure = error reply with the job's error code and message, data carries `ticket_id` + `status:"failed"`. Streaming requests are unchanged; verbs that do not opt in are unchanged. `editor.screenshot` (ViewportHandler.cpp) opts in, so a success reply now means the PNG is fully written. Wiki: editor.md, system.md, mcp-transport.md, visual-review.md. Tests: `PinWright.infra.start_job.CompletesInBindRepliesWithResult`, `PinWright.infra.start_job.CompletesInBindFailureIsAnError` (both fail if StartJob replies before the delegate), and the reply assertions added to `PinWright.editor.screenshot.LevelViewportFallback` / `.GameViewportCompletesSynchronously` (reply not `running`, reply `path` exists on disk).
