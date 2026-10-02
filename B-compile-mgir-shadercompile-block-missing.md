@@ -1,12 +1,13 @@
 ---
 id: B-compile-mgir-shadercompile-block-missing
 title: "material.compile_mgir returns no shaderCompile block at all (even with waitForShaderCompile:true), although the method page and material.mgir say the verdict lives there"
-status: OPEN
+status: IN-REVIEW
 severity: Medium
 category: bug
 tags: [material, mgir, compile_mgir, shadercompile, response-shape, docs-mismatch]
 encounters: 1
 lastSeen: 2026-09-29T18:40:00Z
+duplicateOf: E-material-verbs-have-no-shader-compile-signal
 ---
 
 # `material.compile_mgir` omits the documented `shaderCompile` block
@@ -55,3 +56,4 @@ updated to point callers at `material.authoring.compile_material`.
 ## History
 
 - `#1-filed-missing-block` `OPEN` reporter — Found while prototyping map-editor selection outline/overlay materials via MGIR on the PDS unreal-fpv checkout. Worked around with a follow-up `material.authoring.compile_material` per asset.
+- `#2-fixed-by-fold-fix` `IN-REVIEW` developer — Same defect as `E-material-verbs-have-no-shader-compile-signal` `#3`/`#4` (`#4` is this very session's MPP_SelectionOutline call); no new code needed. Root cause: `compile_mgir` folds each written material through `FState::Accumulate` (`Source/PinWright/Private/Handlers/Material/MaterialShaderState.h`), whose default status `NotMeasured` outranked `completed`/`onDemand` under worst-wins, so an all-healthy document stayed `NotMeasured` and `AddReport` emitted no `shaderCompile` block — exactly the observed key set (the reporter's materials compiled cleanly, as the follow-up `compile_material` showed). Fixed by plugin commit `29e9d445` (first fold takes the material's status outright), which landed about an hour after this ticket's `lastSeen`, so the reporting build predates it. Verb-level regression tests landed in `3590aa9c`, both ancestors of the current submodule HEAD `9bb70b90`: `Source/PinWright/Private/Tests/Material/TestCompileMgirShaderCompileReport.cpp` — `PinWright.material.compile_mgir.shader_compile.FoldPublishesHealthyVerdict` (pure fold logic, fails deterministically on the pre-fix fold), `PinWright.material.compile_mgir.shader_compile.CleanMaterialReportsCompletedWithAndWithoutSave` and `PinWright.material.compile_mgir.shader_compile.BrokenHlslReportsErrorsWithAndWithoutSave` (invoke `material.compile_mgir` through the handler with `waitForShaderCompile:true`, `save:false`/`true`; block presence asserted unconditionally, `materials[]` emitted by `AddReport` for every fold). Docs (`material.mgir`, `material.compile-state`, method description) already match the fixed behaviour. Filter: `PinWright.material.compile_mgir.shader_compile`. Verify by re-running the repro on a build at or after `29e9d445`.
