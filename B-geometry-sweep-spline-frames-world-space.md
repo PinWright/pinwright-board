@@ -1,7 +1,7 @@
 ---
 id: B-geometry-sweep-spline-frames-world-space
 title: "geometry.sweep / extrude_along_spline feed WORLD-space spline frames into the target's LOCAL mesh"
-status: OPEN
+status: IN-REVIEW
 severity: Medium
 category: bug
 tags: [geometry, sweep, spline, coordinate-space, silent-wrong-shape]
@@ -33,3 +33,4 @@ before handing it to the op; regression test with a target placed off the origin
 
 ## History
 - `#1-found-during-loft-fix` `OPEN` developer — Filed while implementing `F-geometry-loft-true-multiprofile`: sweep and extrude_along_spline sample splines in world space and append to a local-space mesh with no conversion.
+- `#2-target-local-frames` `IN-REVIEW` developer — `SampleSplineFrames` (the one sampler both verbs call) now takes the target component's transform and returns each frame through `InverseTransformRotation` / `InverseTransformPosition`, so the frames reach the op in the mesh's local space; `geometry.sweep` passes `Target.Component->GetComponentTransform()`, `geometry.extrude_along_spline` passes `DMC->GetComponentTransform()`. Files: `Source/PinWrightGeometry/Private/Handlers/Geometry/AdvancedMeshOpsHandler.cpp`, new `Source/PinWrightGeometry/Private/Tests/Geometry/TestGeometrySweepSplineTargetLocalFrames.cpp`, `docs/wiki-src/geometry.md` (sweep + extrude_along_spline bullets), `CHANGELOG.md`. Tests: `PinWright.geometry.sweep.SplineFramesFollowSplineOffOrigin`, `PinWright.geometry.extrude_along_spline.SplineFramesFollowSplineOffOrigin` — spline actor at (-400,300,50) yaw 30, target at (1000,-500,200) pitch 20 yaw 90 scale 1.5; every mesh vertex taken to world space must lie within 1.05 x 75 + 2 uu of the spline curve (fails by >1000 uu with the fix reverted).
