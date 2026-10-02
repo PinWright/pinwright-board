@@ -1,7 +1,7 @@
 ---
 id: E-static-mesh-schema-aliases
 title: "Static-mesh readback omits the compatibility field names triangleCount and uvChannels"
-status: OPEN
+status: WONTFIX
 severity: Low
 category: ergonomic
 tags: [static-mesh, schema, compatibility, aliases, readback]
@@ -49,3 +49,4 @@ in the client.
 
 ## History
 - `#1-filed-wave-6-follow-up` `OPEN` reporter — Source-only verification confirmed `numTriangles` and `uvChannelsByLod` at `StaticMeshDumpBuilder.cpp:55-97` and matching text output at `StaticMeshTextEmitter.cpp:143-154,230-241`, with neither compatibility alias present. The two parent tickets explicitly document those alias omissions, so this ticket owns only the schema compatibility gap. No build, test, editor, or MCP call was run. Severity Low because callers can derive both aliases without losing information.
+- `#2-stale-sweep-yagni` `WONTFIX` developer — YAGNI: speculative schema-compat ask filed as a follow-up with no caller encounter. The data is present and correct under `numTriangles` / `uvChannelsByLod`; the two parent tickets (`F-static-mesh-section-material-map`, `F-static-mesh-uv-channel-readout`) deliberately chose those names, and publishing duplicate alias fields would grow every static-mesh dump and describe response to serve a client vocabulary nobody has reported needing.
