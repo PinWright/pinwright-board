@@ -1,7 +1,7 @@
 ---
 id: E-insert-undo-pairing-undocumented
 title: "insert_*/undo_last_* pairing and 'code' vs 'BPIR' compilation distinction is undocumented (near-duplicate method descriptions)"
-status: OPEN
+status: WONTFIX
 severity: Low
 category: ergonomic
 tags: [docs, blueprint, near-duplicate-verb-descriptions, undo, discovery]
@@ -72,3 +72,4 @@ severity rationale: impact=docs/discoverability (the methods work once the right
 
 ## History
 - `#1-initial-audit` `OPEN` reporter — Filed from the struggle audit of a clean `blueprint.undo_last_compile` task (12 RPCs, all `ok`, zero retries; the focus method round-tripped perfectly). Friction: 4 near-duplicate wiki Reads (`insert_bpir_at_node`, `insert_bpir_before_node`, `undo_last_bpir`, `undo_last_compile`) + a Grep to work out which undo pairs with which insert, because `insert_code_at_node`/`insert_bpir_at_node` carry byte-identical summaries and `undo_last_compile`/`undo_last_bpir` differ only by undefined words "code" vs "BPIR". Source-confirmed descriptions in `BlueprintCodeCompilerHandler.cpp` and `BpirCompilerHandler.cpp`. Dedup: ripgrep across OPEN/DONE — the existing undo tickets (`B-undo-last-bpir-doesnt-restore-phase0-sweeps`, `E-add-event-then-default-compile-bpir-unundoable`, `E-undo-not-reversible-suggests-nonexistent-asset-revert`) are all about undo *behavior*, none about the pairing/naming docs gap. Proposed: add a code-vs-BPIR pairing note + `### ` sections for `undo_last_compile`/`insert_code_at_node` + disambiguate the two identical insert summaries in `docs/wiki-src/blueprint.md`.
+- `#2-stale-sweep-verbs-removed` `WONTFIX` developer — The ambiguity no longer exists: `blueprint.insert_code_at_node` and `blueprint.undo_last_compile` (and `BlueprintCodeCompilerHandler.cpp`) are gone from plugin HEAD `10212ee4` — no registration in `Source/` and no mention in `docs/wiki-src/`. Only the BPIR family remains (`blueprint.insert_bpir_at_node` at `Handlers/Blueprint/BpirCompilerHandler.cpp:454`, `blueprint.undo_last_bpir` at `:856`), so there is no second insert/undo family to pair against.
