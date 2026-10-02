@@ -1,7 +1,7 @@
 ---
 id: E-recorder-latest-session-alias
 title: "recorder verbs reject session:\"latest\" — most-recent intent forces an enumerate-first round-trip"
-status: OPEN
+status: WONTFIX
 severity: Low
 category: ergonomic
 tags: [recorder, ergonomic, session-resolution, docs]
@@ -49,3 +49,4 @@ session (preferred), and/or document the resolution contract on a new
 
 ## History
 - `#1-initial-audit` `OPEN` reporter — Process audit of a recorder post-mortem task ("pull up my latest recorder session"). The agent passed `session: "latest"` and hit `[SESSION_NOT_FOUND] Recording session not found: 'latest'.` on SIX consecutive window-scoped verbs (`describe_session`, `list_segments`, `summarize_change`, `get_series`, `find_events`, `get_state`) before recovering via `list_sessions`. Friction note recorded "clean, no retries", but the call-log shows the literal-but-wrong `latest` guess fanning out across every verb — a misuse-then-correct caused by the absence of a most-recent sentinel. (Distinct from `E-recorder-list-sessions-limit`, which is about the list response size, and from the WONTFIX `E-call-noargs-runs-wiki-zero-arg-methods` zero-arg/wiki round-trips. No board ticket covers a `latest` session alias; qmd + ripgrep dedup confirms none.)
+- `#2-stale-sweep-yagni` `WONTFIX` developer — The docs half is done. `docs/wiki-src/recorder.md:77` (plugin `10212ee4`) now says "Session resolution is explicit: there is no `latest` alias today, so name the session you want to read", and the `session` param reads "Recording file path or id (from recorder.list_sessions)". The alias half is a nicety with a one-call workaround: `recorder.list_sessions {limit:1}` returns the newest id, since the list is newest-first. One encounter, no second reporter.
