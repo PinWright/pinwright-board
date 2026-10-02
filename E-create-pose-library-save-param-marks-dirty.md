@@ -1,7 +1,7 @@
 ---
 id: E-create-pose-library-save-param-marks-dirty
 title: "animation.authoring.create_pose_library `save:true` only marks the package dirty (deferred-save convention) yet echoes existsAfter:true with no persist signal, so the misleadingly-named `save` param forces a follow-up asset.save to actually persist"
-status: OPEN
+status: WONTFIX
 severity: Low
 category: ergonomic
 tags: [animation, animation-authoring, create-pose-library, save, persistence, mark-dirty, in-memory, naming, no-disk-write]
@@ -135,3 +135,4 @@ flagged here for animation.authoring but not cold-load-confirmed this run.
   impact=misleading-persistence-surface / latent no-persist mitigated by honest
   doc + one documented recovery call (Low-Medium) x reach=rare (pose-library
   authoring) -> Low.
+- `#2-stale-sweep-stale` `WONTFIX` developer — The ask (option 1: tell the caller the create did not persist) is met. `create_pose_library` now ends with `AddAssetSaveReport(Result, bSave, /*bSavedToDisk=*/false, SaveState)` (`AnimationAuthoringHandler_AnimBlueprint.cpp:3458`), which emits `saveRequested:true`, `saved:false` and `pendingFlush:true` (`AssetUtils.cpp:1159-1168`), so `existsAfter:true` is no longer the only signal. The `save` param is described as "Mark asset dirty" and keeps the name its ~25 sibling creators in that file use. Plugin HEAD `10212ee4`.
