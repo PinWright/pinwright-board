@@ -1,7 +1,7 @@
 ---
 id: F-texture-sampling-settings-batch
 title: "No batch setter for a texture's sampling settings — configuring wrap + filter + group + LOD bias on one texture costs 4 separate set_* RPCs (each its own write+save round trip)"
-status: OPEN
+status: WONTFIX
 severity: Low
 category: feature
 tags: [texture, batch, set_texture_wrap, set_texture_filter, set_texture_group, set_lod_bias, sampling, save, ergonomic]
@@ -113,3 +113,4 @@ lodBias}, save)` would have collapsed the four write+save round trips into one.
   texture batch/sampling-settings ticket; `E-texture-describe-omits-lodbias-wrap`
   is the read-back layer (distinct write-vs-read facet);
   `E-texture-action-handler-param-docs` is the param-docs layer (distinct).
+- `#2-stale-sweep-yagni` `WONTFIX` developer — Convenience ask with a single clean encounter (4 `texture.set_*` calls, all first try). The four singular setters still exist at plugin HEAD `10212ee4` (`TextureHandler.cpp` action handlers) and work; nothing silently wrong. A generic multi-property write, if it lands, belongs to `F-property-set-batch` (OPEN, Medium) rather than one bag setter per namespace. Reopen with evidence of a recurring cost.
