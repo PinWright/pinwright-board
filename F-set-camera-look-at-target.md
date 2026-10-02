@@ -1,7 +1,7 @@
 ---
 id: F-set-camera-look-at-target
 title: "editor.set_camera has no look-at target; agents must hand-compute pitch/yaw for 'aim at X' intents"
-status: OPEN
+status: WONTFIX
 severity: Low
 category: feature
 tags: [editor, viewport, set_camera, camera, look-at, ergonomic, docs]
@@ -22,3 +22,4 @@ This is a PROCESS-friction finding, not a tool defect — the task completed cle
 
 ## History
 - `#1-initial-audit` `OPEN` reporter — Process-friction audit of an `editor`-namespace cinematic-walkthrough task (17 calls, all ok, outcome `clean`). Self-reported friction note: "only extra step was computing look-at pitch/yaw toward origin ... both expected." The agent did this look-at trig **twice** — `set_camera loc(1200,-800,600) rot(-22.59,146.31,0)` (frame toward origin) and `set_camera loc(-400,600,200) rot(-15.5,-56.31,0)` (lower-angle vantage) — because `editor.set_camera` exposes only explicit `location`/`rotation` (`ViewportHandler.cpp:165-179`), no look-at/target convenience. Dedup checked: distinct from `B-set-camera-no-viewport-redraw` (redraw flush, DONE) and `E-viewport-info-camera-transform` (camera read-back, DONE) — this is a write-side input-ergonomics gap; no existing camera/look-at ticket on the board.
+- `#2-stale-sweep-yagni` `WONTFIX` developer — Convenience ask with a single clean encounter (17 calls all ok; the agent called the trig "expected"). `editor.set_camera` still takes only `location` / `rotation` at plugin HEAD `10212ee4` (`ViewportHandler.cpp:200-204`), but the workaround is two `atan2` calls documented in the ticket, `editor.focus_actor` aims at an actor, and aimed captures at a point are covered by `camera.orbit_shots {point}`. Nothing silently wrong. Reopen if viewport look-at becomes a recurring cost.
