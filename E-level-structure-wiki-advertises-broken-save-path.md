@@ -1,7 +1,7 @@
 ---
 id: E-level-structure-wiki-advertises-broken-save-path
 title: "level.structure wiki tells callers to persist the in-memory WP world with {save:true} (a live SAVE_VERIFICATION_FAILED dead-end) and never warns that NO MCP save verb persists an in-memory WP world today, driving a repeated save-retry loop + C++ source dive"
-status: OPEN
+status: WONTFIX
 severity: Low
 category: ergonomic
 tags: [docs, level-structure, world-partition, create-level, save, save-as, in-memory, persistence, discoverability, wiki, retry-loop]
@@ -143,3 +143,4 @@ this caveat to the now-working path in the same pass.
   `E-create-level-save-false-world-not-active` (the `{save:false}` inactive-world gap,
   now fixed). No existing ticket targets line 26's misadvertised `{save:true}` save
   path or the missing "no MCP save verb persists an in-memory WP world" caveat.
+- `#2-stale-sweep-save-path-fixed` `WONTFIX` developer — The dead-end this ticket asked the wiki to warn about is gone. The `SAVE_VERIFICATION_FAILED` came from a wrong-drive write (package name passed as a filesystem filename, `.umap` landed at `C:\Game\...`), recorded in `B-create-level-saved-true-no-umap` `#7` and `B-level-save-saved-true-in-memory-no-umap` `#3` and fixed upstream in `40f26b6a`. At plugin HEAD `10212ee4` `McpSafeLevelSave` resolves the map filename (`Utils/AssetUtils.cpp:1256`), saves to it (`:1304`) and checks the engine's `SavedFilename` against it (`:1328`); `level.save` routes through the same helper (`Handlers/Level/LevelHandler.cpp:446`, `:553`). So `level.structure.md:26`'s "Use `{save:true}` (the default) to also write the `.umap`" is now correct advice, and a "no MCP save verb persists an in-memory WP world" caveat would be false.
