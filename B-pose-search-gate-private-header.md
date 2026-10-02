@@ -1,7 +1,7 @@
 ---
 id: B-pose-search-gate-private-header
 title: "pose_search.* reports PLUGIN_DISABLED on UE 5.3-5.5 because the compile gate requires PoseSearchFeatureChannel_Position.h, a Private header before 5.6"
-status: OPEN
+status: IN-REVIEW
 severity: Medium
 category: bug
 tags: [pose-search, motion-matching, engine-version, compile-gate, plugin-gated, ue53, ue54, ue55, gap-analysis-2026-09-28]
@@ -61,3 +61,4 @@ plus `NewObject(Schema, Class)`, and set `Bone`, `OriginBone`, `SampleTimeOffset
 
 ## History
 - `#1-private-header-gate` `OPEN` reporter - Found in the 2026-09-28 competitive gap analysis and re-verified at plugin HEAD `71c91649` against local 5.3 to 5.8 engine trees: the `__has_include` gate at `PoseSearchHandler.cpp:18` requires `PoseSearch/PoseSearchFeatureChannel_Position.h`, which is under `Source/Runtime/Private/` on 5.3 (Experimental root), 5.4 and 5.5 and Public only from 5.6. Not run live on 5.3-5.5. Severity Medium: a hard blocker for the whole namespace on half the supported engines (High-or-Medium class), bumped down for reach since Pose Search authoring is a rare path.
+- `#2-reflection-channels` `IN-REVIEW` developer - Gate in `Source/PinWrightPoseSearch/Private/Handlers/PoseSearch/PoseSearchHandler.cpp` now requires only `PoseSearch/PoseSearchSchema.h` + `PoseSearchDatabase.h`; the typed `PoseSearchFeatureChannel_Position.h` include is gone. Channels are resolved by reflection (`GetDerivedClasses(UPoseSearchFeatureChannel::StaticClass())`, matched by class name) and built with `NewObject<UPoseSearchFeatureChannel>(Outer, Class)`; spec keys are written through `FindPropertyByName` + the shared `ApplyJsonValueToProperty` (FBoneReference also takes a bare bone name), so `bone`/`originBone`/`sampleTimeOffset`/`originTimeOffset`/`weight` keep working with no typed access. No `ENGINE_VERSION_UNSUPPORTED` path was needed. The three test TUs in `Source/PinWrightPoseSearch/Private/Tests/Gameplay/` use the same two-header gate (kept identical because Unity merges them), and `TestPoseSearchHandlers.cpp` checks the Position channel by class name instead of `Cast<UPoseSearchFeatureChannel_Position>`. `docs/engine-version-support.md` gained a "Checked and portable" bullet. Compile-checked (`-SingleFile`) on UE 5.8 only; **5.3-5.5 are unverified** (only 5.8 is installed on this box) - in particular `UPoseSearchSchema::AddChannel` / `AddSkeleton` / `GetRoledSkeletons` on those engines were not re-read. Tests: `PinWright.pose_search.SchemaDatabaseAuthoringPipeline` (existing, now on the reflection path) and `PinWright.pose_search.CreateSchemaChannelKinds`. Not yet run.
