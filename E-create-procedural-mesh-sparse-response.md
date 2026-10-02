@@ -1,7 +1,7 @@
 ---
 id: E-create-procedural-mesh-sparse-response
 title: "geometry.create_procedural_mesh (+7 sibling create verbs) skip AddActorVerification — response omits actorPath/actorGuid"
-status: OPEN
+status: WONTFIX
 severity: Low
 category: ergonomic
 tags: [geometry, create_procedural_mesh, revolve, response-shape, actorpath, actorguid, AddActorVerification, consistency]
@@ -40,3 +40,4 @@ in each of the 8 omitting create verbs, matching the 8 that already call it.
 
 ## History
 - `#1-sparse-response-repro` `OPEN` reporter — Observed `call("geometry.create_procedural_mesh", {name:"SmokeTetra", location:{x:-600,y:0,z:100}})` return `{"name":"SmokeTetra","class":"DynamicMeshActor","enableCollision":false}` — no `actorPath`, no `actorGuid`, and the `location` arg not echoed. Subsequent calls addressed the mesh by name successfully (no hard block). Source verified: PrimitiveHandler.cpp:818-822 (`create_procedural_mesh`) and :779-784 (`revolve`) build their result without `AddActorVerification`, unlike `create_box` (:149) / `create_sphere` (:188) and 6 other create verbs that call it; the helper (AssetUtils.cpp:997-1018) would supply `actorPath`/`mapPath`/`actorGuid`/`existsAfter`/`actorClass`. Full omitter set: create_torus, create_spiral_stairs, create_ring, create_arch, create_pipe, create_ramp, revolve, create_procedural_mesh (8 verbs). Distinct from `E-geometry-create-name-vs-actorname` (input param `name` vs `actorName`), `E-geometry-deformer-echo-mesh-counts` (mutators omit vertex/tri counts), and `E-actor-verification-actorpath-is-map-path` (fixes the helper's `actorPath` value). Fix: reuse `AddActorVerification(Result, NewActor)` in the 8 omitting verbs.
+- `#2-stale-sweep-stale` `WONTFIX` developer — Fixed. Every `geometry.create_*` verb, `revolve` and `create_procedural_mesh` now call `AddActorVerification(Result, NewActor)` before `SendSuccess` (`PrimitiveHandler.cpp:115,157,199,248,292,334,378,416,464,513,555,601,648,691,755,817`; contract comment at `:46`). Plugin HEAD `10212ee4`.
