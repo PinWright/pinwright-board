@@ -1,7 +1,7 @@
 ---
 id: E-bpir-replacement-root-scan
 title: "Replace-mode BPIR rescans every Blueprint graph and node once for each authored block"
-status: OPEN
+status: WONTFIX
 severity: Low
 category: ergonomic
 tags: [bpir, compiler, replace-mode, performance, graph-scan]
@@ -45,3 +45,4 @@ and coordination overhead.
 
 ## History
 - `#1-filed-wave-6-follow-up` `OPEN` reporter — Source-only verification confirmed the all-graph/all-node scan at `BpirCompiler.cpp:2339-2366` and its per-block call at `:3376-3379`. No benchmark, build, test, editor, or MCP call was run. Severity Low because the effect is scale-dependent latency with a document-splitting workaround.
+- `#2-stale-sweep-yagni` `WONTFIX` developer — YAGNI. The scan is still there (`FindEntryNodeForBlock`, `BpirCompiler.cpp:2502`, called per block at `:3588`, plugin `10212ee4`), but the ticket is a source-read complexity observation with no benchmark, no slow compile, and no encounter. Blocks × graph nodes on a real Blueprint is a few thousand pointer compares, far below the editor-side cost of compiling the same document. Reopen with a measured slow `compile_bpir` on a large replacement.
