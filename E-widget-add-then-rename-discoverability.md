@@ -1,7 +1,7 @@
 ---
 id: E-widget-add-then-rename-discoverability
 title: "Building a named widget tree from scratch: agents do add-then-rename instead of naming at add (or one import_xml)"
-status: OPEN
+status: WONTFIX
 severity: Low
 category: ergonomic
 tags: [docs, widget-tree, add, rename, import_xml]
@@ -60,3 +60,4 @@ imported / previously-auto-named trees).
   (warn when `import_xml` widgets *lack* names) and `F-widget-add-placement`
   (ordered placement) — this is the discovery gap that the rename pass is
   avoidable when you control names at creation.
+- `#2-stale-sweep-stale` `WONTFIX` developer — Premise gone: `widget.add` now declares `name` as a REQUIRED parameter (`RPC_PARAM_REQ("name", "string", "Name for the new widget (aliases: widgetName, slotName)")`, `WidgetAddHandler.cpp` at plugin HEAD `10212ee4`), so a caller can no longer add a widget without naming it, and the add-with-default-name-then-rename pattern this ticket describes cannot occur.
