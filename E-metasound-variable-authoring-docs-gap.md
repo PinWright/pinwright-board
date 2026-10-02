@@ -1,7 +1,7 @@
 ---
 id: E-metasound-variable-authoring-docs-gap
 title: "MetaSound variable-authoring RPCs + their variableType registry spellings are absent from the audio.authoring wiki overlay"
-status: OPEN
+status: WONTFIX
 severity: Low
 category: ergonomic
 tags: [docs, metasound, audio, authoring, add_metasound_variable, variableType, discoverability]
@@ -78,3 +78,4 @@ discoverability complement filed alongside a code bug for the same RPC family).
 
 ## History
 - `#1-initial-audit` `OPEN` reporter — Process/discoverability finding from the `MS_AmbientWind` MetaSound-variable authoring task. The `audio.authoring.md` overlay documents create/input/node/output/connect/describe but has no section for `add_metasound_variable` / `set_metasound_variable_default` / `remove_metasound_variable`, and neither overlay nor `metasound_gotchas.md` mentions that `variableType` resolves against the data-type registry (integer key = `Int32`, not the documented `Int`). Caller hit `[VARIABLE_FAILED]` on the documented `Int` form (1 failed call), then recovered only after reading the plugin handler + `MetaSoundLiteralFromTypeName.cpp` and retrying with `Int32`. Distinct PROCESS angle from the code bug `B-metasound-variable-int-type-rejected` (per-finding judge's filed_id, which proposes mapping the alias in the handler): this asks for the variable-authoring RPCs + the registry-spelling trap to be documented on the `audio.authoring` wiki overlay / gotchas page regardless of how the code bug resolves. Deduped against `E-add-variable-type-format` (DONE — `blueprint_add_variable`, different namespace) and `E-add-variable-category-param-undocumented` (different param/RPC family); genuinely new.
+- `#2-stale-sweep-int-alias-and-gotcha-landed` `WONTFIX` developer — The trap this ticket documented is gone at plugin HEAD `10212ee4`: `add_metasound_variable`'s `variableType` param now reads "Registered MetaSound data type: Float, Int/Int32, Bool/Boolean, String, Audio, Trigger, Time, WaveAsset, or any other registered name" (`Handlers/Audio/MetaSound/MetaSoundVariableHandler.cpp:71`ff), and `docs/wiki-src/audio.authoring.metasound_gotchas.md:43` lists the registry keys (`Int32` etc.), states the verbs accept `Int`/`Boolean` as aliases and canonicalize them, and that an unknown type is rejected with `INVALID_TYPE` carrying registry-derived `suggestions`; `:37` covers `add_metasound_variable`/`set_metasound_variable_default` array values. The documented `Int` now works and the gotchas page names the registry spellings, so the source-dive this ticket recorded no longer happens; per-verb pages are generated from the registry.
