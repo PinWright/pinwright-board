@@ -1,7 +1,7 @@
 ---
 id: F-editor-close-all-asset-editors
 title: "No RPC to enumerate or close ALL open asset-editor tabs (cleanup/observability convenience)"
-status: OPEN
+status: WONTFIX
 severity: Low
 category: feature
 tags: [editor-quit, asset-editor, cleanup, shutdown, close-all, list-editors, window-heuristic]
@@ -69,3 +69,4 @@ heuristics. Model the handler shape on `editor.close_asset` in
 ## History
 - `#1-initial-request` `OPEN` reporter — Filed from a live editor-quit-prep session (2026-07-17): needed to close all asset editors before `editor.quit` (per B-editor-quit-crash-open-asset-editors) but no RPC exists. Python `close_all_asset_editors`/`get_all_edited_assets` are AttributeErrors in UE 5.7; the only surface is per-asset `editor.close_asset`, forcing a fragile `drive.list_windows` + per-title heuristic that misses docked editors. The C++ API is already reachable in-plugin (`GetAllEditedAssets` at GraphSelectionHandler.cpp:38; `CloseAllEditorsForAsset` at EditorCommandHandler.cpp:496), so this is a thin-wrapper feature. Distinct from B (which mitigates inside the quit handler) — this asks for a standalone close-all / list RPC.
 - `#2-quit-justification-dropped` `OPEN` maintainer — Ruling: open windows preventing a save+quit IS the bug — `B-editor-quit-crash-open-asset-editors` is the real fix (quit must close editors itself / not crash); agents should never need a manual close-all step to quit safely. Severity Medium→Low and title reframed: this RPC remains a standalone cleanup/observability convenience only, no longer justified by the quit path.
+- `#3-stale-sweep-yagni` `WONTFIX` developer — The only concrete driver is gone. `#2` already ruled the quit path out as a justification, and at plugin HEAD `10212ee4` `editor.quit` closes every open asset editor itself and reports `assetEditorsClosed` / `assetEditorsRemaining` (`EditorQuitHandler.cpp:142`, `EditorQuitPolicy.h:101-105`). What remains is a speculative cleanup/observability convenience with one encounter and `editor.close_asset` as the per-asset path. Reopen with a non-quit use case.
