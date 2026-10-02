@@ -1,7 +1,7 @@
 ---
 id: B-capture-preview-ortho-drops-elevation
 title: "render.capture_asset_preview silently discards `elevation` when projectionMode is orthographic — the parameter doc promises an ignored elevation 'says so in shotDistribution rather than dropping it silently', and that promise is kept only for distribution:'sphere'"
-status: OPEN
+status: WONTFIX
 severity: Medium
 category: bug
 tags: [render, capture_asset_preview, orthographic, elevation, silent-drop, shot-plan, honest-response]
@@ -85,3 +85,4 @@ cases where elevation does not apply.
   defect is that the constraint is invisible, that it also silently rewrites the documented
   default of 30, and that the parameter's own doc promises an ignored elevation is reported in
   `shotDistribution` rather than dropped. Reporting fix, not a behaviour change.
+- `#2-stale-sweep-ortho-elevation-reported` `WONTFIX` developer — Stale: the silent drop is fixed at plugin HEAD `10212ee4`. `MakeShotDistributionObject` (`Source/PinWright/Private/Handlers/Render/CameraShotPlanUtils.h:651-700`) now publishes `elevationRequestedDegrees` on every ring plan and, when the orthographic cardinal-axis snap moved any shot, `elevationIgnored: true`, `elevationIgnoredReason: "orthographicProjection"`, `elevationSnappedShots` and an `elevationWarning` naming the six fixed ortho view types (`:687-700`). `render.capture_asset_preview` counts the snapped shots and feeds that block (`Handlers/Render/RenderHandler.cpp:1663-1689`), and its `elevation` param doc now lists orthographic as one of three constructions that report an ignored elevation rather than dropping it.
