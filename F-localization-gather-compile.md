@@ -1,7 +1,7 @@
 ---
 id: F-localization-gather-compile
 title: "No localization namespace: agents cannot run Gather/Compile, so manifest/archive/locres regeneration is a manual Dashboard step"
-status: OPEN
+status: WONTFIX
 severity: Medium
 category: feature
 tags: [localization, gather, compile, locres, archive, manifest, commandlet]
@@ -73,3 +73,4 @@ editor process with `-run=GatherText` (which would fight the running editor for 
   Localization Dashboard run by the user. Verified the gap by grepping the plugin source (no
   `GatherText`/`LocalizationTarget` references) and the generated RPC reference (no `localization`
   namespace).
+- `#2-stale-sweep-namespace-shipped` `WONTFIX` developer — Premise no longer true: the `localization` namespace exists at PinWright `10212ee4` with `localization.gather` (`Source/PinWright/Private/Handlers/Localization/LocalizationHandler.cpp:361`) and `localization.compile` (`:370`), each running the target's `Config/Localization/<target>_Gather.ini` / `_Compile.ini` as a tracked commandlet job, which covers the Gather/Compile steps this ticket was filed for. The remaining `targets` / `export` / `import` verbs were listed as proposals with no encounter behind them; refile as a new ticket if a workflow needs them.
