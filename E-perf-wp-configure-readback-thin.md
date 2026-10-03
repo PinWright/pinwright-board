@@ -1,109 +1,63 @@
 ---
 id: E-perf-wp-configure-readback-thin
-title: "performance.configure_texture_streaming and world_partition.create_datalayer return bare 'configured/created' strings with no value echo or readback, so a task that asks 'tell me what each call returned' cannot confirm the write"
+title: "performance.* CVar-write verbs answer a bare string or echo the request: read the values back the way set_scalability and apply_baseline_settings already do"
 status: OPEN
 severity: Low
 category: ergonomic
 tags: [docs, performance, world-partition, texture-streaming, datalayer, readback, verify-after-mutate, wiki, cvar-write-no-echo]
 encounters: 2
 lastSeen: 2026-07-09T11:25:33.2635718+03:00
+rice: [2, 1, 1, 2]
+priority: 8
 ---
 
-# `configure_texture_streaming` / `create_datalayer` confirm with a bare message, not the applied values
+# Most `performance.*` setters cannot confirm their own write
 
-Two mutate verbs in the streaming-setup workflow return a flat success **string**
-and nothing else, so an agent that follows the documented "do it, then read back
-what it returned" verify pattern gets no value to confirm against. This is the
-same readback-thinness shape as `E-audio-get-info-soundclass-mix-readback-thin`
-(OPEN, `docs`) and `E-audio-authoring-attenuation-readback-undocumented` (OPEN,
-`docs`) — here scoped to the `performance` texture-streaming verb and the
-`world_partition` data-layer verb.
+Nine `performance.*` verbs write engine settings and report nothing the engine read back
+(`Source/PinWright/Private/Handlers/Debug/PerformanceHandler.cpp`):
 
-This is **distinct from** the judge-filed bug
-`B-configure-world-partition-silent-noop` (which is about
-`performance.configure_world_partition` echoing inputs it never actually applied
-because it targets nonexistent CVars). That ticket is the silent-no-op defect on
-one method; **this** ticket is the broader read-back ergonomics gap on its two
-sibling methods in the same task that return *no* values at all — not even an
-echo — and whose effects can't be confirmed through any documented surface.
+| verb | writes | response |
+|---|---|---|
+| `set_resolution_scale` | `r.ScreenPercentage` | `"Resolution scale set"` (`:485`) |
+| `set_vsync` | `r.VSync` | `"VSync configured"` (`:503`) |
+| `set_frame_rate_limit` | `GEngine->SetMaxFPS` | `"Max FPS set"` (`:521`) |
+| `configure_nanite` | `r.Nanite` | `"Nanite configured"` (`:538`) |
+| `configure_lod` | `r.MipMapLODBias`, `r.ForceLOD` | `"LOD settings configured"` (`:569`) |
+| `configure_texture_streaming` | `r.Streaming.PoolSize`, `r.TextureStreaming` | `"Texture streaming configured"` (`:614`) |
+| `enable_gpu_timing` | `r.GPUStatsEnabled` | request echo `enabled` (`:1145`) |
+| `optimize_draw_calls` | `r.MeshDrawCommands.*` | request echoes `optimized`, `instancing` (`:1260-1261`) |
+| `configure_occlusion_culling` | `r.AllowOcclusionQueries`, `r.OcclusionSlop`, `r.OcclusionCullMinScreenRadius` | request echoes (`:1305-1309`) |
 
-## The two thin returns (handler-confirmed)
+Every CVar write goes through `CVarPriorityPreservingSet::SetPreservingPriority`, which silently does
+nothing when the CVar is not found and whose own header says it is "NOT a substitute for reading
+the value back" because clamps and `OnChanged` sinks still apply
+(`Source/PinWright/Private/Handlers/CVarPriorityPreservingSet.h:41-58`). Two siblings already do it
+right: `set_scalability` re-reads each `sg.*` group (`PerformanceHandler.cpp:447`, reported as
+`appliedGroups` `:457`) and `apply_baseline_settings` re-reads each CVar (`:1183`, `appliedCVars`
+`:1220`). Replay evidence: `configure_texture_streaming {poolSize:800}` returned only the bare string,
+and confirming the pool took (1536 -> 800) needed a separate `system.console.search`.
 
-- **`performance.configure_texture_streaming`** — `PerformanceHandler.cpp:290`
-  returns the bare literal `SendSuccess("Texture streaming configured")`. It
-  echoes none of `enabled` / `poolSize` / `boostPlayerLocation`, and — like the
-  WP-configure no-op — it sets `r.Streaming.PoolSize` / `r.TextureStreaming`
-  behind `if (CVar)` guards (`:267-269`, `:286-288`) and silently skips when the
-  CVar isn't found, with no JSON signal of whether the pool size actually took.
-  So `{enabled:true, poolSize:1500, boostPlayerLocation:true}` returns the same
-  string as `{}` — the caller cannot tell a 1500 MB pool from a no-op.
-- **`world_partition.create_datalayer`** — `WorldPartitionHandler.cpp:145`
-  returns `SendSuccess("DataLayer '<name>' created.")`. It does not echo the
-  created instance's data-layer **asset path**, short name, or any field a caller
-  could use to address or verify the layer afterward.
+**Workaround:** read each CVar with `system.console.search` / `system.console.get` after the call
+(documented for texture streaming at `docs/wiki-src/performance.md:74`).
 
-## Why it matters — the process friction (this task)
+**Fix:** have the nine verbs return `appliedCVars: [{cvar, value}]` re-read after the write, using the
+`apply_baseline_settings` entry helper, with a `found:false` entry (or a warning) for a CVar that does
+not exist; `set_frame_rate_limit` reports `GEngine->GetMaxFPS()`. Keep the existing `message` /
+echo fields for compatibility.
 
-The seed story (`performance.configure_world_partition`, open-world streaming
-setup) ended with an explicit verify demand: *"Walk me through each step and
-report back what each call returned so I know the cell size and loading range
-actually took."* The agent dutifully called both verbs and got back only
-`"Texture streaming configured"` and `"DataLayer 'Foliage_Streaming' created."`
-— success strings with nothing to report. There is nothing to "report back" for
-either, so the story's core ask (confirm the writes) is unanswerable from the
-return values alone.
+**Acceptance:** `configure_texture_streaming {poolSize:800}` returns
+`appliedCVars` containing `{cvar:"r.Streaming.PoolSize", value:800}`; `set_vsync {enabled:false}` on
+a host where `r.VSync` is held at `ECVF_SetByGameSetting` reports the value that survived; each of
+the nine verbs returns `appliedCVars` (or `maxFps`) in its response.
 
-The agent then reached for the one available read-back —
-`level.structure.get_level_structure_info` — as a post-config confirmation, and
-its `dataLayers` array came back **empty**, so even the indirect verify path did
-not show the just-created `Foliage_Streaming` layer. Friction note (verbatim):
+## Related
 
-> "configure_texture_streaming/create_datalayer return bare 'configured/created'
-> messages without echoing applied values ... the newly created Foliage_Streaming
-> layer does not appear in get_level_structure_info.dataLayers."
-
-So between the thin returns and the empty structure read-back, the agent had **no
-way to confirm** the texture pool or the data layer landed — every confirmation
-surface was either a bare string or empty. (Whether `get_level_structure_info`
-*should* list the new layer is a separate tool-bug question for the judge; the
-PROCESS point here is that with the returns this thin, that structure read is the
-*only* fallback verify path, and it didn't help either.)
-
-## What it should do / how to fix (docs-first, NAMES the overlay pages)
-
-The overlay edit is a downstream wiki process, not this audit's job — naming the
-pages and the change is the deliverable. Both overlays
-(`docs/wiki-src/performance.md`, `docs/wiki-src/world_partition.md`) are today
-one-line namespace blurbs with no verify-after-mutate guidance.
-
-- **`docs/wiki-src/performance.md`** — add a short "verify-after-mutate" note
-  that `configure_texture_streaming` returns only a confirmation string and does
-  **not** echo the applied pool size or report whether the underlying CVars were
-  found; point to `system.console.get`/`system.console.search` on
-  `r.Streaming.PoolSize` / `r.TextureStreaming` as the live confirm path for the
-  pool/enable state (and reference `B-configure-world-partition-silent-noop` for
-  the sibling silent-no-op caveat so agents don't trust the bare success on these
-  CVar-driven verbs).
-- **`docs/wiki-src/world_partition.md`** — note that `create_datalayer` returns
-  only `DataLayer '<name>' created.` with no asset path/field echo, and name the
-  live way to confirm a created data layer (e.g. re-query via the data-layer
-  listing/assign verbs, or `asset.dump` on the data-layer asset) since
-  `level.structure.get_level_structure_info.dataLayers` did not surface the
-  newly created layer in this task.
-
-A cheaper structural fix (out of scope for this docs-tagged ticket, but worth
-noting): widen both returns to echo the observed state —
-`configure_texture_streaming` to report the **read-back** `r.Streaming.PoolSize`
-and whether each CVar was found (the same honesty fix
-`B-configure-world-partition-silent-noop` wants), and `create_datalayer` to echo
-the created instance's data-layer asset path / short name. That closes the gap at
-the source; this ticket only asks for the interim documented verify guidance so
-agents are unblocked now.
-
-**Workaround:** confirm the texture pool via `system.console.search` /
-`system.console.get` on `r.Streaming.PoolSize`; confirm a created data layer via
-the data-layer listing/assign verbs or `asset.dump`, not via the bare success
-string or `get_level_structure_info.dataLayers`.
+- `B-configure-world-partition-silent-noop` (IN-REVIEW) — a different verb that wrote nonexistent
+  CVars.
+- `E-viewport-info-no-render-resolution` — wants the `set_resolution_scale` read-back for its own
+  reason.
+- `B-performance-typed-verbs-pin-scalability-cvars` (IN-REVIEW) — introduced the priority-preserving
+  write these verbs use.
 
 ## History
 - `#1-initial-audit` `OPEN` reporter — Struggle-audit of a
@@ -168,3 +122,4 @@ string or `get_level_structure_info.dataLayers`.
   NOT_IMPLEMENTED stub whose wiki redirects to the `performance.*` memreport/stat
   verbs — well-documented discoverability, not a defect. Fix unchanged: widen the
   family returns to echo the read-back CVar values (mirror `set_scalability`).
+- `#3-rephrased` `OPEN` developer — The `world_partition.create_datalayer` half is fixed: its success branch now returns `dataLayerName` and `dataLayerAssetPath` (`Source/PinWright/Private/Handlers/World/WorldPartitionHandler.cpp:189-193`), and the docs ask for `configure_texture_streaming` is done (`performance.md:74` says it is an acknowledgement and names the console read-back). Retitled and rewritten to the `performance.*` CVar-write family per `#2`: six bare-string setters (now `PerformanceHandler.cpp:485,503,521,538,569,614`) plus three request-echo verbs (`:1145`, `:1260-1261`, `:1305-1309`), with `set_scalability` / `apply_baseline_settings` as the reference; dropped the datalayer and `get_level_structure_info` narrative and the stale `:290` citations, added Acceptance. Severity unchanged (Low).
