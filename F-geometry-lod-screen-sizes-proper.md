@@ -1,7 +1,7 @@
 ---
 id: F-geometry-lod-screen-sizes-proper
 title: "Reimplement geometry.set_lod_screen_sizes to write FStaticMeshSourceModel.ScreenSize (removed as a corrupting stub)"
-status: OPEN
+status: WONTFIX
 severity: Medium
 category: feature
 tags: [geometry, static-mesh, lod, screen-size, reimplement, rpc-cull]
@@ -56,3 +56,4 @@ guard the removed version failed).
 
 ## History
 - `#1-reimpl-after-cull` `OPEN` reporter — Filed to reinstate the wanted capability removed by the RPC cull ([`E-rpc-cull-151-record`](E-rpc-cull-151-record.md)). The removed `geometry.set_lod_screen_sizes` was a corrupting stub: it wrote screen-size values into `ReductionSettings.PercentTriangles` (LODCollisionHandler.cpp:444-445) instead of `SourceModel.ScreenSize`, never set `bAutoComputeLODScreenSize=false`, and reported success — so it both failed to apply the setting and clobbered the reduction percentages owned by `set_lod_settings`. Proper impl: write `FStaticMeshSourceModel.ScreenSize` per LOD + set `bAutoComputeLODScreenSize=false`, leaving `ReductionSettings` alone. No generic workaround (`property.set` cannot reach per-LOD source-model fields).
+- `#2-wontfix-yagni` `WONTFIX` developer — No encounter since filing, and the body's "no generic workaround" is wrong: `python.execute` reaches `UStaticMeshEditorSubsystem::SetLodScreenSizes` (`BlueprintCallable`, `StaticMeshEditorSubsystem.h:177`), which writes the per-LOD source-model screen sizes. A dedicated verb would wrap one engine call nobody has needed. Reopen when a session sets LOD screen sizes and the Python route fails or is too awkward to repeat.
