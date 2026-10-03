@@ -8,6 +8,8 @@ tags: [spatial, raycast_screen, raycast, trace, collision, foliage, hism, instan
 encounters: 2
 costly: 1
 lastSeen: 2026-08-29T18:20:00+05:00
+rice: [1, 2, 1, 2]
+priority: 8
 ---
 
 # One of the two trace verbs was taught about collisionless meshes
