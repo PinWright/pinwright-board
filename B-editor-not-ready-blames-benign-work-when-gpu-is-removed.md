@@ -1,7 +1,7 @@
 ---
 id: B-editor-not-ready-blames-benign-work-when-gpu-is-removed
 title: "EDITOR_NOT_READY attributes a wedged game thread to benign engine work and tells the caller to wait, with no check for GPU device removal — after DXGI_ERROR_DEVICE_HUNG the thread never drains and the advice is the opposite of correct"
-status: OPEN
+status: DONE
 severity: Medium
 category: ergonomic
 tags: [editor, EDITOR_NOT_READY, watchdog, diagnosis, gpu, device-removed, DXGI_ERROR_DEVICE_HUNG, shared-editor, multi-agent, world-lock]
@@ -85,3 +85,28 @@ Two smaller improvements in the same message, independent of the GPU case:
   `editor.status`, so a second stream did see this message in the same incident — I have not bumped
   severity on that alone because AI's report treats it as a symptom rather than as something that
   misled them, and I will not claim a cost I did not observe on their side.
+- `#2-gpu-crash-verdict` `IN-REVIEW` developer — Still reproducible in source before the fix:
+  `GameThreadStalledMessage` (Transport/McpRequestCore.cpp) emitted the benign "asset compile, map
+  load, package save" list, the wait advice and "Retrying is harmless - the condition clears by
+  itself" with no GPU check; the plugin's code is `EDITOR_GAME_THREAD_STALLED`, and the reporter saw
+  `EDITOR_NOT_READY` because the stdio proxy's `_probe_state` mapped every `editorReady:false` ping to
+  the retryable `not_ready` state. Fix: the I/O thread reads `GIsGPUCrashed` (CORE_API, set by every
+  RHI's device-removed/lost path) when it reports a stall (`FRequestConfig::bGpuCrashed`,
+  SocketHttpServer.cpp). With it set, `ping` adds `gpuCrashed: true`, `retryable: false`, the
+  message names the GPU crash and gives the restart verdict (no benign list, no wait advice) and
+  points at the log for the removal reason, and `tools/call` is refused immediately instead of
+  queueing behind a dead thread. The proxy maps `gpuCrashed:true` to `unresponsive`
+  (`EDITOR_UNRESPONSIVE`, retryable:false, the editor's message as text). Independent of GPU: the
+  plain-stall message now explains that a larger `stalledSeconds` on a later call means no tick
+  completed in between (thread not draining), drops "clears by itself", and says retrying does not
+  shorten the stall and a world lock should not be held while polling. The RHI's textual removal
+  reason is not exposed through any cross-RHI API, so the message points at the log rather than
+  quoting it. Files: Source/PinWright/Private/Transport/{McpRequestCore.h,McpRequestCore.cpp,
+  SocketHttpServer.cpp}, Source/PinWright/Private/Tests/Transport/TestGameThreadStallProbe.cpp,
+  Content/Python/mcp_proxy.py, Content/Python/tests/test_mcp_proxy_editor_start.py,
+  docs/wiki-src/{unattended,mcp-transport,system}.md, CHANGELOG.md. Tests:
+  `PinWright.transport.liveness.Ping.StalledOnCrashedGpuIsTerminal`,
+  `PinWright.transport.liveness.ToolsCall.CrashedGpuStallGatesDispatch`, new assertions in
+  `PinWright.transport.liveness.Ping.StalledWithoutInFlightOmitsMethod`; Python
+  `tests.test_mcp_proxy_editor_start.GpuCrashedStallProbeTest` (2 tests, pass).
+- `#3-verified-linux` `DONE` tester — Fix commit 40ff81c8. Passed non-skipped in run3/full: `PinWright.transport.liveness.Ping.StalledOnCrashedGpuIsTerminal`, `PinWright.transport.liveness.ToolsCall.CrashedGpuStallGatesDispatch` and `PinWright.transport.liveness.Ping.StalledWithoutInFlightOmitsMethod`, plus the rest of `PinWright.transport.liveness` (all pass). Python run3 OK includes `GpuCrashedStallProbeTest.test_gpu_crashed_stall_is_terminal_not_retryable` and `.test_plain_stall_stays_retryable_not_ready`. Acceptance: with the GPU crashed, the ping reports `gpuCrashed:true`, `retryable:false` and a restart verdict with no benign list and no wait advice; `tools/call` is refused at once; the proxy maps it to `EDITOR_UNRESPONSIVE`. The plain stall message explains that a growing `stalledSeconds` means nothing drained, drops "clears by itself", and says retrying does not shorten the stall and not to hold a world lock. Wiring: `SocketHttpServer.cpp:972` sets `bGpuCrashed = GIsGPUCrashed` (source read). Coverage limits: the tests inject `bGpuCrashed`, and no real D3D12/Vulkan device removal was produced. The removal reason is pointed at in the log rather than quoted, since there is no cross-RHI API for it. The counter delta is explained in text, not reported as a field.
