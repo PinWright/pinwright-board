@@ -8,6 +8,8 @@ tags: [layout, reroute, knot, blueprint, deferred, gap-analysis-2026-09-30]
 blockedBy: [F-graph-layout-core]
 encounters: 1
 lastSeen: 2026-09-30T12:00:00Z
+rice: [1, 1, 1, 3]
+priority: 3
 ---
 
 # Optional reroute insertion after graph layout
