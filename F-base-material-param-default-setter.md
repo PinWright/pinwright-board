@@ -8,6 +8,8 @@ tags: [material, material-authoring, base-material-param-default, parameters, co
 encounters: 2
 costly: 1
 lastSeen: 2026-08-29T00:00:00+05:00
+rice: [1, 1, 1, 1]
+priority: 8
 ---
 
 # No in-place setter for a base UMaterial's scalar/vector parameter default
