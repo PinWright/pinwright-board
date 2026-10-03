@@ -7,6 +7,8 @@ category: ergonomic
 tags: [actor, resolver, error-message, transient]
 encounters: 1
 lastSeen: 2026-10-02T20:28:11Z
+rice: [1, 2, 1, 1]
+priority: 17
 ---
 
 # A transient editor actor resolves by object path only, and the refusal does not say so
