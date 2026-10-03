@@ -7,6 +7,8 @@ category: bug
 tags: [asset, fixup-redirectors, bulk-delete, redirector, objecttools, wrong-count, response-honesty]
 encounters: 1
 lastSeen: 2026-09-30T12:00:00+05:00
+rice: [2, 2, 1, 1]
+priority: 33
 ---
 
 `Utils/RedirectorFixupPolicy.cpp` step 8 adds both the `UObjectRedirector` (`ObjectsToDelete.AddUnique(PackagedRedirector)`, :430) and, when the package holds no real asset, the `UPackage` itself (`ObjectsToDelete.AddUnique(RedirectorPackage)`, :442) to one array. `Result.RedirectorsDeleted = ObjectTools::DeleteObjects(ObjectsToDelete, false)` (:451) then counts objects, which comes to 2 per ordinary redirector package. The weak-pointer-measured `DeletedRedirectorPackages` (:453-461) is correct, so the response contradicts itself.
