@@ -7,6 +7,8 @@ category: feature
 tags: [asset, consolidate, replace-references, dedup, referencers, redirectors, dirty-packages, python-fallback]
 encounters: 1
 lastSeen: 2026-09-30T00:00:00Z
+rice: [1, 2, 1, 3]
+priority: 6
 ---
 
 # No verb merges duplicate assets into one survivor
