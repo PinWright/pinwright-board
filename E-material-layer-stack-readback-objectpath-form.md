@@ -1,78 +1,44 @@
 ---
 id: E-material-layer-stack-readback-objectpath-form
-title: "get_material_node_details echoes MaterialAttributeLayers layer/blend refs in object-path form (/Game/.../ML_RockBase.ML_RockBase) while the caller created/requested them in package-path form — success-check needs caller-side normalization"
+title: "material.authoring layer-stack verbs (create_material_layer, create_material_layer_blend, set_material_layer_stack) have no workflow section in the wiki"
 status: OPEN
 severity: Low
 category: ergonomic
 tags: [material, material-authoring, material-layers, get-material-node-details, set-material-layer-stack, object-path, readback, path-form, docs]
 encounters: 1
 lastSeen: 2026-06-23T10:08:23Z
+rice: [1, 1, 1, 1]
+priority: 8
 ---
 
-# Layer-stack readback returns object-path-suffixed asset paths, not the package paths the caller wrote
+# The material-layer authoring verbs have no workflow section in the material.authoring wiki
 
-The just-shipped material-layers surface (`F-material-layers-asset-authoring`,
-DONE — `create_material_layer` / `create_material_layer_blend` /
-`set_material_layer_stack`) round-trips cleanly, but the **readback form is
-inconsistent with the write form**. The caller creates the layer/blend assets
-with, and wires the stack from, **package-path** strings:
+`material.authoring.create_material_layer`, `create_material_layer_blend` and
+`set_material_layer_stack` (`Source/PinWright/Private/Handlers/Material/MaterialAuthoringHandler.cpp:4213`,
+`:4271`, `:4331`) have no H3 and no workflow in `docs/wiki-src/material.authoring.md`. They
+appear only in passing lists: the `AMBIGUOUS_NODE` note (`:53`), the no-push list (`:58`), and
+the `name`/`path` contract for creators (`:76`, `:175`). A caller building a layered material
+gets no help from the wiki on the order of calls or on the stack verb's arguments:
 
-- `create_material_layer {name:"ML_RockBase", path:"/Game/Materials/Layers"}`
-- `set_material_layer_stack {layers:[".../ML_RockBase", ".../ML_MossOverlay"], blends:[".../MLB_RockToMoss"]}`
+- The stack is wired by creating the layer and blend assets, then
+  `add_material_node`/`add_expression` with class `MaterialAttributeLayers`, then
+  `set_material_layer_stack`, then reading it back with `get_material_node_details`.
+- `set_material_layer_stack` addresses the node through **`expressionId`** (a GUID or object
+  name, resolved at `:4367-4370`), not `nodeId`, which the `:53` list implies. `blends` must
+  have exactly `layers.length - 1` entries, otherwise `INVALID_PARAMS` (`:4359-4365`).
+- `seedTemplate` (default true) seeds the validation-passing default body, so a new layer or
+  blend compiles as created (`:4221`, `:4279`).
+- `get_material_node_details` reports layer and blend references in object-path form
+  (`/Game/.../ML_RockBase.ML_RockBase`), the plugin-wide reference form. A caller comparing
+  them with the package paths it passed must compare by package.
 
-…but when the caller reads the wired node back with
-`get_material_node_details` to confirm the stack took, the layer/blend
-references come back in **object-path** form — the package path plus a
-`.AssetName` object suffix, e.g. `/Game/Materials/Layers/ML_RockBase.ML_RockBase`
-rather than the `/Game/Materials/Layers/ML_RockBase` the caller passed in.
+**Fix:** Add a `### Material layers` section to `docs/wiki-src/material.authoring.md` that covers
+the four points above, plus the fact that `set_material_layer_stack` does not push to
+landscapes (finish with `compile_material`, per `:58`).
 
-This is a (Low) ergonomic readback-consistency gap, not a tool bug: the stack
-*was* wired correctly and the readback *does* reference the right assets. The
-friction is that the success check ("confirm the MaterialAttributeLayers node now
-references both layer assets and the blend asset") becomes a string compare
-between two different path **forms**, so the caller must normalize the `.AssetName`
-suffix (strip the trailing `.Object`, or `FSoftObjectPath::GetLongPackageName`)
-before asserting equality against the paths it created — exactly the same
-write-vs-read path-form normalization tax that the DONE
-`B-widget-resourceobject-path-prefix-inconsistent` ticket eliminated for tree.xml
-`ResourceObject` references by normalizing to one canonical form.
-
-## What it should do
-
-Pick one canonical form for asset references in `get_material_node_details`'s
-layer/blend readback and emit it consistently, so the success check is a direct
-string equality against the paths the caller created/wired. The natural choice is
-the **package-path** form the layer-stack RPCs already accept on input
-(`/Game/Materials/Layers/ML_RockBase`), making write and read symmetric. If the
-object-path form is deliberate (e.g. to disambiguate which object inside the
-package), then at minimum document it (see Docs angle) so callers strip the
-suffix before comparing rather than discovering the mismatch at verify time.
-
-Either way the readback should not silently change the path **form** between what
-the caller wrote and what it reads back, on a brand-new authoring surface whose
-whole point is round-trip layer-stack construction.
-
-This is distinct from the two nearby path-form tickets:
-- `B-get-dependencies-object-path-empty` (IN-REVIEW) — the **input** side: an
-  object-path `assetPath` is silently mishandled at lookup. This ticket is the
-  **output** side: the readback emits the object-path form the caller never
-  asked for.
-- `B-material-get-node-details-missing-pins-props` (DONE) — added the layer/blend
-  reference fields to `get_material_node_details` in the first place; this is the
-  follow-on consistency note on the **form** those fields are emitted in.
-
-## Docs angle (`docs/wiki-src/material.authoring.md`)
-
-The overlay page has **no section at all** for the layer-stack surface — it
-predates the `F-material-layers-asset-authoring` feature, so `create_material_layer`,
-`create_material_layer_blend`, `set_material_layer_stack`, and the
-`MaterialAttributeLayers` `get_material_node_details` readback are undocumented.
-Add a `### Material layers` (or per-RPC H3) section that (a) documents the create
-→ `add_material_node MaterialAttributeLayers` → `set_material_layer_stack` →
-`get_material_node_details` workflow, and (b) notes that the readback reports
-layer/blend refs in object-path (`pkg.AssetName`) form, so callers verifying
-against the package paths they passed in must normalize the suffix before
-comparing. Page to improve: `docs/wiki-src/material.authoring.md`.
+**Acceptance:** `material.authoring.md` has a section naming all three verbs, the
+`MaterialAttributeLayers` node step, the `expressionId` slot, the `blends = layers - 1` rule and
+the object-path readback form. The generated wiki page for `set_material_layer_stack` links to it.
 
 ## History
 - `#1-initial-audit` `OPEN` reporter — Struggle (process) audit of the
@@ -98,3 +64,4 @@ comparing. Page to improve: `docs/wiki-src/material.authoring.md`.
   package-path form (symmetric with the layer-stack RPCs' input), or document the
   object-path form; plus add the missing layer-stack section to
   `docs/wiki-src/material.authoring.md`.
+- `#2-rephrased` `OPEN` developer — Retitled and rescoped to the docs gap. Dropped the ask to normalize the readback to package paths: the object-path (`pkg.Asset`) form is the plugin-wide reference form, the original reporter noted that it "still matches", and the form now gets one doc sentence. The old text said the overlay had no section at all. In fact the verbs are named in passing at `material.authoring.md:53`, `:58`, `:76`, `:175`, but there is still no H3 or workflow. Added the `expressionId` slot (`MaterialAuthoringHandler.cpp:4367-4370`), the `blends = layers - 1` rule (`:4359-4365`) and `seedTemplate`. Severity unchanged (Low, docs). RICE unchanged.
