@@ -7,6 +7,8 @@ category: ergonomic
 tags: [actor, param-alias, actorname, actorpath, set-component-properties, component-name, error-message, discovery]
 encounters: 1
 lastSeen: 2026-07-04T00:00:00Z
+rice: [3, 2, 1, 2]
+priority: 25
 ---
 
 # Component-mutation verbs lag the actorPath-alias migration and their COMPONENT_NOT_FOUND dead-ends discovery
