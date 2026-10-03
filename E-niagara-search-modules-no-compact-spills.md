@@ -8,6 +8,8 @@ tags: [niagara, search-modules, response-size, oversized-readback, compact, proj
 encounters: 2
 costly: 1
 lastSeen: 2026-07-11T13:42:19.4473734+03:00
+rice: [2, 1, 1, 1]
+priority: 17
 ---
 
 # `niagara.search_modules` results are too verbose to read one assetPath inline — the discovery search spills to disk
