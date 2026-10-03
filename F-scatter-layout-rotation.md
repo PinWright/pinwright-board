@@ -1,7 +1,7 @@
 ---
 id: F-scatter-layout-rotation
 title: "`spatial.scatter_layout` pins every lattice to the world axes and reports no spacing statistics, so orientation is inexpressible with any knob it has and the merge workaround trades a bearing artefact for a worse spacing one"
-status: OPEN
+status: WONTFIX
 severity: Medium
 category: feature
 tags: [spatial, scatter_layout, lattice, rotation, orientation, spacing, nearest-neighbour, statistics, hex-grid, jitter, missing-param]
@@ -188,3 +188,4 @@ not merge is shipping it.
   `TestScatterLayout.cpp:347-349` (comment `:327-329`), both of which argue about the *mean* while
   this argues about the *minimum* and about orientation. A rigid rotation preserves every pairwise
   distance, so that assertion passes unchanged.
+- `#2-wontfix-yagni` `WONTFIX` developer — One measured wish, no second encounter. The caller can rotate the returned transform list about the region centre (the filing session did this offline and got 54 -> 38.6), and nearest-neighbour spacing is computable from that same list. Reopen when a second scatter task needs lattice orientation or spacing stats in the response.
