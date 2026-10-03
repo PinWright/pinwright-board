@@ -8,6 +8,8 @@ tags: [batch, spatial, raycast, surface-scan, floor-probe, region-scan, workarou
 encounters: 1
 costly: 1
 lastSeen: 2026-07-05T01:09:45.3126624+03:00
+rice: [1, 1, 1, 1]
+priority: 8
 ---
 
 # `spatial.raycast` has no batch / multi-origin form — sampling a surface region is N round-trips
