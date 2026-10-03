@@ -8,6 +8,8 @@ tags: [console, cvar, search, verify, batch, read, system]
 encounters: 5
 costly: 1
 lastSeen: 2026-08-29T00:00:00+05:00
+rice: [2, 2, 1, 1]
+priority: 33
 ---
 
 # No exact / batch read of cvar values — verifying N changed cvars costs N substring searches
