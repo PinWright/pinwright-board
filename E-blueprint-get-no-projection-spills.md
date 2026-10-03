@@ -7,6 +7,8 @@ category: ergonomic
 tags: [blueprint, blueprint-get, response-size, oversized, projection, spill]
 encounters: 1
 lastSeen: 2026-09-30T18:52:49+03:00
+rice: [1, 2, 1, 2]
+priority: 8
 ---
 
 # `blueprint.get` can't be narrowed, and repeats each variable up to three times
