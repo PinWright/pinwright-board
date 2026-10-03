@@ -7,6 +7,8 @@ category: bug
 tags: [jobs, start-job, transport, honesty, scripting]
 encounters: 1
 lastSeen: 2026-10-01T00:00:00Z
+rice: [2, 1, 0.8, 2]
+priority: 7
 ---
 
 # Inline ticketed verbs reply "running" before their work
