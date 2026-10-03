@@ -9,6 +9,8 @@ blockedBy: [B-add-metasound-node-rejects-registry-classnames]
 encounters: 7
 costly: 1
 lastSeen: 2026-06-24T19:46:41Z
+rice: [1, 1, 1, 1]
+priority: 8
 ---
 
 # add_metasound_node's NODE_CLASS_NOT_FOUND dead-ends the caller instead of steering it
