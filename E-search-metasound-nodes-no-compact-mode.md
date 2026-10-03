@@ -7,6 +7,8 @@ category: ergonomic
 tags: [metasound, audio, authoring, search_metasound_nodes, response-size, oversized-readback, compact, node-discovery, docs]
 encounters: 3
 lastSeen: 2026-09-02T22:43:19.3167158+03:00
+rice: [2, 1, 1, 1]
+priority: 17
 ---
 
 # search_metasound_nodes returns full per-node vertex lists with fully-expanded enum variants, so a common generator query overflows the inline limit
