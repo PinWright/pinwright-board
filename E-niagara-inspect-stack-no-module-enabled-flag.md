@@ -7,6 +7,8 @@ category: ergonomic
 tags: [niagara, niagara-inspect, set-stack-enabled, stack, readback, response-size, decompile-nir]
 encounters: 1
 lastSeen: 2026-09-05T22:30:00+03:00
+rice: [1, 2, 1, 1]
+priority: 17
 ---
 
 # There is no cheap read for "is this stack module enabled?"
