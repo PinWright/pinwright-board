@@ -7,6 +7,8 @@ category: ergonomic
 tags: [wiki, docs, mcp-transport, page-size, proxy, gap-analysis-2026-09-28]
 encounters: 1
 lastSeen: 2026-09-29T13:03:05Z
+rice: [3, 1, 1, 1]
+priority: 25
 ---
 
 # mcp-transport.md is over the page budget
