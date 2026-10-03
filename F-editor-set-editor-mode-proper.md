@@ -1,7 +1,7 @@
 ---
 id: F-editor-set-editor-mode-proper
 title: "Reimplement editor.set_editor_mode via GLevelEditorModeTools().ActivateMode / ULevelEditorSubsystem (removed as a MODE-exec stub)"
-status: OPEN
+status: WONTFIX
 severity: Medium
 category: feature
 tags: [editor, editor-mode, level-editor-mode-tools, reimplement, rpc-cull]
@@ -52,3 +52,4 @@ restores the default mode in teardown.
 
 ## History
 - `#1-reimpl-after-cull` `OPEN` reporter — Filed to reinstate the wanted capability removed by the RPC cull ([`E-rpc-cull-151-record`](E-rpc-cull-151-record.md)). The removed `editor.set_editor_mode` wrapped the `mode <name>` exec (EditorCommandHandler.cpp:563-568), which per UnrealEdSrv.cpp:3115-3126 can only re-broadcast an already-active mode and never activates an inactive one, yet returned success. Proper impl: `GLevelEditorModeTools().ActivateMode` / `ULevelEditorSubsystem`, with `IsModeActive` verification and a loud error on an unresolved mode name. No RPC alternative exists.
+- `#2-wontfix-yagni` `WONTFIX` developer — No encounter since filing, and every landscape, foliage and mesh verb works without switching an editor mode, so nothing waits on this; a reinstatement wish, not a need. Reopen when a real task needs an interactive mode's tool state active and no verb can reach it.
