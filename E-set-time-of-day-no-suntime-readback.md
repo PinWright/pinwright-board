@@ -7,6 +7,8 @@ category: ergonomic
 tags: [environment, set-time-of-day, sun-height, readback, property-get, time-of-day, sky-sphere, discoverability, docs]
 encounters: 3
 lastSeen: 2026-07-13T08:23:09Z
+rice: [1, 2, 1, 1]
+priority: 17
 ---
 
 # `set_time_of_day` gives no readback and no hint that the modern sky sphere's time slot is `Sun height`
