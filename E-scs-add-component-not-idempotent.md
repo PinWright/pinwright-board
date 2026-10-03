@@ -7,6 +7,8 @@ category: ergonomic
 tags: [add-verb-not-idempotent, scs, blueprint, add_component, idempotency, re-runnable]
 encounters: 1
 lastSeen: 2026-07-02T13:50:48.4836772+03:00
+rice: [2, 1, 1, 1]
+priority: 17
 ---
 
 # `blueprint.scs.add_component` is not idempotent, unlike its sibling `blueprint.add*` verbs
