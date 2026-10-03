@@ -8,6 +8,8 @@ tags: [texture, srgb, setter-parity, property-set, fallback, docs, set_compressi
 encounters: 3
 costly: 1
 lastSeen: 2026-08-27T19:35:00+05:00
+rice: [2, 2, 1, 1]
+priority: 33
 ---
 
 # `texture.*` exposes no sRGB setter, despite `describe` reporting `srgb` and the linear/mask workflow needing it
