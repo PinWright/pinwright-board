@@ -7,6 +7,8 @@ category: ergonomic
 tags: [blueprint, blueprint-list, response-size, oversized, projection, discovery]
 encounters: 2
 lastSeen: 2026-06-28T19:14:28Z
+rice: [2, 1, 1, 1]
+priority: 17
 ---
 
 # `blueprint.list` has no concise/projection mode, so a routine "list BPs to pick one" overflows and spills
