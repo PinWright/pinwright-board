@@ -7,6 +7,8 @@ category: bug
 tags: [drive, screenshot, image-format, jpeg, png, silent-mismatch, jpeg-in-png-silent-mismatch]
 encounters: 3
 lastSeen: 2026-09-30T11:37:33Z
+rice: [2, 2, 1, 1]
+priority: 33
 ---
 
 # drive set-of-mark screenshot encodes JPEG but declares mimeType image/png
