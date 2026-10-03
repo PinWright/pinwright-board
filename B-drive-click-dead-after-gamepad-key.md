@@ -7,6 +7,8 @@ category: bug
 tags: [drive, drive.click, drive.key, drive.hover, commonui, input-type, gamepad, os-input, no-change-within-budget, pie]
 encounters: 1
 lastSeen: 2026-09-24T10:23:00Z
+rice: [1, 2, 0.5, 2]
+priority: 4
 ---
 
 # Clicks stop working once a gamepad key was injected
