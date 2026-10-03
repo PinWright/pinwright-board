@@ -7,6 +7,8 @@ category: ergonomic
 tags: [rendering, project-settings, get_project_settings, set_lumen_method, enum, readback, verify, docs]
 encounters: 1
 lastSeen: 2026-06-23T10:08:23Z
+rice: [1, 1, 1, 1]
+priority: 8
 ---
 
 # rendering.get_project_settings reads enum fields back as raw identifiers, not the friendly tokens you set
