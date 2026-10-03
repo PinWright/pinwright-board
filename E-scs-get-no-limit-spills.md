@@ -7,6 +7,8 @@ category: ergonomic
 tags: [blueprint, scs, response-size, oversized, projection, docs]
 encounters: 2
 lastSeen: 2026-06-30T15:53:37Z
+rice: [2, 1, 1, 2]
+priority: 8
 ---
 
 # blueprint.scs.get full-tree reads spill to file with no way to trim per-node bloat
