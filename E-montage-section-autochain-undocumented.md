@@ -7,6 +7,8 @@ category: ergonomic
 tags: [animation, anim-montage, authoring, add-montage-section, link-sections, next-section, docs, wiki]
 encounters: 1
 lastSeen: 2026-06-24T06:10:13Z
+rice: [1, 1, 1, 1]
+priority: 8
 ---
 
 # Montage section auto-chaining is undocumented, so callers over-step to verify it
