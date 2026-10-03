@@ -8,6 +8,8 @@ tags: [spatial, ground_instances, truncation, response-size, docs, naming, disco
 encounters: 1
 costly: 1
 lastSeen: 2026-08-29T00:00:00+05:00
+rice: [1, 2, 1, 1]
+priority: 17
 ---
 
 # Two flags, one word, and the one a caller reads first is answering a different question
