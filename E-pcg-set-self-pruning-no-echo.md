@@ -7,6 +7,8 @@ category: ergonomic
 tags: [pcg, set-self-pruning-settings, readback, round-trip, response-shape, echo, default-value, consistency]
 encounters: 1
 lastSeen: 2026-07-01T09:49:43.2556070+03:00
+rice: [1, 1, 1, 1]
+priority: 8
 ---
 
 # `pcg.set_self_pruning_settings` doesn't echo what it set, so confirming the write (and noticing the values equal class defaults) costs a full decompile round-trip
