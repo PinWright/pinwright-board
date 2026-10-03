@@ -7,6 +7,8 @@ category: ergonomic
 tags: [docs, niagara, add_renderer, discoverability, class-path]
 encounters: 2
 lastSeen: 2026-06-24T09:27:12Z
+rice: [2, 1, 1, 1]
+priority: 17
 ---
 
 # niagara.add_renderer rendererClassPath has no wiki example or enum of valid renderer classes
