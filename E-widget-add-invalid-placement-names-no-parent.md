@@ -7,6 +7,8 @@ category: ergonomic
 tags: [widget, widget.add, placement, invalid-placement, error-message, parentName, root]
 encounters: 1
 lastSeen: 2026-09-25T09:00:00Z
+rice: [2, 2, 1, 1]
+priority: 33
 ---
 
 # The placement error hides which parent was used
