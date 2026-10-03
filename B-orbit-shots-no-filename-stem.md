@@ -8,6 +8,8 @@ tags: [render, camera, orbit_shots, capture_asset_preview, filename, naming, par
 encounters: 1
 costly: 1
 lastSeen: 2026-09-02T00:00:00Z
+rice: [1, 1, 1, 1]
+priority: 8
 ---
 
 # The name is the only thing a downstream tool sees, and it is neither chosen nor exact
