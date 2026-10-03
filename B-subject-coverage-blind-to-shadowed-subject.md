@@ -7,6 +7,8 @@ category: bug
 tags: [render, capture_actor_preview, capture_mesh, subjectCoverage, measureCoverage, frame-difference, threshold, shadow, show-only, black-background, false-empty]
 encounters: 1
 lastSeen: 2026-10-02T18:00:00-05:00
+rice: [1, 2, 1, 1]
+priority: 17
 ---
 
 # A drawn subject in shadow scores the same as an empty frame
