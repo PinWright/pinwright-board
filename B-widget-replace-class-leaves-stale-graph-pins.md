@@ -7,6 +7,8 @@ category: bug
 tags: [widget, widget.replace_class, blueprint-graph, variableget, stale-pin-type, silent-stale-data, dependency]
 encounters: 1
 lastSeen: 2026-09-30T00:00:00Z
+rice: [1, 3, 1, 2]
+priority: 17
 ---
 
 # widget.replace_class leaves K2 variable nodes typed to the old widget class
