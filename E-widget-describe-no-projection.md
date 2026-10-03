@@ -5,6 +5,8 @@ status: OPEN
 severity: Low
 category: ergonomic
 tags: [widget, widget-describe, response-size, projection, spill]
+rice: [2, 1, 1, 2]
+priority: 8
 ---
 
 # widget.describe has no field/scope projection — single-field reads spill the whole tree
