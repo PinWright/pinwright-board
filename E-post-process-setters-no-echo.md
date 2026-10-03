@@ -7,6 +7,8 @@ category: ergonomic
 tags: [post-process, set-bloom, set-color-grading, set-lumen-gi, set-lumen-reflections, set-motion-blur, readback, round-trip, response-shape, echo, response-size, oversized, spill, docs]
 encounters: 1
 lastSeen: 2026-07-01T09:21:27.2934501+03:00
+rice: [1, 1, 1, 1]
+priority: 8
 ---
 
 # The five non-AA `post_process.set_*` setters don't echo what they wrote, so a "confirm it took effect" read-back has no cheap path and the natural one spills 57KB
