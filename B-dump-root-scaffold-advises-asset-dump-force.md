@@ -7,6 +7,8 @@ category: bug
 tags: [asset-dump, scaffold, agent-guidance, docs, unknown-params]
 encounters: 1
 lastSeen: 2026-10-02T00:00:00Z
+rice: [2, 1, 1, 1]
+priority: 17
 ---
 
 # Seeded dump-root guidance names a parameter asset.dump does not accept
