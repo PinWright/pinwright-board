@@ -7,6 +7,8 @@ category: ergonomic
 tags: [struct-default-subfield-bloat, widget, export-xml]
 encounters: 1
 lastSeen: 2026-07-11T23:07:46.2163121+03:00
+rice: [2, 1, 1, 2]
+priority: 8
 ---
 
 # `widget.export_xml` dumps every default subfield of an overridden struct property
