@@ -7,6 +7,8 @@ category: ergonomic
 tags: [actor, set_transform, rotation, echo, readback, response-shape, verification, transform-mismatch, every-session-verb]
 encounters: 1
 lastSeen: 2026-08-29T00:00:00+05:00
+rice: [3, 1, 1, 1]
+priority: 25
 ---
 
 # The verb writes three components and reports two
