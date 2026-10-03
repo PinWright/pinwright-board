@@ -8,6 +8,8 @@ tags: [actor, get_components, readback, collision, collision-profile, collision-
 encounters: 2
 costly: 2
 lastSeen: 2026-08-30T16:10:03+03:00
+rice: [2, 2, 1, 2]
+priority: 17
 ---
 
 # The component list knows what a component is and nothing about what it does
