@@ -7,6 +7,8 @@ category: bug
 tags: [geometry, comments, stale, bSymmetricExtents, twist, taper, bend, warp, docs]
 encounters: 1
 lastSeen: 2026-08-20T00:00:00Z
+rice: [1, 1, 1, 1]
+priority: 8
 ---
 
 # Two adjacent comments, opposite claims
