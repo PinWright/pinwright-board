@@ -7,6 +7,8 @@ category: bug
 tags: [audio, soundwave, loudness, lufs, metadata, asset-registry, 5.8]
 encounters: 1
 lastSeen: 2026-10-02T00:00:00Z
+rice: [1, 2, 1, 1]
+priority: 17
 ---
 
 # In-place SoundWave rewrites leave stale loudness metadata
