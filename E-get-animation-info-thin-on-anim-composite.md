@@ -7,6 +7,8 @@ category: ergonomic
 tags: [animation, anim-composite, pose-asset, asset-dump, parity, get-animation-info]
 encounters: 2
 lastSeen: 2026-07-05T01:53:00.7465425+03:00
+rice: [1, 2, 1, 2]
+priority: 8
 ---
 
 # `get_animation_info` on a UAnimComposite is `{assetType}`-only — skeleton / duration / segments live only in the asset.dump sidecar
