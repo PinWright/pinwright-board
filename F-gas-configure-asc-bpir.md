@@ -1,7 +1,7 @@
 ---
 id: F-gas-configure-asc-bpir
 title: "Reimplement gas.configure_asc by emitting SetReplicationMode into the Blueprint graph via BPIR (removed: the template write never persisted)"
-status: OPEN
+status: WONTFIX
 severity: Medium
 category: feature
 tags: [gas, configure_asc, replication, ability-system, bpir, reimplement, rpc-audit]
@@ -87,3 +87,4 @@ as a parameter with BeginPlay as the default.
 
 ## History
 - `#1-reimpl-after-audit` `OPEN` reporter - Filed to reinstate the wanted capability removed by the batch-2 RPC audit ([`E-rpc-audit-43-record`](E-rpc-audit-43-record.md)). The removed `gas.configure_asc` called `SetReplicationMode` on the ASC component template, where the mode is not serialized, so the write only ever existed in memory for the current session and never reached the asset. There is no property-level fix (`property.set` has no serialized property to target). Proper path: emit a `SetReplicationMode` call node into the Blueprint graph via PinWright's BPIR compiler (`blueprint.compile_bpir` / `blueprint.insert_bpir_at_node`), targeting the ASC component with the `EGameplayEffectReplicationMode` literal, idempotent on repeat calls, keeping the `INVALID_PARAMS` rejection of an unrecognized mode that had landed on the now-closed [`E-configure-asc-echoes-invalid-replication-mode`](E-configure-asc-echoes-invalid-replication-mode.md). Flagged the conflict with that ticket's "verified live, round-trips correctly" note: the `gas.get_gas_info` readback hit the same in-memory template the write had just touched, so it never proved persistence. Verification must be save + reload, and the open question of which exec path the emitted call belongs on (BeginPlay vs PossessedBy/OnRep_PlayerState) should be settled before implementation.
+- `#2-wontfix-yagni` `WONTFIX` developer — No encounter since filing. It is a convenience wrapper over BPIR: a caller can already emit the `SetReplicationMode` call with `blueprint.compile_bpir` / `blueprint.insert_bpir_at_node`, and the open exec-path question (BeginPlay vs PossessedBy/OnRep) is a design choice the caller makes anyway. Reopen when a session has to set ASC replication on a Blueprint actor and the BPIR route fails.
