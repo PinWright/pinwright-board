@@ -5,6 +5,8 @@ status: OPEN
 severity: Low
 category: ergonomic
 tags: [bpir, error-hint, set, call-dispatcher, did-you-mean]
+rice: [2, 1, 1, 1]
+priority: 17
 ---
 
 # BPIR errors don't suggest the correct instruction form (set-var assignment, call_dispatcher)
