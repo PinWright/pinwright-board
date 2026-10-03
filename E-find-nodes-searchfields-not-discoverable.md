@@ -5,6 +5,8 @@ status: OPEN
 severity: Low
 category: ergonomic
 tags: [blueprint-graph, find-nodes, search-fields, discoverability]
+rice: [1, 1, 1, 1]
+priority: 8
 ---
 
 # find_nodes searchFields rejects unknown names without listing the valid ones
