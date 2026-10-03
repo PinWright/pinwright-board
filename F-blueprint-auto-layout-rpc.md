@@ -8,6 +8,8 @@ tags: [layout, blueprint, bpir, rpc, authoring, gap-analysis-2026-09-30]
 blockedBy: [F-graph-layout-metrics-core, F-graph-layout-core]
 encounters: 2
 lastSeen: 2026-07-04T12:00:00Z
+rice: [2, 1, 1, 2]
+priority: 8
 ---
 
 # Standalone blueprint.graph.auto_layout RPC (no compile round-trip)
