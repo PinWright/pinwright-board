@@ -1,189 +1,54 @@
 ---
 id: F-foliage-get-procedural-types
-title: "No verb reads back which UFoliageTypes a UProceduralFoliageSpawner drives, though foliage.create_procedural already contains the exact FProperty walk that would do it — so a tuning pass identifies the types by the _FT_<index> asset name the create verb happens to emit, which turns a positional naming convention into load-bearing API"
+title: "No verb reads back which UFoliageTypes an EXISTING UProceduralFoliageSpawner drives (foliage.create_procedural now echoes its own types, but a later tuning pass on a spawner it did not just create still keys on the positional _FT_<index> name); the property.get FoliageTypes[N].FoliageTypeObject route is untested and undocumented"
 status: OPEN
-severity: Medium
+severity: Low
 category: feature
 tags: [foliage, procedural-foliage, spawner, readback, missing-verb, foliage-type, reflection, naming-convention, vegetation, premise-corrected]
 encounters: 1
 costly: 1
 lastSeen: 2026-08-29T18:00:00+05:00
+rice: [1, 1, 0.8, 1]
+priority: 7
 ---
 
-# The write path already walks the array. Nothing reads it back
+# Reading an existing spawner's foliage types has no verb and no documented route
 
-`foliage.create_procedural` builds a `UProceduralFoliageSpawner` and one
-`UFoliageType_InstancedStaticMesh` per entry. Afterwards there is no verb that answers *"which types
-does this spawner drive?"* — which is the first question any tuning pass asks of a spawner it did
-not create in the same call.
+`foliage.create_procedural` now returns the types it built: one `foliage_types[]` row per type with
+`index` and `asset_path` (`Source/PinWright/Private/Handlers/Environment/FoliageHandler.cpp:2487-2490`,
+attached `:2818-2819`). So the create call itself no longer forces a caller to guess names.
 
-**Confirmed absent, mechanically.** `ProceduralFoliageSpawner` appears in exactly three places under
-`Plugins/PinWright/Source/`: an include at
-`Plugins/PinWright/Source/PinWright/Private/Handlers/Environment/FoliageHandler.cpp:26`, the
-construction at `:1364`, and a test
-(`Private/Tests/World/TestFoliageCreateProceduralTypeConfigHonesty.cpp:225-226`) covering the same
-verb. All six `foliage.*` verbs — `paint` (`:151`), `remove` (`:592`), `get_instances` (`:705`),
-`add_type` (`:847`), `add_instances` (`:979`), `create_procedural` (`:1273`) — read placed instances
-or write new ones; none reads a spawner's configuration. The only thing the create response says
-about types is a restatement of the request:
+What is still missing is a readback for a spawner that already exists. None of the `foliage.*` verbs —
+`paint` (`:665`), `remove` (`:1278`), `get_instances` (`:1390`), `add_type` (`:1651`),
+`add_instances` (`:1858`), `create_procedural` (`:2183`) — reads a `UProceduralFoliageSpawner`'s
+`FoliageTypes`. A later tuning pass (not holding the create response) falls back to the generated
+asset name `<Name>_Spawner_FT_<index>` (`:2467-2468`), which is positional: re-running
+`create_procedural` with reordered `foliageTypes` rebinds `_FT_0` to a different mesh, and a pass that
+writes `Mesh` by name then edits the wrong asset with every response reporting success.
 
-```cpp
-Resp->SetNumberField(TEXT("foliage_types_requested"), FoliageTypesArr->Num());
-```
-`FoliageHandler.cpp:1589`
+A generic route probably exists and has not been tried: `UProceduralFoliageSpawner::FoliageTypes` and
+`FFoliageTypeObject::FoliageTypeObject` are both `EditAnywhere`
+(`Engine/Source/Runtime/Foliage/Public/ProceduralFoliageSpawner.h:41-42`,
+`FoliageTypeObject.h:45-46`), and `property.get` resolves array subscripts
+(`docs/wiki-src/property.md:49`), so `property.get {objectPath: <spawner>, propertyName:
+"FoliageTypes[0].FoliageTypeObject"}` should return the type. Python's natural spellings fail
+(`FFoliageTypeObject` is not `BlueprintType`, so `to_dict()` is `{}`, and the member is
+`foliage_type_object`, not `foliage_type`), which is why the earlier pass concluded it was
+unreachable.
 
-**The implementation is already written, twenty lines up.** The create path reaches the private array
-by `FProperty` reflection, with a comment explaining why:
+**Workaround:** keep the `foliage_types[]` rows from the create response; otherwise resolve by the
+`_FT_<index>` name and accept the reorder hazard.
 
-```cpp
-// Add to Spawner using Reflection (since FoliageTypes is private)
-FArrayProperty *FoliageTypesProp = FindFProperty<FArrayProperty>(
-    Spawner->GetClass(), TEXT("FoliageTypes"));
-```
-`FoliageHandler.cpp:1454-1456`
+**Fix:** first run the `property.get` subscript route (and a whole-array `property.get` of
+`FoliageTypes`) on a spawner made by `create_procedural`. If it returns the type paths, document it in
+the `foliage` wiki page next to `create_procedural` and close this. If it does not, add
+`foliage.get_procedural_types {assetPath | actorName}` -> `{spawner, types: [{index, assetPath, mesh,
+isAsset}], count}`, sharing the reflection walk `create_procedural` already uses (`:2534-2558`) so
+reader and writer cannot drift.
 
-then `FScriptArrayHelper` at `:1458-1462` and
-`FindFProperty<FObjectProperty>(FFoliageTypeObject::StaticStruct(), TEXT("FoliageTypeObject"))` /
-`FindFProperty<FBoolProperty>(..., TEXT("bIsAsset"))` at `:1464-1478`. A reader is the same walk with
-the assignment reversed.
-
-## Premise correction — "unreachable from Python" did not survive re-derivation
-
-This was reported as *"a `UProceduralFoliageSpawner`'s foliage types are unreachable from Python"*
-(`Docs/map/vegetation-style-split.md` § Findings 2), on two observations: the
-`FoliageTypeObject` structs returned by `spawner.get_editor_property('foliage_types')` have a
-`to_dict()` of `{}`, and `get_editor_property('foliage_type')` on one raises *"Failed to find
-property 'foliage_type'"*. Both observations are real. The conclusion drawn from them is very
-likely wrong, and saying so is more useful than the ticket the uncorrected version would have been.
-
-**The name tried does not exist; the member is `FoliageTypeObject`.**
-`C:/UE_5.8/Engine/Source/Runtime/Foliage/Public/FoliageTypeObject.h:45-46` declares
-`TObjectPtr<UObject> FoliageTypeObject`, so the Python spelling is `foliage_type_object`, not
-`foliage_type`. *"Failed to find property"* is the correct answer to the question that was asked.
-
-**And the property is not access-gated the way the conclusion assumed.**
-`PropertyAccessUtil::CanGetPropertyValue`
-(`C:/UE_5.8/Engine/Source/Runtime/CoreUObject/Private/UObject/PropertyAccessUtil.cpp:425-433`)
-denies a read only when the property has none of `CPF_Edit | CPF_BlueprintVisible |
-CPF_BlueprintAssignable`:
-
-```cpp
-if (!InProp->HasAnyPropertyFlags(CPF_Edit | CPF_BlueprintVisible | CPF_BlueprintAssignable))
-{
-    return EPropertyAccessResultFlags::PermissionDenied | EPropertyAccessResultFlags::AccessProtected;
-}
-```
-
-`FoliageTypeObject` carries `EditAnywhere` (`FoliageTypeObject.h:45-46`), and so does
-`UProceduralFoliageSpawner::FoliageTypes` (`ProceduralFoliageSpawner.h:41-42`) — which is why
-`get_editor_property('foliage_types')` returned structs at all rather than raising. C++ `private:`
-does not gate `get_editor_property`; `CPF_Edit` un-gates it.
-
-**What the empty `to_dict()` does establish**, and it is the part worth keeping: the struct is
-`USTRUCT()` and **not** `BlueprintType` (`FoliageTypeObject.h:13-14`), every member is under
-`private:` (`:43`) with no Blueprint specifier, `UProceduralFoliageSpawner::FoliageTypes` is
-`EditAnywhere` with no Blueprint specifier while its own siblings `NumUniqueTiles` (`:30-31`) and
-`MinimumQuadTreeSize` (`:34-35`) are `BlueprintReadOnly`, and the C++ accessor `GetFoliageTypes()`
-(`:62`) is a plain inline getter carrying no `UFUNCTION`. So the *scriptable* surface really is
-empty, every natural spelling fails, and a caller gets an empty dict from the one call that would
-normally enumerate what is there. **The reachability is a hidden editor-only property behind a name
-nobody guesses; the discoverability is genuinely nil.** That is a real finding and it is the reason
-the wrong conclusion was reasonable.
-
-**Not settled here, and it is one line to settle:** whether
-`fto.get_editor_property('foliage_type_object')` actually returns the `UFoliageType`. The source
-above says it should. Nobody ran it. Whoever picks this ticket up should run it first, because a
-working spelling turns the severity argument below from "no workaround" into "an undiscoverable
-one", which is where it is already rated.
-
-## Consequence — a positional naming convention became load-bearing
-
-Because the readback was believed impossible, the zone C/D re-speciation identified every type by
-the asset name `foliage.create_procedural` emits. That name is built at `FoliageHandler.cpp:1438-1439`:
-
-```cpp
-FString FTName =
-    FString::Printf(TEXT("%s_FT_%d"), *AssetName, TypeIndex++);
-```
-
-with `AssetName = Name + "_Spawner"` (`:1359`), under the hardcoded `/Game/ProceduralFoliage`
-(`:1357`, path built `:1440-1441`) — so the real string is `<Name>_Spawner_FT_<index>`, e.g.
-`PW_ZoneC_Woodland_Spawner_FT_3`. **The index is positional and encodes nothing about the mesh.**
-
-This reopens something the previous triage pass deliberately declined, and the reversal is narrow, so
-state it exactly. `Docs/map/vegetation-findings-dossier.md` § H dropped E-9 (*"procedural foliage
-types are named `<Spawner>_FT_<index>`, so an asset keeps a stale name if its mesh is later
-changed"*) on the correct ground that the name never encodes the mesh, so a mesh swap cannot stale
-it. **That reasoning is untouched and E-9 as written stays dropped.** What changes is the adjacent
-hazard the same section recorded and did not file *"for want of a repro"*: `_FT_<n>` is positional,
-so re-running `create_procedural` with reordered `foliageTypes` rewrites `_FT_0` to a different
-mesh. The repro it wanted now exists — a real tuning pass that resolved types **solely** by that
-name and wrote `Mesh` onto the assets it found. Under a reorder, that pass edits the wrong asset,
-silently and with every response reporting success.
-
-The naming ticket is still not worth filing on its own: renaming `_FT_<n>` does not help anyone, and
-a stable name would only move the problem. **The fix for the hazard is this ticket** — give callers
-a readback keyed on the spawner instead of on a string, and the convention stops being API.
-
-## Proposed verb shape
-
-**`foliage.get_procedural_types`** — `{assetPath | actorName}` → `{spawner, types: [{index,
-assetPath, mesh, isAsset}], count}`.
-
-- `assetPath` resolves a `UProceduralFoliageSpawner` directly; `actorName` resolves an
-  `AProceduralFoliageVolume` (or any actor carrying a `UProceduralFoliageComponent`) and follows it
-  to its spawner, using the same actor resolution `spatial.ground_instances` and `pcg.generate`
-  already share.
-- `index` is the array position, stated as such so the caller can see it is positional rather than
-  identity — and so the `_FT_<n>` correspondence is documented as a *consequence* of ordering
-  instead of being reverse-engineered from asset names.
-- `mesh` comes from the resolved `UFoliageType_InstancedStaticMesh`, which is what a caller actually
-  wants to key on. `isAsset` mirrors the `bIsAsset` flag the create path already reads at `:1464-1478`.
-- **Extraction, not new code.** Lift `FoliageHandler.cpp:1454-1478` into a small shared helper and
-  have `create_procedural` keep calling it, so the reader and the writer cannot drift about how the
-  private array is addressed. That is the same "extract the lambda so the two verbs cannot drift"
-  argument `F-resimulate-existing-foliage-volume` makes about the placed-instance count.
-
-Optional and strictly better if cheap: report the same `types[]` block in
-`foliage.create_procedural`'s own response, which today says only `foliage_types_requested`
-(`:1589`) — a number the caller supplied. A create that returned the assets it made would remove the
-need to guess their names at all, which is the immediate half of this problem.
-
-## Related
-
-- `F-procedural-foliage-simulation-knobs-unreachable` (OPEN, High) — the write side of the same
-  assets. Its `property.set`-onto-`_FT_<n>` workaround depends on finding the `_FT_<n>` assets,
-  which is exactly what this ticket makes safe. A fixer taking both gets a tuning loop that can
-  address types by identity.
-- `F-resimulate-existing-foliage-volume` (OPEN, Medium) — the third side: re-running the simulation
-  after those writes. Its `#2` records the one property (`Mesh`) whose write is not inert, which is
-  precisely the property the re-speciation wrote by name.
-- `B-create-procedural-ignores-scale-and-normal-fields`, `B-create-procedural-density-writes-paint-density`
-  — both reference `_FT_<n>` assets by name for the same reason.
-
-## Severity
-
-**Medium.** Impact class is the rubric's *"hard blocker with no workaround (a stub, a missing verb…)"*
-band, which spans High and Medium, and it lands on Medium because a workaround exists in both
-directions: the `_FT_<n>` convention resolves the assets today (that is how the measured pass did its
-work, successfully), and the source above says a Python read is one correctly-spelled call away. The
-rubric's Medium is *"doable, but only via a documented workaround, a source dive, or many extra
-calls"* — this is the source-dive case, and the source dive is what produced the correction section
-above.
-
-**Explicitly not High**: nothing here is silently wrong on a normal path today. The create verb does
-not lie, the spawner is correct, and the pass that used the naming convention got the right answer —
-the hazard needs a *reorder* to bite, and no run has hit that.
-
-**Explicitly not Low**: the Low band is friction where the doc fails to help. A caller who reasons
-about this correctly still cannot get the answer from any verb, and the fallback they are pushed
-onto is a positional string built by a different verb, which is API by accident rather than
-discoverability by inconvenience.
-
-**Reach modifier declined in both directions.** Procedural-foliage authoring is not an every-session
-path, so no bump up. Not a rare edge either: reading a spawner's types is the first step of every
-tuning iteration after the first, and the whole point of a procedural volume is that it gets tuned.
-Medium stands unmodified.
+**Acceptance:** for a spawner created with three types, a single documented call returns the three
+`UFoliageType` asset paths in array order (and their meshes, for the verb form), matching the
+`foliage_types[].asset_path` rows of the create response.
 
 ## History
 - `#1-no-readback-and-the-name-is-the-api` `OPEN` reporter — Filed from the zone C/D re-speciation
@@ -231,3 +96,4 @@ Medium stands unmodified.
   not been hit; not Low, since the fallback is a positional string built by another verb, i.e. API
   by accident. Reach declined both ways: procedural foliage is not an every-session namespace, but
   reading a spawner's types is step one of every tuning iteration after the first.
+- `#2-rephrased` `OPEN` developer — Re-checked at PinWright `7230b41d`. The optional half shipped: `foliage.create_procedural` now echoes `foliage_types[]` with `index` and `asset_path` per built type (`FoliageHandler.cpp:2487-2490`, `:2818-2819`), so the claim that the create response says only `foliage_types_requested` is dropped. All line citations were stale and are refreshed (create verb `:2183`, name build `:2467-2468`, reflection walk `:2534-2558`; the "hardcoded /Game/ProceduralFoliage" note dropped since `savePath` exists, `:2227`). Narrowed to reading an EXISTING spawner, with the untested `property.get` `FoliageTypes[N].FoliageTypeObject` route (`docs/wiki-src/property.md:49`) as the first step and the verb only if it fails. Severity Medium -> Low: with the create echo shipped and a likely one-call generic route, the remaining gap is discoverability on a non-every-session path.
