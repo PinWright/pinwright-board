@@ -7,6 +7,8 @@ category: ergonomic
 tags: [blueprint, graph, response-field, naming]
 encounters: 1
 lastSeen: 2026-06-25T07:14:35Z
+rice: [2, 1, 1, 1]
+priority: 17
 ---
 
 # blueprint.graph node comment field is 'comment' in get_nodes but 'nodeComment' in get_node_details
