@@ -7,6 +7,8 @@ category: enhancement
 tags: [pwmodel, geometry, bend, twist, taper, warp-deformer, axis, displacement-direction, docs, parameter-gap]
 encounters: 1
 lastSeen: 2026-09-02T23:45:00+03:00
+rice: [1, 1, 0.8, 1]
+priority: 7
 ---
 
 # `axis=` names the axis being bent, not the direction the bend goes — and the direction is unreachable
