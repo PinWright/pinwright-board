@@ -7,6 +7,8 @@ category: bug
 tags: [landscape, create_procedural_terrain, weightmap, layer-paint, census-blind, verify, otherLayerTexelsLost, magnitude, metric-precision, field-naming, latent]
 encounters: 1
 lastSeen: 2026-08-30T16:55:00+03:00
+rice: [1, 3, 0.8, 1]
+priority: 27
 ---
 
 # The census asks "does this texel have any weight", and reports the answer under a name that means "how much weight was lost"
