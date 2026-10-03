@@ -7,6 +7,8 @@ category: ergonomic
 tags: [material, material-authoring, set_vector_parameter_value, set_scalar_parameter_value, echo, readback, verification, asymmetry]
 encounters: 1
 lastSeen: 2026-09-06T00:31:00+03:00
+rice: [1, 1, 1, 1]
+priority: 8
 ---
 
 # The scalar setter echoes what it wrote; the vector setter does not
