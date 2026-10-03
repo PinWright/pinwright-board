@@ -7,6 +7,8 @@ category: feature
 tags: [spatial, ground_instances, detail, dry-run, apply, failure-rows, diagnostics, row-cap, non-mutating, verb-split]
 encounters: 1
 lastSeen: 2026-08-29
+rice: [1, 2, 1, 1]
+priority: 17
 ---
 
 # Every dry-run row is a failure row, so no dry-run setting can select the real ones
