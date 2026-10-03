@@ -7,6 +7,8 @@ category: ergonomic
 tags: [docs, wiki, wiki-src, model, describe_ops, boolean, materials, stale-documentation, diagnostics-discoverability]
 encounters: 1
 lastSeen: 2026-09-05T17:59:42Z
+rice: [2, 2, 1, 1]
+priority: 33
 ---
 
 # The page an author reads *before* writing an op teaches the behaviour the fix removed
