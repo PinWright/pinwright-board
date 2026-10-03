@@ -7,6 +7,8 @@ category: ergonomic
 tags: [material, material-instance, create_material_instance, set_material_instance_parent, parent-class, asymmetry, two-step, workaround]
 encounters: 1
 lastSeen: 2026-09-03T04:18:09Z
+rice: [2, 2, 1, 1]
+priority: 33
 ---
 
 # One verb rejects the parent class the sibling verb accepts
