@@ -8,6 +8,8 @@ tags: [blueprint-graph, ergonomics, batching, verification, integrity]
 encounters: 3
 costly: 1
 lastSeen: 2026-06-28T23:48:41Z
+rice: [2, 1, 1, 2]
+priority: 8
 ---
 
 # No single graph-integrity snapshot call
