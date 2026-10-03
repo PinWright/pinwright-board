@@ -7,6 +7,8 @@ category: bug
 tags: [model, model.compile, diagnostics, diagnosticSummary, collapse, gate, misleading-field]
 encounters: 1
 lastSeen: 2026-09-03T04:20:00Z
+rice: [2, 2, 1, 1]
+priority: 33
 ---
 
 # `complete` measures emission, but it is documented as measuring loss
