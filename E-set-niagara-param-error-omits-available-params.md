@@ -7,6 +7,8 @@ category: ergonomic
 tags: [niagara, effect, set-niagara-parameter, modify-parameter, error-message, discovery, docs]
 encounters: 1
 lastSeen: 2026-06-23T10:08:23Z
+rice: [1, 1, 1, 1]
+priority: 8
 ---
 
 # Runtime Niagara param-setter `PARAMETER_NOT_FOUND` doesn't list the params that ARE exposed
