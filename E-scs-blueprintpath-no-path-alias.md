@@ -7,6 +7,8 @@ category: ergonomic
 tags: [blueprint, scs, param-alias, blueprintpath, path, drift]
 encounters: 3
 lastSeen: 2026-09-05T00:00:00Z
+rice: [2, 1, 1, 1]
+priority: 17
 ---
 
 # `blueprint.scs.*` require `blueprintPath` and reject the `path` spelling, outside the canonical blueprint alias fix
