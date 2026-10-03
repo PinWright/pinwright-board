@@ -1,7 +1,7 @@
 ---
 id: F-animation-audit-joint-limits
 title: "No check that an animation's joint rotations stay within physical or learned limits"
-status: OPEN
+status: WONTFIX
 severity: Low
 category: feature
 tags: [animation, joint-limits, pose-validation, audit, deferred, gap-analysis-2026-09-30]
@@ -52,3 +52,4 @@ Stateless audit `animation.audit_joint_limits {assetPath (required), limits: {ph
 
 ## History
 - `#1-no-joint-limit-audit` `OPEN` reporter — Filed from the 2026-09-30 animation gap analysis at plugin HEAD `2580e7f4`; priority deferred. Severity Low: niche, and the one competitor implementation is a weak heuristic.
+- `#2-wontfix-yagni` `WONTFIX` developer — Filed from a competitor gap analysis, not from a task; niche, and the one competitor implementation is a weak heuristic. No session has authored or validated skeletal animation needing it. Reopen when a real animation task needs pose-limit validation.
