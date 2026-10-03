@@ -7,6 +7,8 @@ category: bug
 tags: [tests, spatial, fixtures, latent-trap]
 encounters: 1
 lastSeen: 2026-08-16T00:00:00Z
+rice: [1, 1, 0.8, 1]
+priority: 7
 ---
 
 # A fixture comment promises column isolation the code does not provide
