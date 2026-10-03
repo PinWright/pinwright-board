@@ -7,6 +7,8 @@ category: ergonomic
 tags: [docs, metasound, audio, authoring, connect_metasound_nodes, add_metasound_input, node-discovery]
 encounters: 1
 lastSeen: 2026-07-01T18:40:28.0956489+03:00
+rice: [1, 1, 1, 1]
+priority: 8
 ---
 
 # Wiring a graph input into a node requires knowing the input vertex's output pin name — which is the input name itself, but that convention is undocumented
