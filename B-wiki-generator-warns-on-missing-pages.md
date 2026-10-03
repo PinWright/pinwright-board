@@ -7,6 +7,8 @@ category: bug
 tags: [wiki, logging, startup]
 encounters: 1
 lastSeen: 2026-09-30T09:52:27Z
+rice: [2, 1, 1, 1]
+priority: 17
 ---
 
 # Wiki generator logs a LogStreaming "Failed to read file" warning for every page not yet on disk
