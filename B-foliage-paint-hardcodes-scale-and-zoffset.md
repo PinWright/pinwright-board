@@ -7,6 +7,8 @@ category: bug
 tags: [foliage, paint, scale, zoffset, foliage-type, drawscale3d, hardcoded, engine-parity, vegetation]
 encounters: 1
 lastSeen: 2026-08-29T22:00:00+03:00
+rice: [2, 2, 1, 1]
+priority: 33
 ---
 
 # The type carries a scale range; the verb writes 1.0 anyway
