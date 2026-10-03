@@ -1,7 +1,7 @@
 ---
 id: E-tick-unsafe-hazard-derivation-ratchet
 title: "Item 3 only: migrate the remaining tick-unsafe table entries to REGISTER_RPC_HANDLER_TICK_UNSAFE and update the string-searching tests"
-status: OPEN
+status: WONTFIX
 severity: Medium
 category: ergonomic
 tags: [safepoint, dispatch, tick-gate, handler-registration, coverage-gap, test-infrastructure, source-lint, ratchet]
@@ -49,3 +49,4 @@ the flag.
 - `#1-split-from-registration-flag` `OPEN` developer — Split from `E-tick-unsafe-declared-at-registration` #2 when the registration flag landed; the three items above are what that ticket's #1 called the half that actually closes the hole, plus the migration work it deferred.
 - `#2-merged-into-registration-ticket` `IN-REVIEW` developer — Duplicate: items 1 (the ratchet) and 2 (scanners accept every registration spelling) are implemented under `E-tick-unsafe-declared-at-registration` #3, item 3 (table migration) is partially done there (two entries) and its remainder is tracked in that History. Close together with that ticket; no separate verification needed.
 - `#3-rescoped-to-table-migration` `OPEN` developer — Re-opened and re-scoped on review: the #2 duplicate close was wrong, because item 3 has not landed. Items 1 (the ratchet `PinWright.infra.tick_safety.HazardReachingVerbsAreGated`, `Tests/Infra/TestTickUnsafeHazardDerivation.cpp`) and 2 (the scanners go through `FindNextRpcRegistration` / `RpcRegistrationMethod` / `FindRpcRegistrationBlock` in `Tests/TestUtils.h`) were delivered in `E-tick-unsafe-declared-at-registration` #3 and are verified there. This ticket now covers item 3 only: migrate the ~140 remaining `GTickUnsafeMethodNames` entries in `Dispatch/SafePoint.cpp` to the macro (switch the macro and delete the table line in the same change), add a table-only-shrinks contract (or delete the table), and teach the per-verb needle tests that still search literal registration strings (`TestAssetPieSafeResolution`, `TestVFXHandlers`, `TestEffectStepAndCapture`). Already migrated: `editor.jump_to_bookmark`, `audio.authoring.set_sound_wave_gain`, `render.capture_actor_preview`. If maintainers judge the migration not worth it, `WONTFIX` is acceptable: the table-or-flag union plus the ratchet already close the omission hole.
+- `#4-wontfix-yagni` `WONTFIX` developer — Pure refactor with no user-visible defect left: the table-or-flag union plus the `HazardReachingVerbsAreGated` ratchet (delivered under `E-tick-unsafe-declared-at-registration` `#3`) already close the omission hole, so migrating the ~140 remaining `GTickUnsafeMethodNames` entries changes spelling, not behaviour; `#3` names WONTFIX as acceptable. Reopen if the table and the macro are ever found to disagree or a new tick-unsafe verb slips past the ratchet.
