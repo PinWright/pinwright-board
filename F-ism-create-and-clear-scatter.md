@@ -1,7 +1,7 @@
 ---
 id: F-ism-create-and-clear-scatter
 title: "Three typed verbs read, write and ground the instances of an ISM/HISM scatter and no verb creates or empties one — AddInstance / RemoveInstance / ClearInstances have zero call sites in the plugin, so the only way to populate the array the other three operate on is object.call_function per instance"
-status: OPEN
+status: IN-REVIEW
 severity: Medium
 category: feature
 tags: [actor, spatial, ism, hism, instanced-static-mesh, scatter, missing-verb, create, clear, add-instance, remove-instance, lifecycle-gap, data-loss, atomicity, python-execute, premise-corrected, vegetation]
@@ -267,3 +267,44 @@ plugin routes callers toward. Medium stands unmodified.
   `B-component-mesh-swap-silently-unseats-instances` (OPEN, Medium), which is the cost of the
   re-point callers reach for *instead of* clear-and-refill; the two are the two exits from the same
   missing capability and should be read together.
+- `#3-add-and-remove-instances-shipped` `IN-REVIEW` developer — Premise re-checked against
+  7230b41d: still zero `AddInstance(s)` / `RemoveInstance(s)` / `ClearInstances` call sites in
+  `Handlers/`. Added two verbs to `Handlers/Actor/InstancedMeshHandler.cpp`.
+  `actor.add_instances {actorName, component?, transforms[], space?, replace?, expectedCount?}`
+  appends through `AddInstances(..., bShouldReturnIndices=true, bWorldSpace)`, reads every new
+  instance back (`added`, `addedIndices[]`; a disagreement is `VERIFICATION_FAILED`), and with
+  `replace:true` parses every row and snapshots the old scatter into `removedInstances[]` BEFORE it
+  clears, then clears and refills inside one `FScopedTransaction` (explicit `Component->Modify()`:
+  neither engine call records itself). Rows are `{location (required), rotation?, scale?}` plus an
+  optional `space` stamp (reconciled like `set_instance_transforms`) and an ignored `index`; any
+  other row key is refused. `actor.remove_instances {actorName, component?, indices? | all?,
+  expectedCount?}` requires exactly one scope, refuses out-of-range / duplicate indices, an empty
+  component or a stale `expectedCount` with nothing removed, measures `removed` from the count
+  before and after, and echoes `removedInstances[]` rows `{index, space:"world", location,
+  rotation, scale}` that replay verbatim through `actor.add_instances`. Both are one editor
+  transaction (the no-transaction decision this ticket asked to revisit had already been overturned
+  in `InstancedMeshUtils.h`), finish with `FinishInstanceWrites`, and add the mark-dirty save report
+  (`saved:false, pendingFlush:true`). `createComponent` / `meshPath` were not added:
+  `actor.add_component` already builds an empty HISM with its mesh, and its `meshPath` text was
+  corrected by another change in this batch. Docs: `### actor.add_instances` /
+  `### actor.remove_instances` in `docs/wiki-src/actor.md`, a typed-verb paragraph on
+  `level-building.instancing-and-scatter`, the `spatial.scatter_layout` example, an `rpc-design.md`
+  §8 bullet, CHANGELOG. Tests (`Tests/Actor/TestInstancedMeshAddRemove.cpp`):
+  `PinWright.actor.add_instances.AppendsVerifiedAndRefusesBeforeClearing` (a replace with a bad
+  second row leaves all 5 instances in place; fails if the clear runs before validation) and
+  `PinWright.actor.remove_instances.RemovesListedRefusesWholeAndUndoRestores` (a valid index before
+  an out-of-range one removes nothing; `GEditor->UndoTransaction()` restores a clear; the record
+  replays). Filter: `PinWright.actor.add_instances+PinWright.actor.remove_instances`.
+- `#4-review-fixes` `IN-REVIEW` developer — Review round 1. Both verbs now refuse foliage targets
+  (`InstancedFoliageActor` / `FoliageInstancedStaticMeshComponent`, resolved by reflection) with
+  `INVALID_TARGET_KIND`. `remove_instances` requires `expectedCount` with `indices`
+  (`MISSING_REQUIRED_PARAM`), because a retried removal by index is not idempotent, and it refuses
+  non-integer indices. `add_instances:transforms` adopts the nested-key gate
+  (`RPC_PARAM_REQ_NESTED` + `TestNestedParamKeyGate` ExpectedAdopters) instead of a hand-rolled key
+  check, and it refuses wrong-shaped location / rotation / scale values (`RejectUnknownKeys` + all
+  three numbers). Both responses carry `undoable` (from `RF_Transactional`) and a `warnings[]`
+  entry when per-instance custom data is not in `removedInstances[]`. The record is documented as
+  complete and uncapped. Docs, CHANGELOG and the scatter-page lead are updated. Tests extended:
+  dispatcher-routed `UNKNOWN_NESTED_PARAMS`, `scale:{x:2}`, foliage refusal, `expectedCount`
+  required, non-integer index, `undoable`.
+- `#5-linux-verification` `IN-REVIEW` tester — Fix commit `f0c7dfb0`. PinWright `ae877ccc` (on origin/master, base `7230b41d`), UE 5.8 Linux Vulkan. run3/full is the offscreen full suite: 5827/5827 ok, 0 fail, 73 skips, none of them this ticket's tests, and no PINWRIGHT_ASSERTIONS_SKIPPED marker for them. The build (clean unity, 0 errors) and Python (462 OK) come from run2 on the same tree. Passed non-skipped in run3/full: `PinWright.actor.add_instances.AppendsVerifiedAndRefusesBeforeClearing`, `PinWright.actor.remove_instances.RemovesListedRefusesWholeAndUndoRestores`, and all six `PinWright.infra.dispatcher.NestedParamKeyGate.*`. The ratchet lists `actor.add_instances:transforms`. Shown: `actor.add_instances` appends through `AddInstances(..., bShouldReturnIndices=true, ...)` and verifies `addedIndices[]` by reading them back. `replace:true` validates every row before it clears, so a bad second row leaves all 5 instances. That covers `#2`'s clear-then-refill data loss. `actor.remove_instances` takes `indices` or `all`, refuses a stale or missing `expectedCount` with nothing removed, and echoes a `removedInstances[]` record that replays. It warns when custom data is not in that record, and `editor.undo` restores a clear. The no-transaction question was decided explicitly: both verbs run in one transaction. Both refuse foliage targets with `INVALID_TARGET_KIND`. Remains: deliberate deviations from the ticket's proposed shape that a human must accept. (1) `createComponent` / `meshPath` on `add_instances` were dropped. Creating and filling a scatter therefore takes two calls, `actor.add_component` then `actor.add_instances`, not the one round trip the ticket asked for. (2) `remove_instances` now requires `expectedCount` with `indices`, where the ticket proposed it as optional. Coverage limit: `space:"local"` on `add_instances` has no test, and the HISM recipe's step 3 relies on it.
