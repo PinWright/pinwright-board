@@ -8,6 +8,8 @@ tags: [pwmodel, diagnostics, PWMODEL_UNUNIONED_OVERLAP, mirror, array_linear, ar
 encounters: 3
 costly: 1
 lastSeen: 2026-09-03T04:20:00Z
+rice: [2, 2, 1, 2]
+priority: 17
 ---
 
 # The overlap warning is wired to the generator path only
