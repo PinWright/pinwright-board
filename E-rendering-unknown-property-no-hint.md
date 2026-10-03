@@ -7,6 +7,8 @@ category: ergonomic
 tags: [rendering, project-settings, set_project_settings, error-messages, error-hint, discovery, docs]
 encounters: 1
 lastSeen: 2026-06-23T10:08:23Z
+rice: [1, 1, 1, 1]
+priority: 8
 ---
 
 # rendering.set_project_settings unknown_property dead-ends the caller instead of steering it
