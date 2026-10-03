@@ -7,6 +7,8 @@ category: ergonomic
 tags: [blueprint-graph, get_pin_details_batch, get_node_details_batch, batch, param-shape, misuse-then-correct]
 encounters: 1
 lastSeen: 2026-06-23T10:08:23Z
+rice: [1, 1, 1, 1]
+priority: 8
 ---
 
 # `get_pin_details_batch` param shape diverges from `get_node_details_batch`, and its optional `pinName` is invisible — agents misuse-then-correct
