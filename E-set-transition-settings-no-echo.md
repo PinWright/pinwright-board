@@ -7,6 +7,8 @@ category: ergonomic
 tags: [animation, animation-authoring, set-transition-settings, readback, round-trip, response-shape, echo, consistency]
 encounters: 1
 lastSeen: 2026-06-23T10:08:23Z
+rice: [1, 1, 1, 1]
+priority: 8
 ---
 
 # `set_transition_settings` doesn't echo what it set, so every "did it apply?" check costs a separate dump round-trip
