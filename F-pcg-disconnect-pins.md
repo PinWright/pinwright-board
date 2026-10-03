@@ -7,6 +7,8 @@ category: feature
 tags: [pcg, connect-pins, disconnect, remove-edge, missing-verb, authoring, graph-editing, symmetry, procedural-vegetation]
 encounters: 1
 lastSeen: 2026-08-29T17:20:00+05:00
+rice: [1, 2, 1, 1]
+priority: 17
 ---
 
 # One authoring pair in this namespace is missing its other half
