@@ -8,6 +8,8 @@ tags: [docs, sequencer, add_keyframe, transform-track, value-shape]
 encounters: 6
 costly: 4
 lastSeen: 2026-07-13T10:19:23.8158526+03:00
+rice: [2, 2, 1, 1]
+priority: 33
 ---
 
 # `sequence.add_keyframe` value-object shape per property is undocumented — caller had to read plugin source
