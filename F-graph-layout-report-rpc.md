@@ -1,11 +1,10 @@
 ---
 id: F-graph-layout-report-rpc
 title: "Runtime layout-quality report RPCs per graph domain"
-status: OPEN
+status: WONTFIX
 severity: Medium
 category: feature
 tags: [layout, metrics, rpc, blueprint, material, anim, controlrig]
-blockedBy: [F-graph-layout-metrics-core]
 encounters: 1
 lastSeen: 2026-06-24T19:46:41Z
 ---
@@ -64,3 +63,4 @@ corruption — it is a read-only report. Blocked by
 
 ## History
 - `#1-initial-spec` `OPEN` reporter — No runtime surface to measure a live graph's layout; add read-only layout_report RPCs for blueprint/material/anim/controlrig (Niagara excluded — no NIR layout engine) that gather NodePosX/Y + estimator sizes + get_graph_connections into FGraphLayoutMetrics and return scores plus flagged overlapping/long/tangled nodes, scaffolded like BlueprintGraphInspectionHandler.
+- `#2-wontfix-yagni` `WONTFIX` developer — The consumer it was specified for (test-workflow flagging) does not exist, and the shipped layout core places graphs overlap-free by construction, which removes most of the motivation. `FGraphLayoutMetrics` stays available to C++ tests. Reopen when a workflow actually needs to score a live graph's layout over RPC.
