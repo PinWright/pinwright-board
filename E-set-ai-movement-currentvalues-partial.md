@@ -7,6 +7,8 @@ category: ergonomic
 tags: [ai, set-ai-movement, movement, currentValues, readback, round-trip, braking-deceleration, avoidance-weight]
 encounters: 1
 lastSeen: 2026-06-24T19:46:41Z
+rice: [1, 1, 1, 1]
+priority: 8
 ---
 
 # `ai.set_ai_movement` `currentValues` is an asymmetric confirmation block — it echoes 5 of the 7 settable params and silently drops `brakingDeceleration` + `avoidanceWeight`
