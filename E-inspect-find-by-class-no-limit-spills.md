@@ -7,6 +7,8 @@ category: ergonomic
 tags: [inspection, system-inspect, find_by_class, response-size, oversized, no-limit-spills, projection, pagination, docs]
 encounters: 4
 lastSeen: 2026-07-13T09:18:47.9429326+03:00
+rice: [2, 1, 1, 1]
+priority: 17
 ---
 
 # `system.inspect.find_by_class` can't cap or project its rows — a populous class spills
