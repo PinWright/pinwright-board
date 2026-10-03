@@ -7,6 +7,8 @@ category: ergonomic
 tags: [bpir, compile_bpir, response-shape, createdNodes, verification, ergonomics]
 encounters: 2
 lastSeen: 2026-06-28T23:00:01Z
+rice: [3, 1, 1, 2]
+priority: 12
 ---
 
 # `blueprint.compile_bpir` createdNodes is an opaque GUID list — callers can't tell authored from synthesized nodes without a follow-up call
