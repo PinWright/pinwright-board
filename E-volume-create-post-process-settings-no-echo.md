@@ -7,6 +7,8 @@ category: ergonomic
 tags: [volume, create_post_process_volume, post-process, postprocesssettings, fpostprocesssettings, readback, echo, response-shape, no-echo, override, docs]
 encounters: 1
 lastSeen: 2026-07-01T19:06:56.5680937+03:00
+rice: [1, 3, 0.8, 1]
+priority: 27
 ---
 
 # volume.create_post_process_volume accepts a postProcessSettings override map but echoes none of it, so a PPV placement with a color grade can't self-verify
