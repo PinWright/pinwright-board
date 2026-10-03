@@ -8,6 +8,8 @@ tags: [asset, asset-create, generic-creator, factory, class-parameter, missing-v
 encounters: 2
 costly: 1
 lastSeen: 2026-09-02T22:20:00+03:00
+rice: [2, 2, 1, 2]
+priority: 17
 ---
 
 # Asset creation in this plugin is per-type, and the type list is closed
