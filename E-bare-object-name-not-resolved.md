@@ -7,6 +7,8 @@ category: ergonomic
 tags: [property, object, call-function, object-resolution, pie, subsystem, object-not-found, discoverability]
 encounters: 1
 lastSeen: 2026-09-28T09:32:00Z
+rice: [1, 2, 1, 2]
+priority: 8
 ---
 
 # Short names work for actors, not for other live objects
