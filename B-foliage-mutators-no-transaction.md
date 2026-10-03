@@ -7,6 +7,8 @@ category: bug
 tags: [foliage, paint, remove, add_instances, add_type, create_procedural, undo, transaction, mutator-no-undo-transaction]
 encounters: 2
 lastSeen: 2026-08-29T00:00:00+05:00
+rice: [2, 2, 1, 2]
+priority: 17
 ---
 
 # The whole `foliage` namespace mutates outside the transaction system
