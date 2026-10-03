@@ -7,6 +7,8 @@ category: feature
 tags: [data-table, authoring, row-map, rename, lifecycle, remove-add-fallback]
 encounters: 1
 lastSeen: 2026-06-24T19:46:41Z
+rice: [1, 1, 1, 1]
+priority: 8
 ---
 
 # No rename verb for a DataTable row
