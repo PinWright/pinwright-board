@@ -7,6 +7,8 @@ category: ergonomic
 tags: [enum-token-discovery, rendering, project-settings, set_project_settings, enum, discovery, docs]
 encounters: 1
 lastSeen: 2026-07-01T23:27:37.8179159+03:00
+rice: [3, 1, 1, 1]
+priority: 25
 ---
 
 # `rendering.set_project_settings` enum-value tokens are undiscoverable in band
