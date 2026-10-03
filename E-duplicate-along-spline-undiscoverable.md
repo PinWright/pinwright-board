@@ -8,6 +8,8 @@ tags: [docs, geometry, spline, duplicate_along_spline, discoverability, cross-na
 encounters: 1
 costly: 1
 lastSeen: 2026-07-02T03:26:06.4106887+03:00
+rice: [2, 2, 1, 1]
+priority: 33
 ---
 
 # `geometry.duplicate_along_spline` is the one-call op for "populate a spline path with aligned, scale-varied actor copies" — but it lives in `geometry.*` and nothing routes a caller there
