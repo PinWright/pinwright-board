@@ -1,7 +1,7 @@
 ---
 id: B-editor-screenshot-pie-auto-exposure-returns-no-ev100
 title: "`editor.screenshot {exposure:{mode:\"auto\"}}` on the PIE path returns `viewCount:0` and no `ev100Equivalent`, so the documented pin-then-compare recipe cannot be followed"
-status: OPEN
+status: DONE
 severity: Medium
 category: bug
 tags: [capture, screenshot, exposure, pie, ev100]
@@ -64,3 +64,8 @@ flash).
 - Distinct from `F-one-verb-for-exposed-and-aimed-pie-capture`, which is about `editor.screenshot`
   being unable to aim at an actor while `screenshot_window` cannot expose. This one is narrower: the
   verb that *can* expose does not report the number its own documentation tells you to read.
+
+## History
+
+- `#1-auto-observes-drawn-view` `IN-REVIEW` developer — Still reproducible by code: the game branch only registered its view extension for a pin, and the native path only drew a frame for a pin, so `{mode:"auto"}` had nothing to count (`viewCount:0`) and no field to fill. `Utils/ScreenshotUtils.cpp`: `FGameViewportExposureViewExtension` is now also created for an explicit auto request (`FGameViewportCaptureOptions::bObserveExposure`) as an observe-only extension, the native path draws one frame whenever the extension is live, and `SetupView` (runs last) records the family's `ExposureSettings.bFixed/FixedEV100` and `FSceneView::GetLastEyeAdaptationExposure()` onto `FGameViewportCaptureMetadata`. `Handlers/Editor/ViewportHandler.cpp` publishes the level path's field contract on the top-level `exposure` block: `fixed`, `adaptedMeasured`, `adapted`, `ev100Equivalent`, `adaptedSource` (`readback` unpinned, `fixedPin` pinned); with no completed readback it says `adaptedMeasured:false` plus an `adaptedReadbackPending` reason instead of omitting the key. Omitted `exposure` is unchanged (no extra draw, no measurement). Wiki: `docs/wiki-src/editor.md`, `docs/wiki-src/render.capture-exposure.md`; CHANGELOG. Test: `PinWright.editor.screenshot.PieExposureAndAim` (owned host-neutral PIE; fixed-size auto, then fixed+aimed captures) and `PinWright.render.capture_open_level.PieWorldWarning` (pure text rule + source contract on the handler wiring), both in `Source/PinWright/Private/Tests/EditorOps/TestPieCaptureExposureAim.cpp`. Fails on revert: viewCount is 0 and `adaptedMeasured` is absent. If the PIE readback is still pending the measured-value half emits a skip marker. Syntax-checked with the clang -fsyntax-only fastcheck (UBT module flags), all four .cpp OK; no UHT-visible declarations changed; not built or run yet.
+- `#2-verified-linux` `DONE` tester — Verified on the committed tree (PinWright 8de8a5a2, pushed as 7230b41d). run3/full: `PinWright.editor.screenshot.PieExposureAndAim` passed with 0 warnings. The `eye_adaptation_readback_pending` skip marker did not fire, so the measured half ran. On an owned host-neutral PIE session, `editor.screenshot {exposure:{mode:"auto"}}` took the `gameViewport` branch with `viewCount > 0` (the reported value was 0), `pinned:false`, `adaptedMeasured:true`, an `ev100Equivalent`, `adaptedSource:"readback"` and `adapted > 0`. That closes the ask: populate ev100Equivalent and adapted on the PIE branch. The pending case says `adaptedReadbackPending` instead of dropping the key; the test asserts that too, but that branch did not run here. `docs/wiki-src/editor.md` and `render.capture-exposure.md` were checked. Limit: Linux Vulkan offscreen only.
