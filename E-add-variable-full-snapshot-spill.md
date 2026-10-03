@@ -7,6 +7,8 @@ category: ergonomic
 tags: [blueprint, add_variable, response-size, spill, http-spill]
 encounters: 1
 lastSeen: 2026-07-01T09:41:00.8756290+03:00
+rice: [2, 1, 1, 1]
+priority: 17
 ---
 
 # `blueprint.add_variable` returns the entire blueprint snapshot on every call
