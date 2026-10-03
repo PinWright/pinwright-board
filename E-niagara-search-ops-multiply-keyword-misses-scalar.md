@@ -7,6 +7,8 @@ category: ergonomic
 tags: [docs, niagara, niagara-graph, search-ops, op-discovery, node-discovery]
 encounters: 3
 lastSeen: 2026-07-13T11:04:41.6442061+03:00
+rice: [2, 1, 1, 1]
+priority: 17
 ---
 
 # `search_ops query="multiply"` surfaces only Matrix ops; the scalar `Mul` needs the bare leaf word
