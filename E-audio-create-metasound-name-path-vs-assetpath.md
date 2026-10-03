@@ -8,6 +8,8 @@ tags: [audio, authoring, metasound, param-alias, create_metasound, name, path, a
 blockedBy: [E-material-create-combined-assetpath-split]
 encounters: 3
 lastSeen: 2026-06-23T10:08:23Z
+rice: [1, 1, 1, 1]
+priority: 8
 ---
 
 # Within `audio.authoring.*`, the `create_*` verbs want `name`+`path` (split); every operate/read verb wants a single `assetPath`
