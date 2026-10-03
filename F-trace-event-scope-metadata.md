@@ -5,6 +5,8 @@ status: OPEN
 severity: Medium
 category: feature
 tags: [insights, trace, profiling, gpu, rdg, metadata, export, headless]
+rice: [1, 2, 1, 2]
+priority: 8
 ---
 
 # Trace export carries no timing events, and no resolver for the scope metadata that names them
