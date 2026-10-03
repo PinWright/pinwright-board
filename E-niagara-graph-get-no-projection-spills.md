@@ -7,6 +7,8 @@ category: ergonomic
 tags: [niagara, niagara-graph, graph-get, response-size, oversized, projection, spills, docs]
 encounters: 3
 lastSeen: 2026-07-13T11:01:26.0554929+03:00
+rice: [2, 2, 0.8, 2]
+priority: 13
 ---
 
 # `niagara.graph.get` has no compact/projection mode — a small script graph spills, and the spill is too big to Read
