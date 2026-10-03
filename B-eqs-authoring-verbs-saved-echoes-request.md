@@ -8,6 +8,8 @@ tags: [eqs, save, saved, false-success, mark-dirty, persistence]
 encounters: 1
 firstSeen: 2026-10-02
 lastSeen: 2026-10-02
+rice: [1, 3, 1, 1]
+priority: 33
 ---
 
 # EQS authoring verbs echo `save` into `saved` without writing anything
