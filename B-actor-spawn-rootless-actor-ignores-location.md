@@ -5,6 +5,8 @@ status: OPEN
 severity: Medium
 category: bug
 tags: [actor, spawn, spawn_from_blueprint, location, transform, root-component, rootless, silent-noop, no-readback, missing-echo, world-origin, class-dependent]
+rice: [1, 3, 1, 1]
+priority: 33
 ---
 
 # A declared parameter that is inert for a class of inputs, and a response with nothing to check it against
