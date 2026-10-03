@@ -8,6 +8,8 @@ tags: [misleading-doc, docs, skeleton, physics-asset, create_physics_asset, ragd
 encounters: 1
 costly: 1
 lastSeen: 2026-07-13T08:31:50.8164083+03:00
+rice: [1, 2, 1, 1]
+priority: 17
 ---
 
 # `skeleton.create_physics_asset`'s doc promises "joint constraints" + a ragdoll-suitable asset, but the meshless path yields bodies-only (constraintCount:0)
