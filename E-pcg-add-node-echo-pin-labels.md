@@ -7,6 +7,8 @@ category: ergonomic
 tags: [pcg, add-node, create-graph, connect-pins, pin-labels, endpoints, inspect, readback, round-trip, response-shape, consistency]
 encounters: 6
 lastSeen: 2026-07-11T01:28:53.6363789+03:00
+rice: [2, 2, 1, 2]
+priority: 17
 ---
 
 # PCG authoring RPCs discard trivially-available pin data, forcing a `pcg.inspect` round-trip before wiring
