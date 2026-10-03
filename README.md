@@ -228,6 +228,64 @@ for those). Severity is therefore impact × reach, plus cost.
 Tiebreak: within one severity band the picker orders OPEN tickets by `costly`
 (descending), then `encounters` (descending), then filename.
 
+### Planning a fix batch
+
+Use this when a person or a manager agent chooses which OPEN tickets go into a
+batch. It does not change the automated picker above, which still orders by
+severity, then `costly`, then `encounters`. The method is a RICE variant with a
+severity gate. It was adopted on 2026-10-02 after comparing RICE, ICE,
+WSJF/cost of delay, Kano, MoSCoW, bug bars and papercut programs.
+
+Score every candidate on four factors:
+- **R**, reach: 1 = rare or niche (1 encounter); 2 = occasional (2–3
+  encounters); 3 = common (4+ encounters, or on a path every session uses).
+- **I**, impact per hit: 1 = friction or cosmetic; 2 = wasted agent time, or
+  misleading docs or output; 3 = silent wrong data, false success, crash or data
+  loss. **Iw** weights it 1 / 2 / 4, because an agent trusts a false result and
+  builds on it.
+- **C**, confidence it is real as described: 1 = verified in current source;
+  0.8 = likely; 0.5 = unconfirmed. A feature gets at most 0.8 unless a real
+  session needed it.
+- **E**, effort: 1 = small (a doc fix or a contained change, under half a day);
+  2 = medium (one handler plus tests); 3 = large (design work, several verbs, or
+  limited by the engine).
+
+**Score = R × Iw × C / E**, and **value = R × Iw × C**. Critical and High skip
+scoring and go first. Then sort into buckets:
+
+| Bucket | Rule |
+|---|---|
+| Must-fix | severity Critical/High, or I=3 with R≥2; ordered by score |
+| Quick win | E=1 and value ≥ 2 |
+| Strategic | E≥2 and value ≥ 3; split before starting |
+| Papercut | E=1 and value < 2 |
+| Park, then drop | E≥2 and value < 3 |
+
+Ties: higher I, then more `encounters`, then the one that unblocks or merges
+other tickets, then lower E, then the older ticket.
+
+Rules:
+- **Batch by area.** When you pick a ticket, add the other E=1 tickets from the
+  same namespace or root cause, about 5 at most.
+- **Split large work.** Never start an E=3 ticket as filed; split it into thin
+  slices. For an I=3 ticket, the first slice makes the failure loud.
+- **Docs count.** Misleading docs are I=2. If the code fix is also E=1, ship the
+  code and the doc change in one commit.
+- **Papercut share.** Spend about 20% of fix runs on papercuts: existing
+  features, trivial fixes, no design decision.
+- **No age-based closing.** After one bankruptcy pass, a parked ticket with no
+  new encounter for about 3 months becomes `WONTFIX` with a reason.
+
+Sources: [Intercom RICE](https://www.intercom.com/blog/rice-simple-prioritization-for-product-managers/),
+[Black Swan Farming: cost of delay](https://blackswanfarming.com/comparing-cost-of-delay-approaches)
+(WSJF reduces to value / effort when nothing has a deadline),
+[Firefox triage policy](https://firefox-source-docs.mozilla.org/bug-mgmt/policies/triage-bugzilla.html),
+[Linear zero-bugs policy](https://linear.app/now/zero-bugs-policy),
+[Ubuntu paper cuts](https://lists.ubuntu.com/archives/ubuntu-devel/2009-June/028342.html),
+[Drew DeVault on stale bots](https://drewdevault.com/2021/10/26/stalebot.html),
+[Mountain Goat story splitting](https://www.mountaingoatsoftware.com/agile/user-stories/story-splitting-how-to-split-user-stories-so-teams-can-finish),
+[Anthropic: writing tools for agents](https://www.anthropic.com/engineering/writing-tools-for-agents).
+
 ## Body Template
 
 ```markdown
