@@ -7,6 +7,8 @@ category: ergonomic
 tags: [pcg, add_node, create_graph, short-class-name, resolveuclass, findobject, class-resolution, asymmetry, convention-violation, error-message, procedural-vegetation]
 encounters: 1
 lastSeen: 2026-08-29T17:25:00+05:00
+rice: [1, 1, 1, 1]
+priority: 8
 ---
 
 # Two verbs, one namespace, one concept, two resolvers
