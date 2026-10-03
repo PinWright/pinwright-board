@@ -1,7 +1,7 @@
 ---
 id: B-pwmodel-remove-degenerates-deletes-instead-of-repairing-and-opens-mesh
 title: "`remove_degenerates` never repairs: repair_or_delete DELETES and leaves 11 boundary edges, repair_or_skip changes nothing, and its default min_triangle_area=0.001 is 1000x the degenerate epsilon and shredded 5,284 live triangles"
-status: OPEN
+status: DONE
 severity: Medium
 category: bug
 tags: [pwmodel, model-compile, model-validate, remove_degenerates, degenerate-triangles, mesh-not-closed, defaults, weapons]
@@ -100,3 +100,36 @@ invocation is destructive on centimetre-scale content, which is what this whole 
   on the isolated rail plus one whole-model run at the op's defaults (23,266 -> 17,946 triangles,
   isClosed false, 3,418 boundary edges). All numbers above are from `model.validate` on UE 5.8 in
   this checkout.
+- `#2-repair-in-place` `IN-REVIEW` developer — Root cause confirmed in source: `GeometryOps::RemoveDegenerates`
+  passed straight to the engine's `RepairMeshDegenerateGeometry`, whose only "repair" is a QEM
+  `SimplifyToEdgeLength(min_edge_length)` with every boundary and seam constrained
+  (`MeshRepairFunctions.cpp`, with the engine's own TODO "this would not resolve sliver triangles
+  that have all long-edges"). A zero-area cap therefore never got repaired: `repair_or_delete`
+  deleted it (opening the mesh), `repair_or_skip` left it. Fix
+  (`Source/PinWrightGeometry/Private/Handlers/Geometry/GeometryOps_Modeling.cpp`, namespace
+  `GeometryOpsRemoveDegenerates`): for every mode except `delete_only`, a plugin-side pass runs
+  before the engine pass - a needle/point triangle (an edge <= max(min_edge_length,
+  sqrt(min_triangle_area))) is edge-collapsed (orientation guard on the one-ring), a cap is
+  repaired by splitting its long edge at the apex projection and collapsing the new vertex onto
+  the apex (engine `SplitEdge`/`CollapseEdge`, so UV/normal seams and material IDs follow the
+  engine's overlay bookkeeping); passes repeat until no progress (max 16). `repair_or_delete` now
+  warns `remove_degenerates opened N boundary edge(s)` when its fallback deletion opens the mesh
+  (not for `delete_only`, which the .pwmodel boolean cleanup uses deliberately). Default
+  `min_triangle_area` 0.001 -> 0.000001 (= `GeometryUtils::DegenerateAreaEpsilon`) in
+  `GeometryOps_Modeling.h`, `PwModelParser.cpp` (op vocabulary) and `MeshOpsHandler.cpp`
+  (`geometry.remove_degenerates` docs). Docs: `docs/wiki-src/model.examples.op-coverage.md`,
+  `docs/wiki-src/model.authoring.md`, comments in `Examples/pwmodel/watchtower.pwmodel` and
+  `driftwood.pwmodel`, README row, CHANGELOG (behaviour change). Tests:
+  `PinWright.Geometry.Ops.RemoveDegeneratesRepair.CapIsRepairedAndTheMeshStaysClosed`,
+  `PinWright.Geometry.Ops.RemoveDegeneratesRepair.DefaultLeavesSmallRealTrianglesAlone`,
+  `PinWright.Model.RemoveDegeneratesRepair.PointedConeApexIsWeldedClosed` (new file
+  `Tests/Geometry/TestGeometryRemoveDegeneratesRepairs.cpp`); updated default pins in
+  `PinWright.Geometry.Ops.ModelingOptions.DefaultsMatchTheEngineStructDefaults` (pin removed) and `PinWright.Geometry.Ops.ModelingOptions.DocumentedDivergencesFromTheEngineDefaults` (pin added) and
+  `PinWright.Model.ModelingOps.NormalsAndRepairOpsPublishTheirEngineOptions`. Not re-measured on
+  the original weapon rail (host asset); the synthetic cap fixture reproduces the reported shape. After
+  review: the cap split-and-collapse also refuses when either replacement triangle would face
+  opposite to the far triangle (a cap folded over its neighbour passed the unsigned area test);
+  covered by the `[folded cap]` block of `CapIsRepairedAndTheMeshStaysClosed`. The opened-edge
+  warning now counts boundary edges after the plugin repair, and `delete_only` reads the mesh
+  through `ProcessMesh` instead of an empty `EditMesh`.
+- `#3-verified-linux` `DONE` tester — Verified on the committed tree (PinWright 8de8a5a2, pushed as 7230b41d). run3/full, non-skipped: `PinWright.Geometry.Ops.RemoveDegeneratesRepair.CapIsRepairedAndTheMeshStaysClosed` covers the cap repair across modes. repair_or_delete and repair_or_skip repair the cap and keep the mesh closed with no opened-edge warning, while before the fix one deleted it and the other was a no-op. A folded cap is refused, and the repair_or_delete fallback warns `opened N boundary edge(s)`. `.DefaultLeavesSmallRealTrianglesAlone` covers the default min_triangle_area of 1e-6, equal to the degenerate epsilon. `PinWright.Model.RemoveDegeneratesRepair.PointedConeApexIsWeldedClosed` covers a cone that had 64 boundary edges before the fix and is now closed. The updated default pins also passed (`ModelingOptions.DefaultsMatchTheEngineStructDefaults`, `.DocumentedDivergencesFromTheEngineDefaults`, `Model.ModelingOps.NormalsAndRepairOpsPublishTheirEngineOptions`). Every expected item is met: repair keeps the mesh closed, repair_or_skip differs from a no-op, the defaults sit at the compiler's epsilon, and an opened mesh is diagnosed. Coverage limit: a synthetic cap fixture; the SM_WPN_AR rail was not re-measured.
