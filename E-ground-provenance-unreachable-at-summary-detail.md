@@ -7,6 +7,8 @@ category: ergonomic
 tags: [spatial, ground_instances, ground_actors, verify_grounding, provenance, detail, readback, batch, response-size]
 encounters: 1
 lastSeen: 2026-08-29T00:00:00+05:00
+rice: [2, 2, 1, 1]
+priority: 33
 ---
 
 # Provenance matters most when everything looks fine, and that is exactly when it is absent
