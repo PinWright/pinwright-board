@@ -7,6 +7,8 @@ category: feature
 tags: [docs, citations, file-line, tooling, drift, check_hazards, contract-test, staleness]
 encounters: 1
 lastSeen: 2026-08-20T00:00:00Z
+rice: [1, 2, 1, 3]
+priority: 6
 ---
 
 # The only citation checker is in the other repo, and it looks at one directory
