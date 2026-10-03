@@ -7,6 +7,8 @@ category: ergonomic
 tags: [bpir, undo, error-message]
 encounters: 1
 lastSeen: 2026-06-23T10:08:23Z
+rice: [1, 2, 1, 1]
+priority: 17
 ---
 
 # UNDO_NOT_REVERSIBLE error directs caller to non-existent asset.revert RPC
