@@ -7,6 +7,8 @@ category: bug
 tags: [animation, anim-graph, pins, false-success, compile]
 encounters: 1
 lastSeen: 2026-10-02T00:00:00Z
+rice: [1, 3, 1, 1]
+priority: 33
 ---
 
 # Struct-only writes to exposed anim-node fields are overwritten at compile
