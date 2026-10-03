@@ -7,6 +7,8 @@ category: bug
 tags: [scripts, product-facts, powershell, release, determinism, gap-analysis-2026-09-28]
 encounters: 1
 lastSeen: 2026-09-29T13:03:05Z
+rice: [1, 1, 1, 1]
+priority: 8
 ---
 
 # product-facts.json output depends on the PowerShell edition
