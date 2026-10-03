@@ -7,6 +7,8 @@ category: feature
 tags: [render, capture-asset-preview, blueprint, construction-script, subject-kind, preview]
 encounters: 1
 lastSeen: 2026-10-01T00:00:00Z
+rice: [1, 1, 1, 2]
+priority: 4
 ---
 
 # No Blueprint subject kind on the preview-capture verb
