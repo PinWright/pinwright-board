@@ -7,6 +7,8 @@ category: bug
 tags: [pwmodel, inset, boundary-edges, docs-stale, diagnostics, attribution, PWMODEL_MESH_NOT_CLOSED, watchtower]
 encounters: 1
 lastSeen: 2026-08-20T00:00:00Z
+rice: [1, 2, 1, 1]
+priority: 17
 ---
 
 # The silence is fixed; the docs saying it is silent are not, and the op still says nothing itself
