@@ -7,6 +7,8 @@ category: ergonomic
 tags: [docs, niagara, search-modules, add-module, module-discovery, stack-authoring]
 encounters: 6
 lastSeen: 2026-07-11T13:39:00.6714482+03:00
+rice: [2, 2, 1, 1]
+priority: 33
 ---
 
 # Building a standard particle stack from scratch forces guess-and-check `search_modules` discovery
