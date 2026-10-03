@@ -8,6 +8,8 @@ tags: [widget, add, docs, common-ui, class-discovery]
 encounters: 1
 costly: 1
 lastSeen: 2026-06-30T22:53:48.7445084+03:00
+rice: [2, 2, 1, 1]
+priority: 33
 ---
 
 # `widget.add` `type` — no wiki path to discover the addable class-name string for a CommonUI container
