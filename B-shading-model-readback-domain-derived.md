@@ -7,6 +7,8 @@ category: bug
 tags: [material, material-authoring, shading-model, readback, material-domain, decal, post-process, round-trip, engine-quirk, stale-readback]
 encounters: 1
 lastSeen: 2026-08-20T00:00:00Z
+rice: [1, 2, 1, 1]
+priority: 17
 ---
 
 # The write verb sets a member; the read verb reports a derived value
