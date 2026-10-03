@@ -7,6 +7,8 @@ category: ergonomic
 tags: [spatial, verify_grounding, ground_actors, ground_instances, underside-model, bounds-plane, fallback, batch-echo, zero-is-absence, readback, placement, level-building]
 encounters: 1
 lastSeen: 2026-08-29T00:00:00+05:00
+rice: [1, 2, 1, 1]
+priority: 17
 ---
 
 # Six rows said "I fell back"; the batch said `mesh`
