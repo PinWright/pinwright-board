@@ -7,6 +7,8 @@ category: bug
 tags: [bAutoActivate, disclosure, warnings, cdo, archetype, false-statement, actor.set_component_properties, actor.add_component, property.set]
 encounters: 1
 lastSeen: 2026-08-29
+rice: [1, 2, 1, 1]
+priority: 17
 ---
 
 # The disclosure states a persistence fact that is false for most component classes
