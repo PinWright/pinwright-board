@@ -7,6 +7,8 @@ category: ergonomic
 tags: [system, jobs, job_status, async, wait, polling, asset, dump-folder]
 encounters: 1
 lastSeen: 2026-09-30T00:00:00Z
+rice: [2, 1, 1, 2]
+priority: 8
 ---
 
 # system.job_status has no bounded wait or multi-ticket form, so waiting on parallel wait:false jobs means a jobs.jsonl polling loop
