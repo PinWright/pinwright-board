@@ -7,6 +7,8 @@ category: bug
 tags: [render, capture, capture-subject, coverage, move-semantics, latent]
 encounters: 1
 lastSeen: 2026-10-02T01:55:00-05:00
+rice: [1, 1, 1, 1]
+priority: 8
 ---
 
 # A moved FResolvedSubject loses its VisibilitySetter
