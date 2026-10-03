@@ -7,6 +7,8 @@ category: bug
 tags: [material-authoring, add_landscape_layer, landscape, blend-method, weight-blending, layerinfo, inverted-default, parameter-semantics, ue57-regression, landscape-settings]
 encounters: 1
 lastSeen: 2026-08-30T16:50:00+03:00
+rice: [1, 3, 1, 1]
+priority: 33
 ---
 
 # The opt-out parameter is the only thing that can opt you in
