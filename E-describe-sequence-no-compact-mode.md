@@ -7,6 +7,8 @@ category: ergonomic
 tags: [animation, describe_sequence, get-animation-info, response-size, oversized-readback, compact, response-spill, docs]
 encounters: 4
 lastSeen: 2026-07-10T23:26:35.3494383+03:00
+rice: [2, 1, 1, 1]
+priority: 17
 ---
 
 # describe_sequence dumps the full per-bone boneTracks array by default, so every read of a real clip spills to disk
