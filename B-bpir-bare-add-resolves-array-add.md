@@ -5,6 +5,8 @@ status: OPEN
 severity: Low
 category: bug
 tags: [bpir, function-resolution, displayname, diagnostics]
+rice: [2, 2, 1, 1]
+priority: 33
 ---
 
 # BPIR bare `Add(A:, B:)` shadow-resolves to array Add; error misdirects
