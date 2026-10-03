@@ -7,6 +7,8 @@ category: bug
 tags: [blueprint, compile, persistence, save]
 encounters: 1
 lastSeen: 2026-10-01T00:00:00Z
+rice: [1, 2, 0.8, 1]
+priority: 13
 ---
 
 # Compile-only verbs can write to disk
