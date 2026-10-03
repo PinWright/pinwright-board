@@ -7,6 +7,8 @@ category: ergonomic
 tags: [niagara, niagara-graph, create-node, readback, node-type, docs]
 encounters: 1
 lastSeen: 2026-07-11T01:58:10.9079381+03:00
+rice: [1, 3, 1, 1]
+priority: 33
 ---
 
 # `create_node` NiagaraNodeInput `inputType` is applied blind — no readback confirms the typed pin
