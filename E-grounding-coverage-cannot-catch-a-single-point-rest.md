@@ -8,6 +8,8 @@ tags: [spatial, verify_grounding, ground_actors, ground_instances, coverage, con
 encounters: 1
 costly: 1
 lastSeen: 2026-08-29T00:00:00+05:00
+rice: [1, 3, 1, 1]
+priority: 33
 ---
 
 # A ratio over a denominator of 1 is not a measurement, and it is the field callers were told to gate on
