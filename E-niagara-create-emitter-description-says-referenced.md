@@ -7,6 +7,8 @@ category: ergonomic
 tags: [docs, niagara, create_emitter, add_emitter, wiki-wrong, inheritance, follow-up]
 encounters: 1
 lastSeen: 2026-09-03T10:35:04Z
+rice: [2, 2, 1, 1]
+priority: 33
 ---
 
 # The one leftover "referenced" in the emitter family, on the page that also says references do not exist
