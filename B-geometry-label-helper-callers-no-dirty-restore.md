@@ -7,6 +7,8 @@ category: bug
 tags: [geometry, tests, teardown, editor-world, dirty-state]
 encounters: 1
 lastSeen: 2026-10-02T12:00:00+03:00
+rice: [1, 1, 1, 2]
+priority: 4
 ---
 
 # Geometry label-helper teardown leaves the editor level dirty
