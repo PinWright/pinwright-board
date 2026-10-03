@@ -5,6 +5,8 @@ status: OPEN
 severity: Low
 category: ergonomic
 tags: [find_nodes, search, docs]
+rice: [2, 2, 1, 1]
+priority: 33
 ---
 
 # find_nodes tokenizes multi-word queries and matches per-term — no phrase-match mode exists or is documented
