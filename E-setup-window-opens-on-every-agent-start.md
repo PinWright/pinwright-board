@@ -7,6 +7,8 @@ category: ergonomic
 tags: [setup-window, editor_start, editor_restart, pie, drive, occlusion, target-occluded, startup]
 encounters: 2
 lastSeen: 2026-10-02T22:11:00Z
+rice: [2, 2, 1, 1]
+priority: 33
 ---
 
 # The setup window keeps reappearing in agent-started editors
