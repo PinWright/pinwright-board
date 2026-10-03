@@ -7,6 +7,8 @@ category: bug
 tags: [asset-dump, dump-folder, reconcile, prune, dumpcache, cache, mirror]
 encounters: 1
 lastSeen: 2026-09-02T00:00:00Z
+rice: [1, 1, 1, 1]
+priority: 8
 ---
 
 # Mirror reconcile is blind to dump dirs that lost their `meta.json`
