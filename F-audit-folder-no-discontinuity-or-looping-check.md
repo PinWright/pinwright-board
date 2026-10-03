@@ -8,6 +8,8 @@ tags: [audio, analysis, audit_folder, discontinuity, looping, bLooping, hygiene-
 encounters: 2
 costly: 2
 lastSeen: 2026-10-02T00:00:00Z
+rice: [2, 2, 1, 2]
+priority: 17
 ---
 
 # audit_folder cannot see the click defects the per-asset analyzer measures
