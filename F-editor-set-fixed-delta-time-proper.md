@@ -1,7 +1,7 @@
 ---
 id: F-editor-set-fixed-delta-time-proper
 title: "Reimplement editor.set_fixed_delta_time via FApp::SetFixedDeltaTime + SetUseFixedTimeStep (removed as a bogus-cvar stub)"
-status: OPEN
+status: WONTFIX
 severity: Medium
 category: feature
 tags: [editor, fixed-timestep, determinism, reimplement, rpc-cull]
@@ -45,3 +45,4 @@ tests).
 
 ## History
 - `#1-reimpl-after-cull` `OPEN` reporter — Filed to reinstate the wanted capability removed by the RPC cull ([`E-rpc-cull-151-record`](E-rpc-cull-151-record.md)). The removed `editor.set_fixed_delta_time` execed a nonexistent cvar `r.FixedDeltaTime` (EditorCommandHandler.cpp:662-667) and reported success regardless. Proper impl: `FApp::SetFixedDeltaTime` + `FApp::SetUseFixedTimeStep`, with a disable path and real-state readback. No RPC alternative exists for fixed-timestep control.
+- `#2-wontfix-yagni` `WONTFIX` developer — No encounter since filing. Deterministic stepping already exists: `editor.pause`/`editor.step_frame` engage the FApp fixed step per step (and `B-step-frame-world-advance-constant` `#6` adds the per-context PIE tick lever), and a session-wide fixed step is available at launch with `-UseFixedTimeStep -FPS=N` (`LaunchEngineLoop.cpp:2460`, `:4727`). A persistent runtime toggle has no demonstrated consumer. Reopen when a session needs to switch fixed stepping on and off inside one editor run.
