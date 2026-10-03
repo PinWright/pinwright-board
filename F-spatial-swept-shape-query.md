@@ -8,6 +8,8 @@ tags: [spatial, raycast, sweep, capsule, shape-trace, overlap, collision, pawn, 
 encounters: 1
 costly: 1
 lastSeen: 2026-08-29T22:05:00+03:00
+rice: [1, 2, 1, 2]
+priority: 8
 ---
 
 # Two collision queries in the entire tree, and neither one is swept
