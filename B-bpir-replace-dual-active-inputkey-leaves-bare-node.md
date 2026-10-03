@@ -7,6 +7,8 @@ category: bug
 tags: [bpir, compiler, replace, input-key, pressed, released, stale-node]
 encounters: 1
 lastSeen: 2026-10-02T00:00:00Z
+rice: [1, 3, 1, 1]
+priority: 33
 ---
 
 # Replace keeps a bare InputKey node behind
