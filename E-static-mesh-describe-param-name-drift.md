@@ -7,6 +7,8 @@ category: ergonomic
 tags: [static-mesh, param-alias, path, assetpath, describe, drift, docs]
 encounters: 2
 lastSeen: 2026-06-30T00:00:00Z
+rice: [2, 1, 1, 1]
+priority: 17
 ---
 
 # `static_mesh.describe` rejects `path`, requires `assetPath` — same param-name drift as the blueprint / widget / asset family
