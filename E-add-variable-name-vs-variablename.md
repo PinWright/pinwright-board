@@ -7,6 +7,8 @@ category: ergonomic
 tags: [blueprint, add_variable, param-alias, footgun]
 encounters: 1
 lastSeen: 2026-06-28T23:47:40Z
+rice: [2, 1, 1, 1]
+priority: 17
 ---
 
 # `blueprint.add_variable` rejects the natural `name`/`type` params; `name` is a misleading path-alias
