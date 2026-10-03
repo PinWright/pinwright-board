@@ -7,6 +7,8 @@ category: ergonomic
 tags: [component-readback-routing, actor-get-components, blueprint-scs-get, cdo, scs, readback, docs, discovery]
 encounters: 1
 lastSeen: 2026-07-01T23:03:42+03:00
+rice: [1, 2, 1, 1]
+priority: 17
 ---
 
 # `actor.get_components` on a Blueprint asset path returns an empty component list because SCS templates aren't on the bare CDO
