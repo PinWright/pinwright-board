@@ -7,6 +7,8 @@ category: ergonomic
 tags: [docs, sequencer, add_transform_track, transform-track, section-model]
 encounters: 1
 lastSeen: 2026-07-11T10:03:10.0692605+03:00
+rice: [1, 2, 1, 1]
+priority: 17
 ---
 
 # `sequencer.add_transform_track` doc omits how keyframes attach to its section
