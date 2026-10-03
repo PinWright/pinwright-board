@@ -7,6 +7,8 @@ category: ergonomic
 tags: [render, capture_asset_preview, default-camera, framing, boundsInFrame, subjectCoverage, offAxis, frameLimit, aspect-ratio, long-thin-asset, weapons]
 encounters: 3
 lastSeen: 2026-09-05T00:00:00Z
+rice: [2, 2, 1, 2]
+priority: 17
 ---
 
 # The default camera azimuth is a world axis, so a long thin asset is shot down its own length
