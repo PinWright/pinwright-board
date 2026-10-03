@@ -7,6 +7,8 @@ category: ergonomic
 tags: [editor_start, editor_restart, startup, crash, oom, vulkan, log-path, error-message]
 encounters: 1
 lastSeen: 2026-09-30T12:16:12Z
+rice: [2, 2, 1, 1]
+priority: 33
 ---
 
 # A startup death is reported without its cause or its log
