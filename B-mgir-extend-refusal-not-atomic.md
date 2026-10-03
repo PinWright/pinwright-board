@@ -5,6 +5,8 @@ status: OPEN
 severity: Medium
 category: bug
 tags: [mgir, material, compile, atomicity, rollback, partial-application, idempotency, transaction]
+rice: [1, 3, 1, 2]
+priority: 17
 ---
 
 # `Extend` refuses mid-document, after N-1 expressions have already been created
