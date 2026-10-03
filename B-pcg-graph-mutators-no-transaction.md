@@ -7,6 +7,8 @@ category: bug
 tags: [pcg, add-node, remove-node, undo, transaction, mutator-no-undo-transaction, graph-authoring]
 encounters: 1
 lastSeen: 2026-08-29T22:00:00+03:00
+rice: [1, 2, 1, 2]
+priority: 8
 ---
 
 # The `pcg` namespace mutates graphs outside the transaction system
