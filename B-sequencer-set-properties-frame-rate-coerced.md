@@ -7,6 +7,8 @@ category: bug
 tags: [sequencer, frame-rate, validation, coercion, false-success]
 encounters: 1
 lastSeen: 2026-10-02T00:00:00+03:00
+rice: [1, 3, 1, 1]
+priority: 33
 ---
 
 # set_properties coerces the display rate instead of refusing it
