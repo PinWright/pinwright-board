@@ -1,82 +1,92 @@
 ---
 id: B-derived-state-report-contract-gaps
-title: "Small contract gaps in the new derived-state verbs: empty authoritativeVerb, width verb named for a depth write, remedy/notRefreshed contradiction, missing snake_case alias"
+title: "Small contract gaps in the derived-state verbs: empty authoritativeVerb, width verb named for a depth write, remedy/notRefreshed contradiction, missing point_index alias, fixed float tolerance"
 status: OPEN
 severity: Low
+rice: [1, 1, 1, 1]
+priority: 8
 category: bug
 tags: [water, spline, material-authoring, derived-state, wire-contract, conventions]
 ---
 
-# Five small gaps in the derived-state changeset's wire contract
+# Five small gaps in the derived-state verbs' wire contract
 
-None of these produce a false success — the changeset's core honesty property holds. They are
-places where the structured payload is less useful than the prose beside it, or where a convention
-is missed. Grouped into one ticket because they are all one edit each in the same two files.
+None of these produce a false success. They are places where the structured payload is less useful
+than the prose beside it, or where a convention is missed. Paths are relative to
+`Source/PinWright/Private/`.
 
 ## 1. A refusal can name no verb at all
 
-`Handlers/Geometry/SplineHandler.cpp` — `OutAuthoritativeVerb` defaults to empty and is set only for
-`UWaterSplineComponent`. `docs/rpc-design.md` §5a's own rule is *"A refusal must name a verb that
-exists"*, and §5a's **other** rule ("ask the engine, do not maintain a type list") is exactly what
-makes the empty branch reachable: any future spline type that overrides
-`AllowsSplinePointScaleEditing()` to false gets `authoritativeVerb: ""`. The generic `explanation`
-prose is fine, but the machine-readable field is the one that is supposed to survive.
+`Handlers/Geometry/SplineHandler.cpp:154` resets `OutAuthoritativeVerb` and only the
+`UWaterSplineComponent` branch sets it (`:176`). `docs/rpc-design.md` §5a says a refusal must name a
+verb that exists, and its "ask the engine, do not maintain a type list" rule (`:172`) is what makes
+the empty branch reachable: any other spline type whose `AllowsSplinePointScaleEditing()` returns
+false gets `authoritativeVerb: ""`.
 
-Suggested: when no verb is known, say so in the field rather than leaving it empty, and name the
-generic route (`property.set` on the authoritative component, or the discovery page).
+**Fix:** when no verb is known, put the generic route in the field (`property.set` on the
+authoritative component, or the discovery page) instead of an empty string.
 
-## 2. `authoritativeVerb` names the width verb even for a `Scale.Y` (depth) write
+## 2. `authoritativeVerb` names the width verb for a `Scale.Y` (depth) write
 
-Same file. `Docs/wiki-src/spline.md` tells callers "`authoritativeVerb` is the verb to call
-instead", so a depth write is pointed at `water.set_river_width_at_spline_point`. The `explanation`
-string does mention both verbs, so a human recovers — but §5a's whole argument for the structured
-block is that recovery should not require parsing prose.
+`SplineHandler.cpp:176` always returns `water.set_river_width_at_spline_point`, though Scale.Y is
+depth. `docs/wiki-src/spline.md:72-73` presents `authoritativeVerb` as the replacement verb, so a depth write is
+sent to the width verb. Only the `explanation` prose (`:177-184`) names the depth verb.
 
-Suggested: pick the verb from which scale component the caller actually changed.
+**Fix:** choose the verb from the scale component the caller changed (Y →
+`water.set_river_depth_at_spline_point`).
 
-## 3. `remedy` / `notRefreshed[]` contradict the header's documented contract
+## 3. `remedy` / `notRefreshed[]` contradict the header's contract
 
-`Utils/DerivedStateReport.h` documents `Remedy` as *"What a caller should do about anything in
-`NotRefreshed`. Empty when the coverage is complete."* But
-`Handlers/Material/MaterialAuthoringHandler.cpp` **always** appends one `NotRefreshed` entry ("open
-asset editors, which keep their own preview material state") while setting `Remedy` only when
-`IsComplete()` is false — and then the remedy names `landscape.set_material`, which does nothing
-about asset editors. Net wire shape on a clean run: `complete: true` + non-empty `notRefreshed[]` +
-no `remedy`, which reads as a contradiction to anyone holding the header's contract.
+`Utils/DerivedStateReport.h:97-99` documents `Remedy` as "What a caller should do about anything in
+NotRefreshed. Empty when the coverage is complete." `AddKnownUnrefreshedConsumers`
+(`Handlers/Material/MaterialLandscapeConsumers.h:326-337`, called from
+`MaterialAuthoringHandler.cpp:3654` and `:3781`) always adds the "open asset editors" entry to
+`NotRefreshed`, but sets `Remedy` only when `!IsComplete()`, and that remedy names
+`landscape.set_material`, which does nothing for asset editors. A clean run therefore emits
+`complete: true`, a non-empty `notRefreshed[]` and no `remedy`. The entry is also added when
+`bMeasured` is false.
 
-The entry is also appended when `bMeasured == false`, i.e. a run that never enumerated consumers
-still enumerates a gap.
-
-Suggested: either separate "out of scope by design" from "in scope and missed" as two fields, or
-relax the header's documented contract to match the behaviour. The behaviour is defensible; the
-documentation of it is not.
+**Fix:** split "out of scope by design" from "in scope and missed" into two fields, or reword the
+header contract to match the behaviour.
 
 ## 4. `pointIndex` has no `point_index` alias
 
-`Handlers/Water/WaterHandler.cpp` — `Ctx.GetIntFirstOf({ TEXT("pointIndex") })`. `CLAUDE.md`
-Conventions: *"handlers accept both `camelCase` and `snake_case` variants"*. `GetIntFirstOf` takes a
-list precisely for this. A `point_index` caller is silently dropped, then trips the
-`pointIndex` XOR `allPoints` check and gets `INVALID_PARAMS` — safe, but an avoidable rejection with
-a misleading message. Verified directly.
+`Handlers/Water/WaterHandler.cpp:686` reads `GetIntFirstOf({ TEXT("pointIndex") })` and the
+registrations (`:810`, `:833`) declare no alias, so the dispatcher refuses `point_index` with
+`UNKNOWN_PARAMS` (`Dispatch/RpcDispatcher.cpp:171-196`). The refusal is clear, but the plugin
+`CLAUDE.md` convention says handlers accept both camelCase and snake_case.
+
+**Fix:** declare `point_index` as an alias on both registrations and add it to the
+`GetIntFirstOf` list.
 
 ## 5. Fixed `0.01` apply tolerance against `float` storage
 
-`Handlers/Water/WaterHandler.cpp` stores `static_cast<float>(Value)` and compares the read-back
-against a fixed `0.01` tolerance. Above roughly 65,000 the float ULP exceeds 0.01, so a **correct**
-write would report `APPLY_FAILED`. Realistic river widths sit far below that, so this is a latent
-cliff rather than a live bug; a relative tolerance removes it.
+`WaterHandler.cpp:725` stores `static_cast<float>(Value)` and `:735` compares the read-back with a
+fixed `0.01` tolerance. Above about 65,000 the float ULP is larger than 0.01, so a correct write
+would report `APPLY_FAILED`. Real river widths are far below that, so this is a latent edge.
 
-## Also: citation drift in the new comments and docs
+**Fix:** use a relative tolerance (or one float ULP of the value).
 
-Harmless, but this codebase argues from `file:line` evidence, so drift costs the next reader time.
-Reported: `WaterSplineComponent.h:54` should be `:53` (in `rpc-design.md` §5a and
-`SplineHandler.cpp`); `WaterSplineComponent.h:62` should be `:60` (`WaterHandler.cpp`);
-`LandscapeEdit.cpp:710` is cited for `GetCombinationMaterial`, which is at `:585-630`.
-`DerivedStateReport.h`'s own "Emits `consumerRefresh: {...}`" comment omits
-`consumersWithNothingToRefresh`, which the function does emit.
+## 6. Citation drift
+
+- `WaterSplineComponent.h:54` should be `:53` (`AllowsSplinePointScaleEditing`) in
+  `docs/rpc-design.md:172` and `SplineHandler.cpp:139`.
+- `WaterSplineComponent.h:62` should be `:60` (`K2_SynchronizeAndBroadcastDataChange`) in
+  `WaterHandler.cpp:522`.
+- `MaterialLandscapeConsumers.h:34` cites `LandscapeEdit.cpp:710` as
+  `ULandscapeComponent::GetCombinationMaterial`; `:710` is a call site, the definition is at `:583`.
+- The emitter comment at `DerivedStateReport.h:139-140` omits `consumersWithNothingToRefresh`, which
+  the function emits (`:158`).
+
+**Acceptance:** a scale write on a non-water spline with scale editing disabled returns a non-empty
+`authoritativeVerb`. A Scale.Y write on a water spline returns
+`water.set_river_depth_at_spline_point`. A clean `compile_material` run returns a `consumerRefresh`
+block that is consistent with the documented `Remedy` contract. `point_index` is accepted. A width of
+100000 applies without `APPLY_FAILED`. The citations above match the engine source.
 
 ## History
 - `#1-found-by-audit` `OPEN` reporter — Found by auditing the derived-state-honesty changeset
   (`099b83b3`..`0fe35187`) against `Docs/rpc-design.md` during integration pass 11. Items 4 and the
   `SafePoint` question were re-verified directly by the integration pass; items 1-3, 5 and the
   citation drift are as reported by the audit and are **not** independently re-verified.
+- `#2-rephrased` `OPEN` developer — Item 3's code moved from `MaterialAuthoringHandler.cpp` to `AddKnownUnrefreshedConsumers` (`Handlers/Material/MaterialLandscapeConsumers.h:326-337`, called at `MaterialAuthoringHandler.cpp:3654`, `:3781`), so the ticket no longer spans two files. Item 4's harm was wrong: `point_index` is no longer silently dropped into a misleading XOR error, because the dispatcher refuses it with `UNKNOWN_PARAMS` (`RpcDispatcher.cpp:171-196`). Only the convention gap remains. Verified items 1, 2 and 5 at `SplineHandler.cpp:154`, `:176` and `WaterHandler.cpp:725`, `:735`. Re-verified the citation drift against UE 5.8 (`WaterSplineComponent.h:53`, `:60`; `GetCombinationMaterial` defined at `LandscapeEdit.cpp:583`). Refreshed all citations, added per-item Fix and an Acceptance line. Severity unchanged (Low).
