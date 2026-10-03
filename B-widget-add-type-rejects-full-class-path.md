@@ -7,6 +7,8 @@ category: bug
 tags: [widget, widget.add, classref, class-resolution, blueprint-class, invalid-class, param-type]
 encounters: 1
 lastSeen: 2026-09-25T09:00:00Z
+rice: [2, 2, 1, 1]
+priority: 33
 ---
 
 # widget.add cannot take a full class path
