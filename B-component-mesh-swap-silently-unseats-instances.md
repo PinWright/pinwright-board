@@ -8,6 +8,8 @@ tags: [actor, set_component_properties, add_component, static-mesh, ism, hism, i
 encounters: 1
 costly: 1
 lastSeen: 2026-08-29T18:20:00+05:00
+rice: [1, 2, 1, 1]
+priority: 17
 ---
 
 # The write path knows the bounds moved. It acts on that, and tells the caller nothing.
