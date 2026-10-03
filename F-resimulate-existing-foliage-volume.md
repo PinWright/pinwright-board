@@ -7,6 +7,8 @@ category: feature
 tags: [foliage, procedural-foliage, resimulate, clear, create_procedural, reflection, call_function, cdo-refusal, missing-verb, iteration-loop]
 encounters: 2
 lastSeen: 2026-08-29T18:00:00+05:00
+rice: [1, 2, 1, 1]
+priority: 17
 ---
 
 # The hard part is done, and it only runs once, at birth
