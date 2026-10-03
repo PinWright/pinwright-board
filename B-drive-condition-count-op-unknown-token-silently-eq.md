@@ -7,6 +7,8 @@ category: bug
 tags: [drive, drive.wait_for, drive.expect, condition, count_op, argument-validation]
 encounters: 1
 lastSeen: 2026-10-02T00:00:00Z
+rice: [1, 3, 1, 1]
+priority: 33
 ---
 
 # An unknown `count_op` silently becomes `eq`
