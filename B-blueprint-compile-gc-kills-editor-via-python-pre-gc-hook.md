@@ -171,3 +171,4 @@ commandlet that never reaches an engine GC opportunity.
   synchronous pre-GC broadcasts, one later explicit pre-GC broadcast, and zero handled ensures.
   Updated the structural ratchet to pin both compile-helper invariants and corrected the wiki's
   cleanup and Python-callback claims. No compile, automation, editor, or runtime proof was run.
+- `#6-cross-link-pre-gc-heap-fault` `IN-REVIEW` reporter — Cross-link only, no status change: the root cause of this fault (the Python pre-GC `PyGC_Collect` pass running over a corrupted heap) is now tracked in `B-python-pre-gc-pass-heap-fault-root-cause`. `B-python-execute-reentrant-gc-crash` mitigates only the in-script instance, by disabling Python's cyclic collector while `python.execute` runs a script, so it does not cover this ticket's no-frame path.
