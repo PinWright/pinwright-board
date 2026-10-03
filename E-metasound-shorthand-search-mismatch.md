@@ -8,6 +8,8 @@ tags: [docs, metasound, audio, authoring, add_metasound_node, search_metasound_n
 encounters: 2
 costly: 1
 lastSeen: 2026-06-24T19:46:41Z
+rice: [1, 2, 0.8, 1]
+priority: 13
 ---
 
 # The `gain` shorthand adds `UE.Multiply.Audio`, but `search_metasound_nodes query="Gain"` can't find it — pin discovery for the wire step breaks
