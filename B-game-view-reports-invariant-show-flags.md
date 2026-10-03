@@ -8,6 +8,8 @@ tags: [editor, set_game_view, show-flags, billboard, response-semantics, invaria
 encounters: 1
 costly: 1
 lastSeen: 2026-08-20T00:00:00Z
+rice: [3, 2, 0.8, 1]
+priority: 40
 ---
 
 # A field that cannot vary, next to a summary that promises it will
