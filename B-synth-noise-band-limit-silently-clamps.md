@@ -6,6 +6,8 @@ severity: Low
 category: bug
 tags: [audio, synth, noise, biquad, silent-clamp, sample-rate]
 encounters: 1
+rice: [1, 2, 1, 1]
+priority: 17
 ---
 
 # Noise band limits ride the biquad's silent clamp
