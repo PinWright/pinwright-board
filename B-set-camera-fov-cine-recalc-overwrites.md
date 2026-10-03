@@ -5,6 +5,8 @@ status: OPEN
 severity: Medium
 category: bug
 tags: [camera, cine-camera, derived-state, persistence, silent-revert, misleading-success]
+rice: [1, 3, 1, 1]
+priority: 33
 ---
 
 # `misc.set_camera_fov` writes a derived field on a CineCamera
