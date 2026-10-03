@@ -7,6 +7,8 @@ category: ergonomic
 tags: [docs, sequencer, playback, pause, success-field, readback]
 encounters: 1
 lastSeen: 2026-06-23T10:08:23Z
+rice: [1, 1, 1, 1]
+priority: 8
 ---
 
 # `sequencer.play` / `pause` / `stop` / `set_playback_speed` return a bare `{}` — pause-vs-no-op is indistinguishable from the wire response
