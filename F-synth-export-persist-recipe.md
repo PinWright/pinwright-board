@@ -7,6 +7,8 @@ category: feature
 tags: [audio, synth, export, variations, patch, get_recipe, round-robin]
 encounters: 1
 costly: 1
+rice: [1, 2, 1, 2]
+priority: 8
 ---
 
 # A shipped synth wave has no recipe behind it
