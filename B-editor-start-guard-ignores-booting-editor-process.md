@@ -8,6 +8,8 @@ tags: [proxy, mcp-proxy, editor-launch, editor_start, guard, cold-start]
 encounters: 1
 costly: 0
 lastSeen: 2026-10-02T00:00:00Z
+rice: [1, 2, 1, 1]
+priority: 17
 ---
 
 # The launch guard cannot see an editor that has not bound its port yet
