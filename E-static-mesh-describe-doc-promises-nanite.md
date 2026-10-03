@@ -8,6 +8,8 @@ tags: [static-mesh, static-mesh-describe, nanite, asset-dump, dump-parity, regis
 encounters: 4
 costly: 1
 lastSeen: 2026-09-03T00:00:00Z
+rice: [2, 2, 1, 1]
+priority: 33
 ---
 
 # `static_mesh.describe`'s doc promises "Nanite state" that the response (and the `static_mesh.json` sidecar) omit
