@@ -8,6 +8,8 @@ tags: [orphan-detection, find-orphaned-nodes, delete-orphaned-nodes, reachabilit
 blockedBy: [B-orphan-sweep-mathexpression-fatal-load]
 encounters: 1
 lastSeen: 2026-08-29T00:00:00Z
+rice: [1, 2, 1, 2]
+priority: 8
 ---
 
 # A dead collapsed graph is permanently unsweepable
