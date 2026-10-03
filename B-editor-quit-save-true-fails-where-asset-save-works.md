@@ -5,6 +5,8 @@ status: OPEN
 severity: Medium
 category: bug
 tags: [editor, editor-quit, save, save-dirty-packages, asymmetry]
+rice: [2, 2, 0.8, 1]
+priority: 27
 ---
 
 # editor.quit save:true bulk save fails on packages that per-asset asset.save saves fine
