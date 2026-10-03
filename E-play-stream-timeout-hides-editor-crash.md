@@ -7,6 +7,8 @@ category: ergonomic
 tags: [editor.play, mcp-proxy, crash, error-message, stream, job-status]
 encounters: 1
 lastSeen: 2026-09-28T10:27:00Z
+rice: [1, 2, 1, 2]
+priority: 8
 ---
 
 # A dead editor is reported as a slow operation
