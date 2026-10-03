@@ -7,6 +7,8 @@ category: ergonomic
 tags: [asset-dump, texture, async-compilation, wait, docs]
 encounters: 1
 lastSeen: 2026-09-30T00:00:00Z
+rice: [2, 2, 1, 2]
+priority: 17
 ---
 
 # asset.dump / texture.describe refuse ASSET_COMPILING with no bounded-wait option
