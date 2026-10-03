@@ -8,6 +8,8 @@ tags: [system, identity, performance, measurement, profiling, contention, concur
 encounters: 1
 costly: 1
 lastSeen: 2026-08-30T18:00:00+03:00
+rice: [1, 2, 1, 1]
+priority: 17
 ---
 
 # A second engine process poisons every number and nothing reports it
