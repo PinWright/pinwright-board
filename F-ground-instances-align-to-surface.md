@@ -7,6 +7,8 @@ category: feature
 tags: [spatial, ground_instances, ground_actors, ism, hism, instanced-static-mesh, scatter, vegetation, align-to-normal, maxTilt, parameter-parity, missing-parameter]
 encounters: 1
 lastSeen: 2026-08-29
+rice: [1, 2, 1, 2]
+priority: 8
 ---
 
 # One verb tilts to the terrain, its per-instance twin cannot
