@@ -1,12 +1,13 @@
 ---
 id: B-niagara-module-input-enum-display-name-rejected
 title: "niagara.set_module_input rejects the enum name for an enum-typed module input — only a bare integer index works, and the index is nowhere published"
-status: OPEN
+status: DONE
 severity: Medium
 category: bug
 tags: [niagara, set-module-input, enum, coordinate-space, unsupported-input-value, discoverability]
 encounters: 1
 lastSeen: 2026-09-02T22:45:00+05:00
+duplicateOf: B-niagara-module-input-enum-by-name
 ---
 
 # An enum-typed module input takes only a raw integer, and `set_module_input` never says which integer
@@ -79,3 +80,5 @@ severity rationale: impact=a wrong-but-accepted value silently mis-orients an ef
 
 ## History
 - `#1-initial-repro` `OPEN` reporter — Hit while authoring `/Game/FPS/VFX/NS_Impact_Concrete` on UE 5.8 in the EAContentExamples58 checkout. `set_module_input` on `AddVelocityInCone`'s `Cone Axis Coordinate Space` with `value:"Local"` returned `UNSUPPORTED_INPUT_VALUE`; `value:2` succeeded. The option list exists in `niagara.inspect {includeStack:true}` but only as `enumOptions:["Simulation","World","Local"]` with no indices, so the reporter confirmed `Local == 2` out-of-band against `NiagaraTypes.h:631-644` rather than from any RPC. The rejection payload carries no enum information whatsoever. Contrast `niagara.set_static_switch`, which takes the label, publishes `{index,name,displayName}` on success *and* on `INVALID_VALUE`, and refuses an out-of-table index.
+- `#2-duplicate-resolved` `IN-REVIEW` developer — duplicateOf `B-niagara-module-input-enum-by-name`: same verb, same input, same root cause (the literal path never consulted the declared enum type). Fixed there in `#3-enum-module-input-resolved`; all three items of this ticket's Fix list are covered: (1) entry/display name accepted on `set_module_input`, echoed as `value` (entry name) + `enumIndex`/`displayName`; (2) `enumPath` + `enumOptions[]` of `{index,name,displayName}` on the `INVALID_VALUE` rejection payload **and** in `niagara.inspect` `moduleInputs[]` (replacing the bare string array); (3) an off-table or fractional integer is refused. Tests: `PinWright.niagara.set_module_input.EnumInputAcceptsEntryName`, `.EnumInputRefusesOffTableValues`, `.EnumInputReplacesMistypedOverride` (`Tests/Niagara/TestNiagaraSetModuleInputEnum.cpp`).
+- `#3-verified-linux` `DONE` tester — Verified on Linux as a duplicate of `B-niagara-module-input-enum-by-name`, same change (commit 75e314ce, PinWright 7230b41d). run3/full passed non-skipped: `PinWright.niagara.set_module_input.EnumInputAcceptsEntryName`, `.EnumInputRefusesOffTableValues` and `.EnumInputReplacesMistypedOverride`. Fix item 1: `Local` and lowercase `simulation` are accepted on `AddVelocityInCone.Cone Axis Coordinate Space`, echoed as the entry-name `value` plus `enumIndex`. Fix item 2: the rejection carries `enumPath` and `enumOptions[]`, and `niagara.inspect` moduleInputs `enumOptions` is now `{index,name,displayName}` objects (asserted index 2 / name `Local`). Fix item 3: 97, -1 and 1.5 are refused `INVALID_VALUE` with no graph mutation. The rejection code is `INVALID_VALUE`, not `UNSUPPORTED_INPUT_VALUE`, which matches `set_static_switch`. Coverage limit: only the C++ `ENiagaraCoordinateSpace` enum is exercised.
