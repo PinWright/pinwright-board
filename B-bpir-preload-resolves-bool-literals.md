@@ -7,6 +7,8 @@ category: bug
 tags: [bpir, compiler, log-noise, gap-analysis-2026-09-28]
 encounters: 1
 lastSeen: 2026-09-29T09:01:03Z
+rice: [3, 1, 1, 1]
+priority: 25
 ---
 
 # BPIR preload pass tries to load `true` / `false` as classes
