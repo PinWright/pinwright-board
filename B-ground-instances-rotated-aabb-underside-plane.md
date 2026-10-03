@@ -8,6 +8,8 @@ tags: [spatial, ground_instances, ism, hism, instanced-static-mesh, scatter, veg
 encounters: 2
 costly: 2
 lastSeen: 2026-08-29T22:15:00+03:00
+rice: [1, 3, 1, 1]
+priority: 33
 ---
 
 # The box bottom is not the mesh bottom, and it drops further the more the instance is tumbled
