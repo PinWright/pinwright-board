@@ -7,6 +7,8 @@ category: ergonomic
 tags: [docs, water, spline, set_spline_point_position, add_spline_point, water-spline, discovery]
 encounters: 1
 lastSeen: 2026-06-23T10:08:23Z
+rice: [1, 1, 1, 1]
+priority: 8
 ---
 
 # A fresh river's default WaterSpline point count is undocumented, so authoring N points needs a discovery probe first
