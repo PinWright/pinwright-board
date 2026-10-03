@@ -7,6 +7,8 @@ category: bug
 tags: [audio, runtime, pie, world-resolution, silent-success, docs, play_sound_at_location, play_sound_2d]
 encounters: 1
 lastSeen: 2026-10-02T18:45:00Z
+rice: [1, 3, 1, 1]
+priority: 33
 ---
 
 # Runtime audio play verbs always target the editor world
