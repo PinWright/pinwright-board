@@ -7,6 +7,8 @@ category: ergonomic
 tags: [volume, docs, discovery, filter, class-name]
 encounters: 1
 lastSeen: 2026-06-17T00:56:02Z
+rice: [1, 2, 1, 1]
+priority: 17
 ---
 
 # volume.get_volumes_info type filter is undiscoverable
