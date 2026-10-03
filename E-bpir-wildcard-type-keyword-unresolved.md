@@ -7,6 +7,8 @@ category: ergonomic
 tags: [bpir, types, wildcard, macro, type-grammar]
 encounters: 1
 lastSeen: 2026-10-02T12:00:00Z
+rice: [1, 1, 1, 1]
+priority: 8
 ---
 
 # `wildcard` is a documented BPIR type with no grammar entry
