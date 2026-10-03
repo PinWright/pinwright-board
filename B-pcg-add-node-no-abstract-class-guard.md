@@ -5,6 +5,8 @@ status: OPEN
 severity: Medium
 category: bug
 tags: [pcg, add-node, abstract-class, newobject, class-resolution, silent-false-success, null-on-save, ensure, source-only, not-executed]
+rice: [1, 3, 0.8, 1]
+priority: 27
 ---
 
 # `pcg.add_node` resolves an arbitrary class path and instantiates it with no abstract-class check
