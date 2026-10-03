@@ -7,6 +7,8 @@ category: ergonomic
 tags: [asset, asset-get-metadata, response-size, oversized, projection, docs]
 encounters: 1
 lastSeen: 2026-07-11T03:23:30.9918175+03:00
+rice: [1, 1, 1, 1]
+priority: 8
 ---
 
 # `asset.get_metadata` can't scope to a few fields — a skeleton/anim read spills to file
