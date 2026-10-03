@@ -6,6 +6,8 @@ severity: Low
 category: feature
 tags: [niagara, authoring, hlsl, parity-ue58, gap-analysis-2026-09-30]
 blockedBy: [F-niagara-create-module-script]
+rice: [1, 1, 1, 3]
+priority: 3
 ---
 
 # niagara.set_module_input: HLSL-expression value mode
