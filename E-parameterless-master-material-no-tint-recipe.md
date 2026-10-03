@@ -8,6 +8,8 @@ tags: [material, material-authoring, get_material_info, parameters, material-ins
 encounters: 1
 costly: 1
 lastSeen: 2026-08-29T18:00:00+05:00
+rice: [1, 1, 1, 1]
+priority: 8
 ---
 
 # The readback is right, and it leaves the caller at a wall with no signposts
