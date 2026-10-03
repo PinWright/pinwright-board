@@ -7,6 +7,8 @@ category: ergonomic
 tags: [recorder, response-size, oversized]
 encounters: 5
 lastSeen: 2026-06-16T13:31:59Z
+rice: [1, 1, 0.5, 1]
+priority: 4
 ---
 
 # recorder.list_sessions has no limit param — overflows inline budget on long histories
