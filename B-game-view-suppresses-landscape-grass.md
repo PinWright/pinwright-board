@@ -7,6 +7,8 @@ category: bug
 tags: [editor, set_game_view, game-view, landscape, grass, vegetation, capture, acceptance-shot, unattributed-mechanism, show-flags]
 encounters: 1
 lastSeen: 2026-08-29T00:00:00+05:00
+rice: [2, 2, 0.5, 1]
+priority: 17
 ---
 
 # Game view thins the grass, and it is documented not to touch geometry
