@@ -1,7 +1,7 @@
 ---
 id: B-bpir-decompile-skel-qualified-cross-class-calls
 title: "Decompiler spuriously qualifies cross-Blueprint calls (SKEL/GEN UFunction-instance mismatch) and emits an unresolvable SKEL_<OtherClass>::Func token, breaking round-trip"
-status: OPEN
+status: IN-REVIEW
 severity: Medium
 category: bug
 lastSeen: 2026-09-05T18:09:22Z
@@ -81,3 +81,4 @@ BP_KioskButton                                                   ->  SKEL_BPInte
 
   **Full evidence, including the `get_nodes` / `get_execution_flow` output and the byte counts, is durable in the `#4-verified-in-fps-build-with-one-new-defect` entry on `B-bpir-interface-call-never-dispatches`** (commit `7eb5465`); it is not duplicated here. Fix direction: move the `UK2Node_Message` branch behind `NormalizeToGeneratedFunction` so it takes `#2`'s existing normalization, and add a Blueprint-interface fixture to the message round-trip test.
 - `#4-message-path-cross-ref` `OPEN` developer — Cross-reference, status unchanged: the `K2Node_Message` facet from #3 is fixed under `E-wiki-bpir-example-uncompilable-and-skel-qualifier-undocumented` (`#2-example-fixed-and-emitter-normalised`): `FBpirTextEmitter::GetFunctionDisplayName`'s qualified branch now maps a SkeletonGeneratedClass owner to the Blueprint's GeneratedClass before printing, so `message SKEL_BPI_X_C::` decompiles as `message BPI_X_C::`. Pinned by `PinWright.bpir.round_trip.BlueprintInterfaceMessage`. Whoever owns this ticket should re-verify and move it.
+- `#5-already-fixed` `IN-REVIEW` developer — ALREADY-FIXED in current source: both facets are resolved at PinWright 7230b41d. The cross-class arm normalizes the SKEL/GEN UFunction before comparing (`Decompiler/BpirTextEmitter.cpp:503-548`), and the `K2Node_Message` arm maps a SKEL owner to its generated class via `GetAuthoritativeClass` (`:606-628`, commit b5e36d5c). Regression tests passed non-skipped in the batch-4 final suite run on the committed tree: `PinWright.bpir.decompiler.CrossClassCallNoSkelPrefix`, `PinWright.bpir.round_trip.BlueprintInterfaceMessage`, `PinWright.bpir.round_trip.InterfaceMessage`. No code change; tester to verify against the reporter's FPS Blueprint.
