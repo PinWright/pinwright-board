@@ -7,6 +7,8 @@ category: ergonomic
 tags: [blueprint-graph, replace_node, create_node, callfunction, error-messages, error-hint, discovery, search_api]
 encounters: 1
 lastSeen: 2026-06-23T10:08:23Z
+rice: [1, 1, 1, 1]
+priority: 8
 ---
 
 # `replace_node` CallFunction refusal offers no recovery path when the target exists but isn't BlueprintCallable
