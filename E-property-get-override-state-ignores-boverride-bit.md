@@ -7,6 +7,8 @@ category: ergonomic
 tags: [property, property-get, property-list, isOverridden, includeOverrideState, post-process, boverride, readback, verification, docs]
 encounters: 1
 lastSeen: 2026-06-23T10:08:23Z
+rice: [1, 2, 1, 1]
+priority: 17
 ---
 
 # `isOverridden` ignores the `bOverride_*` companion bit, so override-flag-gated PPV fields whose value equals the struct default report `isOverridden:false` even though they genuinely blend
