@@ -1,7 +1,7 @@
 ---
 id: B-wiki-hism-recipe-resets-actor-transform
 title: "The wiki's HISM recipe tells callers to set root_component by reflection on a spawned actor, which orphans the DefaultSceneRoot that was carrying the spawn location — so the layer builds at the world origin instead of where it was authored, and spatial.ground_instances then seats it there and reports placed: 41"
-status: OPEN
+status: DONE
 severity: Medium
 category: bug
 tags: [wiki, wiki-src, docs, level-building, instancing-and-scatter, hism, ism, python-execute, root-component, transform, world-origin, silent-wrong-output, shipped-artefact]
@@ -275,3 +275,52 @@ severity rationale: impact=one band below High, argued rather than asserted — 
   so its survival across save/reload independent of the `RootComponent` reference is unverified.
   Status left `OPEN` — nothing here fixes the shipped page; severity left **Medium**, since the
   new evidence narrows the remedy rather than widening the impact. `encounters` absent → 2.
+- `#3-recipe-rederived-onto-actor-add-component` `IN-REVIEW` developer — Took candidate (b),
+  with (a)'s premise kept. Premise re-checked against 7230b41d: the page still shipped
+  `set_editor_property('root_component', comp)` at `:16` and the "needs neither" sentence at `:43`.
+  No PinWright verb resets the transform (the caller's own reflection write does), so the fix is
+  docs. The one code change is the inaccurate `meshPath` description that `#2` found. Changes:
+  (1) `docs/wiki-src/level-building.instancing-and-scatter.md`: the recipe is now three steps.
+  Step 1 is `spawn_actor_from_class(unreal.Actor, anchor)`, whose factory `DefaultSceneRoot`
+  carries the anchor. Step 2 is `call("actor.add_component", {componentType:
+  "HierarchicalInstancedStaticMeshComponent", meshPath, componentName})`, which attaches under that
+  root and registers from C++. Step 3 fills with `add_instances(world_space=False)` and asserts
+  `a.get_actor_location().is_near_equal(anchor, 1.0)` beside `get_instance_count()`. A new bold
+  paragraph says never to make the HISM the root, gives the 17 km consequence, the skipped
+  `SetRootComponent`, and why `get_instance_count()` cannot see placement, and warns that
+  `actor.spawn {classPath:"Actor"}` gives a rootless holder (`B-actor-spawn-rootless-actor-ignores-location`).
+  The `:43` paragraph keeps the `AttributeError` half (owned by
+  `B-python-execute-private-scope-leaks-sys-modules`). It now says `get_components_by_class`
+  membership is not registration evidence, per `#2`. (2) `docs/wiki-src/actor.md`
+  (`actor.add_component`): `meshPath` reaches ISM/HISM subclasses. A scene component attaches under
+  the existing root and never becomes root. On a rootless actor it is left unattached.
+  (3) `Handlers/Actor/ComponentHandler.cpp:83`: the `meshPath` param description says the same
+  (string only). (4) CHANGELOG `1.0.0` Fixed entry. Tests: `PinWright.actor.add_component.HismUnderFactoryRootKeepsPlacement`
+  (`Tests/Actor/TestHismHolderRecipe.cpp`) runs the recipe's steps against the real factory
+  (`UEditorActorSubsystem::SpawnActorFromClass`) and the real verb. It asserts the root is
+  unchanged, the location equals the anchor, the HISM is attached under the factory root and
+  registered, `meshPath` reached the HISM, and a relative instance lands at anchor+offset in world
+  space. `PinWright.infra.wiki_handler.WorkflowPage.InstancingHismRecipe`
+  (`Tests/Infra/TestInstancingHismRecipeDocs.cpp`) renders the page and asserts the
+  `actor.add_component` step, the `spawn_actor_from_class(unreal.Actor, anchor)` step, the
+  `get_actor_location().is_near_equal(anchor` read-back, the warning, and that no code block
+  contains `root_component`. That last check fails if the old recipe is restored. NOT done: the
+  open question from `#1` and `#2` (does pointing `RootComponent` at an unregistered component
+  register it) is now moot for the recipe and stays unanswered. The new recipe was not run live
+  from `python.execute` (no editor slot this batch). The C++ test exercises the same engine path,
+  but not the Python bindings (`get_components_by_class`, `Vector.is_near_equal`); both were
+  checked against `KismetMathLibrary.h:1424` (`ScriptMethod="IsNearEqual"`). When
+  `F-ism-create-and-clear-scatter` lands a typed fill verb, re-point step 3 at it.
+- `#4-review-fixes-typed-fill-and-undo-claim` `IN-REVIEW` developer — Review fixes. (1) Dropped
+  the false claim that the reflection write leaves no undo record. Python `set_editor_property`
+  runs `PreEditChange`, which calls `Modify()`. The page now says only that the write skips
+  `SetRootComponent`, so `NotifyIsRootComponentChanged` never fires and the old
+  `DefaultSceneRoot` stays registered. `#1`'s "no undo record" item was wrong. (2) Step 3 now uses
+  `actor.add_instances {actorName, component, space:"local", expectedCount:0, transforms}`, which
+  `F-ism-create-and-clear-scatter` landed in this batch; the verb's `space` default is "world".
+  The read-back is `actor.get_transform` on the holder. Removed the obsolete Python `add_instances`
+  signature note. (3) Step 1 prints `a.get_path_name()`, and steps 2 and 3 address the holder by
+  that path, not by label. In the docs test, the `get_actor_location()` check is replaced by
+  checks for the path, `actor.add_instances` with `space: "local"`, and the `actor.get_transform`
+  read-back. A new check asserts the "leaves no undo record" text is gone.
+- `#5-verified-linux` `DONE` tester — Fix commit `9828d554`. PinWright `ae877ccc` (on origin/master, base `7230b41d`), UE 5.8 Linux Vulkan. run3/full is the offscreen full suite: 5827/5827 ok, 0 fail, 73 skips, none of them this ticket's tests, and no PINWRIGHT_ASSERTIONS_SKIPPED marker for them. The build (clean unity, 0 errors) and Python (462 OK) come from run2 on the same tree. Passed non-skipped in run3/full: `PinWright.actor.add_component.HismUnderFactoryRootKeepsPlacement` and `PinWright.infra.wiki_handler.WorkflowPage.InstancingHismRecipe`. The other three `actor.add_component` tests also pass. Asks met. (1) The recipe was re-derived on 5.8 as candidate (b). The C++ test runs step 1's factory spawn (`UEditorActorSubsystem::SpawnActorFromClass`, the UFUNCTION Python binds) and step 2's real `actor.add_component` handler. It asserts the factory root is unchanged, the location equals the anchor, the HISM is attached under the root and registered, `meshPath` reached the HISM, and a relative instance lands at anchor+offset. (2) The page states the transform consequence: never make the HISM the root, the move to the origin, about 17 km in the reported case, and why. The false "no undo record" claim was dropped. (3) The read-back is now `actor.get_transform` on the holder, not an instance count. I checked the committed page at `ae877ccc`. The docs test fails if `root_component` returns to a code block or if any of these anchors go missing. Coverage limits: the recipe was not run end to end through `python.execute`, so the Python bindings are source-checked only. Step 3 as documented, `actor.add_instances {space:"local"}`, is not exercised on the holder: the C++ test fills with `AddInstance(bWorldSpace=false)`, and the `add_instances` tests use the default world space. `#1`'s question, whether pointing `RootComponent` at an unregistered component registers it, is moot for the new recipe and stays unanswered.
