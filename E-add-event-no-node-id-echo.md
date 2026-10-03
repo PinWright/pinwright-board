@@ -7,6 +7,8 @@ category: ergonomic
 tags: [blueprint, add_event, node-id, no-echo, readback, response-shape, creation-verb-no-node-id]
 encounters: 2
 lastSeen: 2026-07-04T23:27:52.7255778+03:00
+rice: [2, 1, 1, 1]
+priority: 17
 ---
 
 # `blueprint.add_event` omits the created node's id — you can't wire the event without a follow-up `get_nodes`
