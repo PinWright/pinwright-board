@@ -8,6 +8,8 @@ tags: [texture, streaming, never-stream, misleading-name, neverStream, docs]
 encounters: 2
 costly: 2
 lastSeen: 2026-06-23T10:08:23Z
+rice: [1, 2, 1, 1]
+priority: 17
 ---
 
 # `texture.set_streaming_priority` is named for graduated priority but its only knob is a boolean `neverStream`
