@@ -7,6 +7,8 @@ category: bug
 tags: [pcg, create_graph, add_node, wiki, docs, error-contract, plugin-disabled, class-not-found, overlay, divergence, served-page]
 encounters: 1
 lastSeen: 2026-08-29T00:00:00+05:00
+rice: [1, 2, 1, 1]
+priority: 17
 ---
 
 # Two served pages, one namespace, opposite error contracts
