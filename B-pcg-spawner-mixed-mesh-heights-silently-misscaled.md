@@ -8,6 +8,8 @@ tags: [pcg, generate, static-mesh-spawner, mesh-selector, weighted, transform-po
 encounters: 1
 costly: 1
 lastSeen: 2026-08-29T18:00:00+05:00
+rice: [1, 2, 1, 2]
+priority: 8
 ---
 
 # One scale range, many mesh heights, no diagnostic
