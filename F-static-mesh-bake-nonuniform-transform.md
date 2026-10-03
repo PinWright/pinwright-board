@@ -7,6 +7,8 @@ category: feature
 tags: [static-mesh, bake-transform, build-settings, build-scale-3d, non-uniform-scale, pivot, collision, geometry-script]
 encounters: 1
 lastSeen: 2026-09-09T10:00:00Z
+rice: [1, 1, 1, 2]
+priority: 4
 ---
 
 # Per-axis scale is the one shape the bake verb refuses, and the fallback is a hand-built pipeline
