@@ -7,6 +7,8 @@ category: ergonomic
 tags: [pwmodel, model-validate, model-compile, parser, enum, diagnostics, error-message, describe_ops]
 encounters: 1
 lastSeen: 2026-09-06T06:20:00Z
+rice: [1, 2, 1, 1]
+priority: 17
 ---
 
 # The message names the value it just refused
