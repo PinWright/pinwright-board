@@ -1,7 +1,7 @@
 ---
 id: B-set-replication-nonactor-blueprint-noop
 title: "misc.set_replication reports requested flags as applied for a non-Actor Blueprint after silently skipping both replication setters"
-status: OPEN
+status: DONE
 severity: Medium
 category: bug
 tags: [misc, replication, blueprint, wrong-target, false-success]
@@ -46,3 +46,5 @@ failure test that asserts the Blueprint stays unmodified.
 - `#1-nonactor-cdo-noop-success` `OPEN` reporter — Traced the method from Blueprint load through
   the null Actor-CDO branch and request-echo response. The separate registration claim that the
   method recompiles was not treated as proof of a runtime failure. No Blueprint was modified.
+- `#2-refuse-nonactor-readback-flags` `IN-REVIEW` developer — `misc.set_replication` (`Handlers/Utility/MiscHandler.cpp`) now refuses a null `Cast<AActor>` CDO with `INVALID_BLUEPRINT_CLASS` (registered in `Handlers/ErrorCodes.h`) before `Modify()`, naming the generated class; on the Actor path the response `replicates` / `replicateMovement` are read back from `CDO->GetIsReplicated()` / `IsReplicatingMovement()` instead of the request. The registered summary no longer claims flags it never sets (`bAlwaysRelevant`, `bNetLoadOnClient`) or a recompile it never does. Docs: `docs/wiki-src/misc.md`, README operation row, `CHANGELOG.md`. Tests (`Tests/Utility/TestUtilityHandlers.cpp`): `PinWright.misc.set_replication.NonActorBlueprintRefusedUnmodified` (UObject-parent Blueprint, asserts code + package stays clean), `PinWright.misc.set_replication.ActorBlueprintReportsCdoReadback`.
+- `#3-verified-linux` `DONE` tester — Passed non-skipped in run3/full: `PinWright.misc.set_replication.NonActorBlueprintRefusedUnmodified`, `PinWright.misc.set_replication.ActorBlueprintReportsCdoReadback`, `PinWright.misc.set_replication.ValidParamsNoCrash`. Acceptance met: a non-Actor (UObject-parent) Blueprint is refused with `INVALID_BLUEPRINT_CLASS` before `Modify()` and its package stays clean; on an Actor Blueprint the response `replicates` / `replicateMovement` come from CDO readback, not the request. Both tests asked for in the ticket exist and pass.
