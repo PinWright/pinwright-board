@@ -7,6 +7,8 @@ category: ergonomic
 tags: [physics, activate_ragdoll, verify-effect-docs, readback, discoverability, docs]
 encounters: 2
 lastSeen: 2026-07-10T20:08:17.7925570+03:00
+rice: [1, 2, 1, 1]
+priority: 17
 ---
 
 # `physics.activate_ragdoll` wiki doesn't say how to verify its effect (nor that its own return already confirms it)
