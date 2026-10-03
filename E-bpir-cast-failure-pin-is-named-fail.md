@@ -7,6 +7,8 @@ category: enhancement
 tags: [bpir, compile_bpir, cast, error-message, docs]
 encounters: 1
 lastSeen: 2026-09-03T01:30:00Z
+rice: [2, 1, 1, 1]
+priority: 17
 ---
 
 # BPIR cast-failure pin name is discoverable only from an example page
