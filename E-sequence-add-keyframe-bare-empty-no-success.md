@@ -7,6 +7,8 @@ category: ergonomic
 tags: [sequencer, add_keyframe, no-echo, readback, round-trip]
 encounters: 6
 lastSeen: 2026-07-13T10:19:23.8158526+03:00
+rice: [2, 2, 1, 1]
+priority: 33
 ---
 
 # `sequence.add_keyframe` (frame-numbered form) returns a bare `{}` — no echo of what was written
