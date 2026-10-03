@@ -7,6 +7,8 @@ category: feature
 tags: [asset, verification, load-check, bulk, jobs, content-cleanup]
 encounters: 1
 lastSeen: 2026-09-30T00:00:00Z
+rice: [2, 2, 1, 2]
+priority: 17
 ---
 
 # No bulk "load every package under a path and report failures" verb
