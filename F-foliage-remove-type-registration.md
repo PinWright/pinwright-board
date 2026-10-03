@@ -8,6 +8,8 @@ tags: [foliage, remove, foliage-type, instanced-foliage-actor, missing-verb, lif
 encounters: 1
 costly: 1
 lastSeen: 2026-08-30T16:10:03+03:00
+rice: [1, 2, 1, 2]
+priority: 8
 ---
 
 # The removal verb removes instances. The thing it removes them *from* is permanent.
