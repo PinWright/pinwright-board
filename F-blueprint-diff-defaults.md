@@ -1,7 +1,7 @@
 ---
 id: F-blueprint-diff-defaults
 title: "No override-drift report: blueprint.inspect diffs a CDO only against its immediate parent, with no native baseline, no attribution and no multi-Blueprint sweep"
-status: OPEN
+status: WONTFIX
 severity: Low
 category: feature
 tags: [blueprint, cdo, defaults, drift, gap-analysis-2026-09-30]
@@ -40,3 +40,4 @@ Effort S-M. Risk low.
 
 ## History
 - `#1-gap-analysis` `OPEN` reporter — Filed from the 2026-09-30 competitor gap analysis (compare row "Blueprint override drift vs native defaults": PinWright partial, Monolith yes). Evidence and design above.
+- `#2-wontfix-yagni` `WONTFIX` developer — Filed from a competitor gap analysis, not from a task; no session has needed an override-drift sweep since. `blueprint.inspect` already diffs a CDO against its parent. Reopen when a real task needs drift against native defaults or across many Blueprints.
