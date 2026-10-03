@@ -7,6 +7,8 @@ category: bug
 tags: [wiki, docs, system-inspect, list-subsystems, world, unknown-params, pie]
 encounters: 2
 lastSeen: 2026-09-28T10:27:00Z
+rice: [1, 2, 1, 1]
+priority: 17
 ---
 
 # The worked example on the inspection guide does not run
