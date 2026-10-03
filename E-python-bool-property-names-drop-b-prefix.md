@@ -7,6 +7,8 @@ category: ergonomic
 tags: [python, python-execute, wiki, wiki-src, docs, post-process, boverride-foot-gun, property-naming, reflection, silent-noop-adjacent]
 encounters: 1
 lastSeen: 2026-08-29T18:00:00+05:00
+rice: [1, 1, 1, 1]
+priority: 8
 ---
 
 # One property, two correct spellings, and the wiki only prints one of them
