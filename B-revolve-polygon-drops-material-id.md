@@ -7,6 +7,8 @@ category: bug
 tags: [geometry-script, upstream-engine, material-id, silent-wrong-data]
 encounters: 2
 lastSeen: 2026-08-15T17:21:12+05:00
+rice: [1, 2, 1, 1]
+priority: 17
 ---
 
 # append_revolve_polygon silently drops PrimitiveOptions.MaterialID (box/sphere -> 1, revolve -> 0)
