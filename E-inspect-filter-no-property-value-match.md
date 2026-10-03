@@ -7,6 +7,8 @@ category: ergonomic
 tags: [system-inspect, find_objects_by_class, filter, property-filter, projection, components, decals, niagara, weapons]
 encounters: 1
 lastSeen: 2026-09-06T00:00:00Z
+rice: [1, 1, 1, 1]
+priority: 8
 ---
 
 # The filter can select by what a component is called, never by what it points at
