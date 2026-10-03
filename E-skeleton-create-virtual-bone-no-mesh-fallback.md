@@ -7,6 +7,8 @@ category: ergonomic
 tags: [skeleton, virtual-bone, param-consistency, path-resolver, docs]
 encounters: 1
 lastSeen: 2026-06-23T10:08:23Z
+rice: [1, 1, 1, 1]
+priority: 8
 ---
 
 # skeleton.create_virtual_bone has no skeletalMeshPath fallback, unlike every sibling method
