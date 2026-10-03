@@ -1,11 +1,10 @@
 ---
 id: F-landscape-paint-region-shapes
 title: "landscape.create_procedural_terrain's region is an axis-aligned rectangle in heightmap pixels and nothing else — no brush, polyline, slope mask or height mask — so 'paint the layer to follow the landform' is not expressible"
-status: OPEN
+status: WONTFIX
 severity: Medium
 category: feature
 tags: [landscape, create_procedural_terrain, layer-paint, region, weightmap, brush, mask, slope, shape-expressiveness]
-blockedBy: [B-paint-layer-destroys-other-layer-weights]
 encounters: 1
 lastSeen: 2026-08-29T00:00:00+05:00
 ---
@@ -175,3 +174,4 @@ anything but one material — so I **decline the bump-down** to Low. -> **Medium
 
 ## History
 - `#1-rectangle-is-the-only-shape` `OPEN` reporter — Filed from source, every citation re-derived at HEAD in this checkout; not RPC-replayed in this session. `landscape.create_procedural_terrain` (`LandscapeHandler.cpp:1981`) takes `region` as four heightmap-pixel integers and nothing else (`:1987`, quoted verbatim in the body from `landscape.create_procedural_terrain.md:15`); the full param list `:1983-1989` has no brush, path, polygon, mask, slope or height input, and `strength` is one uniform scalar. Cost (a): the region model is shared via `LandscapeHeightStats::ResolveHeightRegion` (`LandscapeHeightStats.h:55`, `.cpp:17`) by **four** verbs, not the two its own header comment at `.h:44-46` names — `landscape.edit` `:1735`, `landscape.get_heights` `:1917`, this verb `:2173`, and `landscape.audit_shape` `:2519` — so the fix should be additive (a mask that composes with the rectangle) rather than a change to the shared resolver; the stale header comment is worth correcting in passing. Cost (b): read `F-pcg-filters-and-subgraphs` (DONE) in full to test the "use PCG instead" counterargument — its `pcg.add_slope_filter` / `add_noise_filter` spawn `UPCGNormalToDensitySettings` / `UPCGSpatialNoiseSettings`, which filter PCG points by normal-derived density to place instances; the file mentions no landscape, weightmap, weight layer, `LandscapeLayerBlend` or `SetAlphaData` anywhere. PCG decides where meshes go; a layer paint writes the weightmap texels that decide what the ground *is*. Not a substitute. Workaround: scanline-decompose any shape into axis-aligned runs, exact but up to ~505 calls on the default landscape — hence Medium. Deferred `blockedBy: [B-paint-layer-destroys-other-layer-weights]` (Critical, OPEN): expressive shapes exist to serve multi-layer terrain, and while a second paint zeroes every other layer landscape-wide a caller cannot reach two layers at all — a value gate, not a feasibility gate, and flagged as droppable if a triager disagrees. Cross-linked to `B-create-procedural-terrain-paints-nothing` (DONE, High), whose `#2` made this same rectangle correct and honest and which — confirmed by reading the whole file — never once asks whether a rectangle is the only expressible shape.
+- `#2-wontfix-yagni` `WONTFIX` developer — Filed from source and never replayed; no session has needed a non-rectangular layer paint since. The exact workaround is scanline decomposition into axis-aligned `region` runs, and shapes/masks would be new design over a resolver four verbs share. Reopen when a real terrain-painting task needs a mask or slope-following shape and the scanline route is measured as too slow.
