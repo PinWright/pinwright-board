@@ -8,6 +8,8 @@ tags: [actor-batch-set-asymmetry, actor-list, actor-get, projection, location, t
 encounters: 2
 costly: 1
 lastSeen: 2026-09-06T00:00:00Z
+rice: [2, 1, 1, 1]
+priority: 17
 ---
 
 # No bulk actor-location read — spatial reconnaissance is one `actor.get` per actor
