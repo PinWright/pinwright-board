@@ -7,6 +7,8 @@ category: ergonomic
 tags: [volume, get_volumes_info, set_volume_properties, readback, projection, physics-volume, water, docs]
 encounters: 3
 lastSeen: 2026-07-02T00:47:28.1688188+03:00
+rice: [1, 1, 1, 1]
+priority: 8
 ---
 
 # `volume.get_volumes_info` has no readback for the properties `volume.set_volume_properties` writes
