@@ -8,6 +8,8 @@ tags: [drive, drive.click, os-input, xtest, editor_start, visible-false, render-
 encounters: 1
 costly: 1
 lastSeen: 2026-09-29T12:55:00Z
+rice: [2, 2, 1, 1]
+priority: 33
 ---
 
 # os_input and visible:false are incompatible, and only a failing call reveals it
