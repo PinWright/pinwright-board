@@ -7,6 +7,8 @@ category: bug
 tags: [audio, runtime, active-sound, list_active_sounds, timing, editor-world, silent-wrong-data]
 encounters: 1
 lastSeen: 2026-10-02T18:45:00Z
+rice: [1, 3, 1, 1]
+priority: 33
 ---
 
 # startWorldTimeSeconds is not a start time when the game is not ticking
