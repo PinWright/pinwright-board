@@ -6,6 +6,8 @@ severity: Low
 category: ergonomic
 tags: [blueprint, set-default, docs, doc-drift, wiki, response-shape]
 encounters: 1
+rice: [2, 2, 1, 1]
+priority: 33
 ---
 
 # `blueprint.set_default` wiki documents a `warning` response field the handler never emits
