@@ -8,6 +8,8 @@ tags: [render, capture_open_level, capture, manifest, subject, framing, ism, his
 encounters: 1
 costly: 1
 lastSeen: 2026-08-29T18:20:00+05:00
+rice: [2, 2, 1, 3]
+priority: 11
 ---
 
 # The capture publishes a picture and no census of what it drew
