@@ -1,61 +1,57 @@
 ---
 id: E-sequencer-add-camera-track-no-transaction
-title: "sequencer.add_camera_track records no undo transaction (bare Modify, no FScopedTransaction), so editor.undo cannot reverse it"
+title: "Most sequencer.* mutators (all of SequencerHandler.cpp, ~15 in SequenceHandler.cpp) open no FScopedTransaction, so editor.undo cannot reverse them"
 status: OPEN
 severity: Low
 category: ergonomic
 tags: [mutator-no-undo-transaction, sequencer, add_camera_track, undo]
 encounters: 1
 lastSeen: 2026-07-02T03:00:21.2923847+03:00
+rice: [1, 1, 1, 3]
+priority: 3
 ---
 
-# `sequencer.add_camera_track` mutates inside a bare `Modify()` with no `FScopedTransaction`, leaving `editor.undo` unable to reverse it
+# Most sequencer mutators open no FScopedTransaction, so editor.undo cannot reverse them
 
-`sequencer.add_camera_track` adds a `UMovieSceneCameraCutTrack` to the MovieScene's
-dedicated camera-cut slot inside a bare `MovieScene->Modify()` call with **no
-enclosing `FScopedTransaction`** (`SequencerHandler.cpp` ~259-340). Because no
-transaction is opened, the edit records no entry in the editor's undo buffer, so a
-subsequent `editor.undo` has nothing to roll back — it cannot reverse an
-`add_camera_track`.
+Only some `sequencer.*` writers record an undo transaction. These open an `FScopedTransaction`:
+`add_camera` (`Source/PinWright/Private/Handlers/Sequencer/SequenceHandler.cpp:803`),
+`add_actor` / `add_actors` (`:975`, `:1110`), `add_keyframes` (`:2917`) and `remove_track`
+(`:3745`), plus the Control Rig, bake and FBX-import verbs. The rest mutate the MovieScene with
+a bare `Modify()` outside any transaction. Nothing is recorded in the undo buffer, so
+`editor.undo` cannot reverse them. Under its contract it undoes whatever earlier transaction
+is on top instead.
 
-On its own this is a robustness/ergonomic gap. What makes it worth tracking is that
-it **compounds** `B-sequencer-remove-track-misses-camera-cut-slot` (OPEN): with
-`sequencer.remove_track` structurally unable to touch the camera-cut slot,
-`editor.undo` would be the natural typed-RPC fallback to reverse an
-`add_camera_track` — but there is no undo entry to invoke. The net effect is that
-there is **no typed-RPC path (neither `remove_track` nor `editor.undo`) to reverse
-an `add_camera_track`**; the only recourse observed was a `python.execute` fallback
-through UE's `MovieSceneSequenceExtensions.remove_track`.
+Untransacted mutators at 7230b41d:
 
-The project already established the pattern of wrapping mutating MCP handlers in
-`FScopedTransaction` (see `B-no-undo-redo`, DONE — widget, Blueprint, and BPIR
-handler families were wrapped; the sequencer handler family was never in that
-scope). Wrapping `add_camera_track` (and its sibling sequencer mutators —
-`add_transform_track`, `add_animation_track`, etc.) in a scoped transaction would
-restore `editor.undo` as a clean reversal path and bring the sequencer namespace in
-line with the already-transactional widget/BP handlers.
+- `Handlers/Sequencer/SequencerHandler.cpp`, which has no `FScopedTransaction` at all:
+  `add_keyframe` (:63), `manage_track` (:245), `add_camera_track` (:345, `Modify` at :428),
+  `add_camera_rig_rail` / `add_camera_rig_crane` (:563, :574), `add_level_visibility_track`
+  (:585), `add_animation_track` (:693), `add_transform_track` (:774), `add_audio_track` (:840).
+- `Handlers/Sequencer/SequenceHandler.cpp`: `set_display_rate` (:588), `set_properties`
+  (:640), `add_spawnable_from_class` (:1447), `remove_actors` (:1527), `sequence.add_keyframe`
+  (:2433), `add_section` (:3196), `set_tick_resolution` (:3308), `set_view_range` (:3392),
+  `set_track_muted` / `set_track_solo` / `set_track_locked` (:3430, :3506, :3587), `add_track`
+  (:3798), `add_sub_sequence` (:3989), `set_sub_section_range` (:4081), `set_work_range`
+  (:4413).
 
-## What it should do
-Wrap `add_camera_track`'s (and sibling sequencer mutators') edit in an
-`FScopedTransaction` (with the existing `Modify()` inside the scope) so a single
-`editor.undo` reverses the authored track, matching the transactional convention
-`B-no-undo-redo` established for the widget/Blueprint/BPIR handler families.
+Several of these have no inverse verb either. For example, nothing removes a section added by
+`add_section` or `add_sub_sequence`, so `python.execute` is the only way back.
 
-## Evidence (this task)
-Source-inspection finding, surfaced by the struggle-audit of the
-`sequencer.remove_track` cinematic task (`IntroEstablishingShot`, 18 calls) while
-the agent hunted for a sanctioned reversal path after `remove_track` failed with
-`[TRACK_NOT_FOUND]`. Reading the `add_camera_track` handler
-(`SequencerHandler.cpp` ~259-340) the agent found the bare `MovieScene->Modify()`
-with no `FScopedTransaction` and reasoned in SAY: "no undo entry was recorded —
-editor.undo can't reverse it either." **The agent did not actually invoke
-`editor.undo`** — this is a source-confirmed hunch, not an observed undo failure —
-so it is filed Low, distinct from the primary `remove_track` defect the judge
-already filed (`B-sequencer-remove-track-misses-camera-cut-slot`).
+**Fix:** In each listed handler, after validation and before the first mutation, open an
+`FScopedTransaction`. Call `Modify()` on the MovieScene and on any section or track before
+writing to it. This is the convention `add_keyframes` documents at `SequenceHandler.cpp:2934`;
+`add_camera_track` today calls `Modify()` only after `AddSection`/`SetRange` (:428). Cancel
+the transaction on the error paths that run after a mutation.
 
-severity rationale: impact=pure-friction (no undo reversal path for the camera-cut
-authoring verb; source-inspection hunch, `editor.undo` never invoked, and a
-`python.execute` workaround exists) x reach=rare (sequencer camera-cut authoring) -> Low.
+**Acceptance:** For a representative set (`add_camera_track`, `add_transform_track`,
+`add_section`, `add_sub_sequence`, `set_properties`), a test runs the verb then
+`editor.undo`. `editor.undo` returns `undone[]` titled for that verb, and `list_tracks` /
+`list_sections` / `get_properties` match the pre-call state. `editor.undo_history` shows one
+entry per call.
+
+**Workaround:** Reverse with the inverse verb where one exists (`remove_track`, which now
+handles the camera-cut slot at `SequenceHandler.cpp:3724-3745`; `remove_actors`; re-setting the
+property). Otherwise use `python.execute`.
 
 ## History
 - `#1-initial-audit` `OPEN` reporter — Struggle-audit (PROCESS) of the
@@ -75,3 +71,4 @@ authoring verb; source-inspection hunch, `editor.undo` never invoked, and a
   hunch, not observed undo failure) -> filed Low. Fix: wrap `add_camera_track` and
   sibling sequencer mutators in `FScopedTransaction`, matching the pattern
   `B-no-undo-redo` established.
+- `#2-rephrased` `OPEN` developer — Rescoped from `add_camera_track` alone to every untransacted sequencer mutator. `SequencerHandler.cpp` has zero `FScopedTransaction` across its 9 handlers, and 15 mutators in `SequenceHandler.cpp` use a bare `Modify()` (listed in the body with registration lines). Dropped the claim that this compounds `B-sequencer-remove-track-misses-camera-cut-slot`: `remove_track` now resolves and removes the camera-cut slot inside a transaction (`SequenceHandler.cpp:3724-3745`), so a typed reversal for `add_camera_track` exists. Fixed the stale `~259-340` citation (`add_camera_track` is registered at `SequencerHandler.cpp:345`, `Modify` at `:428`). Added the Modify-before-write requirement and Acceptance. Severity unchanged (Low: inverse verbs or Python cover reversal). RICE C 0.8->1 (verified in source), E 2->3 (rescope touches ~24 handlers across two files).
