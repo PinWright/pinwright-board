@@ -7,6 +7,8 @@ category: feature
 tags: [system, console, console-search, cvar, cvar-priority, ecvf-setby, readback, flags, scalability, diagnosis]
 encounters: 1
 lastSeen: 2026-08-29T21:30:00+03:00
+rice: [2, 2, 1, 1]
+priority: 33
 ---
 
 # `system.console.search` reports what a CVar *is*, never who last *set* it
