@@ -8,6 +8,8 @@ tags: [spatial, raycast, raycast_screen, ground_actors, ground_instances, verify
 encounters: 1
 costly: 1
 lastSeen: 2026-08-29T21:55:00+03:00
+rice: [2, 2, 1, 1]
+priority: 33
 ---
 
 # Four tokens, four copies, and the one channel gameplay cares about is not among them
