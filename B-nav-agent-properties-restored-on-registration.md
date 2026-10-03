@@ -5,6 +5,8 @@ status: OPEN
 severity: Medium
 category: bug
 tags: [navigation, navmesh, derived-state, persistence, silent-revert, misleading-success]
+rice: [1, 3, 0.8, 1]
+priority: 27
 ---
 
 # `navigation.set_nav_agent_properties` writes a value the engine re-derives on load
