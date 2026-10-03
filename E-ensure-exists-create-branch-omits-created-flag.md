@@ -7,6 +7,8 @@ category: ergonomic
 tags: [create-vs-exists-shape, blueprint, ensure_exists, idempotency, result-misreport, docs]
 encounters: 1
 lastSeen: 2026-07-02T13:53:36.1750763+03:00
+rice: [2, 1, 1, 2]
+priority: 8
 ---
 
 # `blueprint.ensure_exists` reports "did I just create this?" inconsistently across its two branches
