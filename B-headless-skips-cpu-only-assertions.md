@@ -7,6 +7,8 @@ category: bug
 tags: [tests, nullrhi, headless, test-skips, coverage, gap-analysis-2026-09-28]
 encounters: 1
 lastSeen: 2026-09-29T13:03:05Z
+rice: [1, 1, 1, 2]
+priority: 4
 ---
 
 # Null-rhi skips cost CPU-only coverage in headless runs
