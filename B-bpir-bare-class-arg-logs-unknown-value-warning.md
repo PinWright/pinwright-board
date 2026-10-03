@@ -7,6 +7,8 @@ category: bug
 tags: [bpir, compile_bpir, class-pin, log-noise, value-resolver]
 encounters: 1
 lastSeen: 2026-10-02T20:00:00Z
+rice: [2, 1, 1, 1]
+priority: 17
 ---
 
 # Bare class-name arguments log a warning on the path that accepts them
