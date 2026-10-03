@@ -8,6 +8,8 @@ tags: [no-rpc-route-undocumented, input, enhanced-input, docs, discoverability, 
 encounters: 1
 costly: 1
 lastSeen: 2026-07-04T22:48:11.7838674+03:00
+rice: [1, 2, 0.8, 1]
+priority: 13
 ---
 
 # The `input` wiki does not warn that Input Action modifiers cannot be authored by ANY RPC
