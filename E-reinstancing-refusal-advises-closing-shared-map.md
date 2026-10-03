@@ -7,6 +7,8 @@ category: ergonomic
 tags: [blueprint, compile, reinstance, live-instances, error-message, shared-editor]
 encounters: 3
 lastSeen: 2026-09-30T00:00:00Z
+rice: [2, 2, 1, 1]
+priority: 33
 ---
 
 # LIVE_INSTANCES_WOULD_BE_REINSTANCED refusal advises closing the map and hides what it counted
