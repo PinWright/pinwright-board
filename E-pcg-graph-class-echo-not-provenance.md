@@ -7,6 +7,8 @@ category: ergonomic
 tags: [pcg, create_graph, docs, wiki, echo, provenance, response-shape, overclaim, doc-defect]
 encounters: 2
 lastSeen: 2026-08-29T16:45:00+05:00
+rice: [1, 1, 1, 1]
+priority: 8
 ---
 
 # A documentation overclaim, not an implementation error
