@@ -7,6 +7,8 @@ category: ergonomic
 tags: [drive, drive.click, drive.key, wait_for, widget_visible, animation, commonui, dropped-input]
 encounters: 1
 lastSeen: 2026-09-30T13:32:00Z
+rice: [3, 2, 0.8, 2]
+priority: 20
 ---
 
 # `widget_visible` does not mean "accepts clicks yet"
