@@ -6,6 +6,8 @@ severity: Medium
 category: bug
 tags: [sequencer, widget-animation, asset-dump, silent-wrong-data, identifier, readback]
 encounters: 1
+rice: [1, 2, 1, 1]
+priority: 17
 ---
 
 # Three `GetTrackName()` emit sites survive outside `SequenceHandler.cpp`
