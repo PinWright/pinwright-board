@@ -1,7 +1,7 @@
 ---
 id: E-python-get-editor-property-returns-live-view
 title: "get_editor_property hands back a live reference into the object's own memory, not a snapshot, so the obvious before/after log around a write reports the new value on both sides — a 4-entry-to-1-entry edit logged as '4 -> 4' — and nothing in the python wiki says so"
-status: OPEN
+status: DONE
 severity: Medium
 category: ergonomic
 tags: [python, python-execute, wiki, wiki-src, docs, get_editor_property, reflection, read-modify-verify, silent-wrong-verification, snapshot, containers, elements, silent-write-loss, landscape-grass]
@@ -244,3 +244,37 @@ mechanism is near-universal; the reach of the failure is not. Medium stands.
   wrong verification, which is a stronger impact, but it remains unfixable in PinWright code and the
   ask is still one doc section — and the workaround (index-assign, then re-assign the array) is one
   extra statement. Raising it would sort a doc edit above shipped-code defects. `encounters` 1 -> 2.
+- `#3-python-page-both-halves` `IN-REVIEW` developer — Premise re-checked against UE 5.8 source at
+  PinWright `7230b41d`: `PyUtil.cpp:906` still converts with `EPyConversionMethod::Reference`, and
+  `FPyWrapperArray::GetItem` (`PyWrapperArray.cpp:426`) still takes the 3-argument `Copy` default.
+  The iterator (`:96`) calls `GetItem`. Docs-only fix; no PinWright code can change engine Python.
+  Added `## Containers are live references, their elements are copies` to
+  `docs/wiki-src/python.md`, above the first H3 so it renders on the namespace page. It states both
+  halves in one place: the before/after check that cannot fail (snapshot with `.copy()`, or read
+  through `property.get`), and the element-write loop that writes into a temporary copy (element
+  `.copy()` is a no-op). It also gives the working write: `.copy()` the container, edit, `arr[i] = v`,
+  then `obj.set_editor_property(name, arr)`. **One finding beyond #2:** #2's "write back by index and
+  re-assign the whole array works" holds only if the container was copied first. Without the
+  `.copy()`, `arr[i] = v` writes straight into the live `FScriptArray` with no notify. The final
+  `set_editor_property` then compares the value with itself (`PyConversion.cpp:987`,
+  `Identical(ValueAddr, PyArray->ArrayInstance)`), and `EmitPre/PostChangeNotify` skip an identical
+  value (`PropertyAccessUtil.cpp:760`/`:776`). The value lands, but the package is not dirtied
+  and there is no `PostEditChangeProperty`. A forced `save_asset` hides that. The page says so.
+  Added one bullet to `docs/wiki-src/safe-mutation-save.md` § *Verification Patterns*, linking
+  the python section. Test: `PinWright.infra.wiki_handler.NamespacePage.PythonContainersAreLiveReferences`
+  (`Source/PinWright/Private/Tests/Infra/TestPythonLiveReferenceDocs.cpp`). It renders both pages
+  through `WikiHandler::RenderPage`, and it fails if either the python section or the recipe bullet
+  is reverted. No CHANGELOG entry: docs only, no behaviour change.
+- `#4-review-fixes-struct-scope` `IN-REVIEW` developer — Review fixes. (1) The page now says a
+  4 → 1 edit logs `1 -> 1`, the new state twice. The `4 -> 4` measured in #1 does not match the
+  mechanism #1 derives: `old` aliases the `FScriptArray` that `CopySingleValue` rewrites
+  (`PyConversion.cpp:993`), so a write that landed prints the new length on both sides. A
+  `4 -> 4` could only come from a write that never landed. (2) The "elements are copies" claim
+  now covers struct elements only. An object element converts to the wrapper of the same
+  `UObject` (`PyConversion.cpp:1142-1146`), so writes through it land and notify. The heading is
+  now `Containers are live references, their struct elements are copies`, and the
+  safe-mutation-save link and the test anchors were updated to match. (3) The page now says a
+  live-read struct has live fields whose writes notify the owner. (4) It names
+  `PropertyAccessChangeNotifyMode.ALWAYS` as an escape hatch whose `PreEditChange` runs after the
+  edit, so copying first stays the recipe. Same test id.
+- `#5-verified-linux` `DONE` tester — Linux, UE 5.8 Vulkan, PinWright `ae877ccc` on origin/master. Final run b6/run3/full: offscreen full suite, 5827/5827 passed, 0 failed, 73 skipped; the build and Python results come from run2 on the same tree (commit `f39b666b`). `PinWright.infra.wiki_handler.NamespacePage.PythonContainersAreLiveReferences` passed with no skip marker and is not in skipids. It renders both pages through `WikiHandler::RenderPage` and fails if either change is reverted. The docs-only acceptance is checked against `git show f39b666b`. `python.md` gains `## Containers are live references, their struct elements are copies`. It covers the before/after check that cannot fail (snapshot with `.copy()`, or read through `property.get` as a JSON snapshot, which is the Fix's optional half). It covers the struct-element write loop that edits a temporary copy with no notify or dirty. It gives the copy-edit-assign recipe and the no-`.copy()` identical-value trap (`PyConversion.cpp:987`). `safe-mutation-save.md` § Verification Patterns gains the asked-for bullet linking that section. Deliberate corrections of the reporter text, derived from source in `#4`: the page says a landed 4 → 1 edit logs `1 -> 1`, not `#1`'s `4 -> 4`, and "elements are copies" is scoped to struct elements, since object elements alias the same UObject. Coverage limit: docs only. The engine-Python behaviour itself was not exercised by a test here.
