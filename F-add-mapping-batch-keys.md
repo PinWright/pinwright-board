@@ -8,6 +8,8 @@ tags: [input, enhanced-input, add_mapping, batch, ergonomic, churn]
 encounters: 3
 costly: 1
 lastSeen: 2026-07-02T14:22:42.2644272+03:00
+rice: [2, 1, 1, 1]
+priority: 17
 ---
 
 # `input.add_mapping` has no batch form — the canonical WASD bind is 4 redundant calls
