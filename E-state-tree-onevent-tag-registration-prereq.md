@@ -7,6 +7,8 @@ category: ergonomic
 tags: [state-tree, set_transition_trigger, onevent, gameplay-tags, prerequisite, ordering, discoverability, docs]
 encounters: 2
 lastSeen: 2026-06-23T10:08:23Z
+rice: [1, 1, 1, 1]
+priority: 8
 ---
 
 # `state_tree.set_transition_trigger` with an `OnEvent` tag needs the gameplay tag registered first, and nothing on the state_tree overlay says so
