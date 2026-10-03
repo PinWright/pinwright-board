@@ -7,6 +7,8 @@ category: ergonomic
 tags: [niagara, docs, comment, NiagaraSystemViewModelCache, misleading]
 encounters: 1
 lastSeen: 2026-08-28
+rice: [1, 2, 1, 1]
+priority: 17
 ---
 
 # A header comment that contradicts its implementation
