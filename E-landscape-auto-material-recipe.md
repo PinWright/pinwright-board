@@ -6,6 +6,8 @@ severity: Low
 category: ergonomic
 tags: [landscape, material, mgir, wiki, auto-material, gap-analysis-2026-09-30]
 encounters: 1
+rice: [1, 1, 1, 2]
+priority: 4
 ---
 
 # No documented landscape auto-material (height/slope) recipe
