@@ -7,6 +7,8 @@ category: ergonomic
 tags: [mcp-proxy, editor-quit, editor-restart, editor-in-use, client-id]
 encounters: 5
 lastSeen: 2026-09-29T14:30:00Z
+rice: [2, 1, 1, 1]
+priority: 17
 ---
 
 # A script's own traffic blocks its own restart
