@@ -7,6 +7,8 @@ category: ergonomic
 tags: [niagara, set-property, renderer, readback, echo, verification, asymmetry]
 encounters: 1
 lastSeen: 2026-09-05
+rice: [2, 1, 1, 1]
+priority: 17
 ---
 
 # The sibling verbs echo; this one does not
