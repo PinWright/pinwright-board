@@ -7,6 +7,8 @@ category: ergonomic
 tags: [pcg, create_graph, add_node, plugin-disabled, class-not-found, short-class-name, resolveuclass, optional-engine-plugin, procedural-vegetation, error-code, test-gap]
 encounters: 2
 lastSeen: 2026-08-29T16:50:00+05:00
+rice: [1, 1, 1, 2]
+priority: 4
 ---
 
 # The resolver accepts a form the guard cannot see
