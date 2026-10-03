@@ -8,6 +8,8 @@ tags: [geometry, simplify_collision, docs, semantic-mismatch, render-mesh-decima
 encounters: 1
 costly: 1
 lastSeen: 2026-07-11T04:23:37+03:00
+rice: [1, 2, 1, 1]
+priority: 17
 ---
 
 # `geometry.simplify_collision` works exactly as documented, but its name/wiki underplay that it decimates the VISIBLE render mesh by default — a caller whose intent is "cut collision cost, keep the mesh intact" is surprised, and the non-destructive alternative isn't discoverable
