@@ -5,6 +5,8 @@ status: OPEN
 severity: Low
 category: bug
 tags: [docs, asset-dump, material-instance, wiki-src, stale-doc]
+rice: [1, 2, 1, 1]
+priority: 17
 ---
 
 # The audit page contradicts the dump code and asset.md
