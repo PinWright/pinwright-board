@@ -7,6 +7,8 @@ category: ergonomic
 tags: [drive, drive.observe, label, image-button, tooltip, brush, list-view, tile-view, linux, accessibility]
 encounters: 1
 lastSeen: 2026-09-28T09:32:00Z
+rice: [1, 2, 1, 1]
+priority: 17
 ---
 
 # Tiles with only an image have no identity in the element list
