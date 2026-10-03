@@ -7,6 +7,8 @@ category: ergonomic
 tags: [state-tree, add_evaluator, add_task, add_condition, struct-discovery, node-types, discoverability, docs]
 encounters: 1
 lastSeen: 2026-06-24T06:10:13Z
+rice: [1, 2, 0.8, 1]
+priority: 13
 ---
 
 # `state_tree.add_evaluator` / `add_task` / `add_condition` give no way to discover which node struct types are valid
