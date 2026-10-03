@@ -1,7 +1,7 @@
 ---
 id: F-interleaved-ab-measurement
 title: "Nothing in PinWright takes a before/after measurement that cancels machine drift, and drift on this host was large enough to invent three conclusions: two identical baseline sweeps 50 minutes apart came out 18-22% faster with nothing changed (F6 24.27 -> 19.81 ms, W2 13.63 -> 10.60 ms), so -27%, -16% and -20% were all artefacts and the last re-measured interleaved at -3.3% — p10 defends against a stall inside a capture, not against the baseline moving between two of them"
-status: OPEN
+status: WONTFIX
 severity: Medium
 category: feature
 tags: [performance, measurement, benchmark, ab-testing, interleaved, drift, baseline, percentiles, methodology, profiling, reproducibility, frame-time]
@@ -199,3 +199,4 @@ and the invented-conclusion figures read at their line numbers rather than relay
   confounder interleaving does not cancel. Severity Medium; High stated and declined because the
   false conclusion is produced by the caller's method rather than returned by a verb; reach bump
   down to Low declined because the cost was three wrong conclusions, not friction.
+- `#2-wontfix-yagni` `WONTFIX` developer — The cheap half of the ask already shipped: `performance-profiling.md` documents that a non-interleaved A/B measures drift and says to alternate A and B inside one run. What remains is a large interleaving verb for one encounter, while a working out-of-plugin harness (`dev/perf/pw_paired_ab.py`) exists. Reopen when a second performance session cannot follow the documented recipe and needs it in-plugin.
