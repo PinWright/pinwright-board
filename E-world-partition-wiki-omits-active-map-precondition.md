@@ -7,6 +7,8 @@ category: ergonomic
 tags: [docs, world-partition, load-cells, precondition, discoverability, wiki, not-partitioned]
 encounters: 2
 lastSeen: 2026-06-24T09:27:12Z
+rice: [1, 1, 1, 1]
+priority: 8
 ---
 
 # The `world_partition` wiki omits the "active map must be partitioned" precondition
