@@ -5,6 +5,8 @@ status: OPEN
 severity: Low
 category: bug
 tags: [effect, debug-shape, accepted-and-ignored, validation]
+rice: [1, 2, 1, 1]
+priority: 17
 ---
 
 # Malformed vector controls fall back silently
