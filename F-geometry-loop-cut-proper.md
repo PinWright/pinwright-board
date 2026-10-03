@@ -1,7 +1,7 @@
 ---
 id: F-geometry-loop-cut-proper
 title: "Reimplement geometry.loop_cut as a real edge-loop insertion (removed: it was a destructive plane cut, not a loop cut)"
-status: OPEN
+status: WONTFIX
 severity: Medium
 category: feature
 tags: [geometry, loop-cut, edge-loop, dynamic-mesh, reimplement, rpc-audit]
@@ -65,3 +65,4 @@ different operation and not the old one under a new name).
 
 ## History
 - `#1-reimpl-after-audit` `OPEN` reporter - Filed to reinstate the wanted capability removed by the batch-2 RPC audit ([`E-rpc-audit-43-record`](E-rpc-audit-43-record.md)). The removed `geometry.loop_cut` performed a destructive plane cut through the mesh (slice-and-discard) and reported it as a loop cut, so a caller asking for an added control edge got a bisected model back with `success:true`. Real edge-loop insertion (add a ring of edges, geometry preserved, counts up, bounds unchanged) is genuinely missing: `geometry.subdivide` is the only near-neighbor and it subdivides globally rather than placing one controlled loop. Proper impl: drive the GeometryProcessing group-edge insertion operator that backs Modeling Mode's Edge Loop Insert tool over the actor's `UDynamicMesh`, resolve the target ring by name/index + position, fail loud if the op would remove geometry, and echo post-op vertex/triangle counts per the house convention.
+- `#2-wontfix-yagni` `WONTFIX` developer — No encounter since filing; a modelling-tool feature with no requesting workflow, built on the GeometryProcessing operators at E=3. The removed verb was a plane cut, and nothing since has asked for a controlled edge loop. Reopen when a real modelling task needs one inserted on a dynamic mesh.
