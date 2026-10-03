@@ -7,6 +7,8 @@ category: bug
 tags: [foliage, paint, response-shape, sentinel-value, align-to-normal, rotation, legibility, docs, engine-parity, vegetation]
 encounters: 1
 lastSeen: 2026-08-30T19:00:00+05:00
+rice: [1, 2, 1, 1]
+priority: 17
 ---
 
 # A sentinel published as a bare number, next to a count that contradicts it
