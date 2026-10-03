@@ -8,6 +8,8 @@ tags: [asset, asset-list, class-filter, diagnostics, empty-result, discoverabili
 encounters: 1
 costly: 1
 lastSeen: 2026-08-20T00:00:00Z
+rice: [2, 2, 1, 1]
+priority: 33
 ---
 
 # The explanation only appears when there is nothing at all to report
