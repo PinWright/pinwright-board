@@ -7,6 +7,8 @@ category: ergonomic
 tags: [performance, scalability, sg-cvar-priority-pin, set-scalability, docs]
 encounters: 1
 lastSeen: 2026-07-02T12:10:39.8312929+03:00
+rice: [2, 2, 1, 1]
+priority: 33
 ---
 
 # `set_scalability`'s "prior console `scalability N` pins at ECVF_SetByConsole" claim is wrong and sends callers down a dead-end escape hatch
