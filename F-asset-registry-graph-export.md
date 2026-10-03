@@ -7,6 +7,8 @@ category: feature
 tags: [asset, dependencies, referencers, asset-registry, content-cleanup, reachability, missing-dependencies]
 encounters: 1
 lastSeen: 2026-09-30T12:00:00Z
+rice: [2, 2, 1, 3]
+priority: 11
 ---
 
 # No project-wide dependency graph, missing-dependency scan, or reachability closure
