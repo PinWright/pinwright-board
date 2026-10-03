@@ -160,6 +160,8 @@ claimedAt: 2026-06-21T14:30:00Z  # optional; lease-only — ISO time the claim w
 encounters: 3              # optional; times this bug was observed (seeded 1, +1 per dedup-append). Same-severity tiebreak; absent = 1
 costly: 2                  # optional; encounters that recorded lost work (see Severity Levels § Cost). Bumps severity at 3; absent = 0
 lastSeen: 2026-06-27T09:15:00Z   # optional; ISO time of the most recent observation
+rice: [2, 3, 1, 1]         # OPEN tickets; R I C E inputs — see Planning a fix batch
+priority: 67               # OPEN tickets; 0-100 work order derived from rice + severity
 ---
 ```
 
@@ -187,6 +189,12 @@ Rules:
 - `costly` counts the subset of encounters whose History entry records concrete
   lost work (definition under Severity Levels § Cost). Seeded `0`, incremented by
   `1` on a costly append, never on a re-rating entry; absent = `0`.
+- `rice` / `priority` are set on every OPEN ticket and are the work order for
+  hand-planned batches — see [Planning a fix batch](#planning-a-fix-batch).
+  `rice` is `[R, I, C, E]`; `priority` is derived from it and never set by
+  hand. Whoever files a ticket sets both. Whoever appends a History entry that
+  changes reach, impact, confidence or effort (a new encounter usually raises
+  R) updates both in the same edit. Drop both when the ticket leaves `OPEN`.
 
 ### Severity Levels
 
@@ -263,6 +271,19 @@ scoring and go first. Then sort into buckets:
 
 Ties: higher I, then more `encounters`, then the one that unblocks or merges
 other tickets, then lower E, then the older ticket.
+
+Store the result on the ticket so nobody re-triages it. Write `rice: [R, I, C, E]`
+and `priority`, computed as:
+
+```
+score    = R × Iw × C / E                      # 0.33 .. 12
+priority = round(100 × score / 12)             # 0 .. 100
+priority = max(priority, 90) if severity is Critical or High
+```
+
+Plan a batch by sorting OPEN tickets on `priority` (descending), then the ties
+above. Re-check each picked ticket's premise against current source before work,
+since C and E age as the code changes.
 
 Rules:
 - **Batch by area.** When you pick a ticket, add the other E=1 tickets from the
