@@ -7,6 +7,8 @@ category: bug
 tags: [docs, pwmodel, sweep, extrude-along-spline, off-by-one, trivial]
 encounters: 1
 lastSeen: 2026-08-29T22:00:00+03:00
+rice: [1, 1, 1, 1]
+priority: 8
 ---
 
 # Off-by-one in a counted list
