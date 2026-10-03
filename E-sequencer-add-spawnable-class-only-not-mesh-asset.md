@@ -7,6 +7,8 @@ category: ergonomic
 tags: [sequencer, add_spawnable_from_class, docs, className, class-vs-asset, discoverability, wiki]
 encounters: 1
 lastSeen: 2026-07-11T08:14:20+03:00
+rice: [1, 2, 1, 1]
+priority: 17
 ---
 
 # add_spawnable_from_class className: docs imply any asset path, but a mesh asset path is rejected
