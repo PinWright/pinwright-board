@@ -8,6 +8,8 @@ tags: [property, property-set, batch, authoring, pcg, reflection, ergonomic, cal
 encounters: 1
 costly: 1
 lastSeen: 2026-08-29T00:00:00+05:00
+rice: [2, 2, 1, 2]
+priority: 17
 ---
 
 # The generic reflection writer has no batch form, and it is the one that most needs one
