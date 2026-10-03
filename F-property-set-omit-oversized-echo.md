@@ -7,6 +7,8 @@ category: feature
 tags: [property, property-set, oversized, response-size, spill, projection, pcg, write-echo, follow-on]
 encounters: 1
 lastSeen: 2026-08-29T00:00:00+05:00
+rice: [2, 1, 1, 1]
+priority: 17
 ---
 
 # The oversized-omission machinery exists, is opt-in, and the write path cannot reach it
